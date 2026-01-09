@@ -16,7 +16,8 @@ olympus/
 - **Backend**: Node.js with Express
 - **Database**: In-memory storage (events.json) for MVP phase
 - **Frontend**: React (Vite) + Tailwind CSS
-- **Visualization**: react-calendar-timeline
+- **Visualization**: Custom timeline component with CSS Grid
+- **Timezone Handling**: moment-timezone for EST/Rome timezone conversions
 
 ## Setup Instructions
 
@@ -60,10 +61,13 @@ The frontend will run on `http://localhost:3000`
 
 ## Usage
 
-1. Start both the backend and frontend servers
-2. Open your browser to `http://localhost:3000`
-3. Upload a CSV file using the file uploader
-4. View the schedule on the timeline visualization
+1. Place your CSV file in the `backend/data/` directory
+2. Start both the backend and frontend servers
+3. The backend will automatically load the CSV file from the `data/` directory on startup
+4. Open your browser to `http://localhost:3000`
+5. View the schedule on the timeline visualization
+
+**Note:** The backend still supports the `POST /api/upload` endpoint for programmatic CSV uploads, but the frontend UI no longer includes a file uploader. CSV files should be placed in the `backend/data/` directory for automatic loading.
 
 ## CSV Format
 
@@ -77,9 +81,13 @@ The CSV file should contain the following columns:
 
 ## API Endpoints
 
-- `POST /api/upload` - Upload and process a CSV file
-- `GET /api/events` - Retrieve all events
+- `POST /api/upload` - Upload and process a CSV file (programmatic use)
+- `POST /api/load-static` - Manually trigger loading CSV from `backend/data/` directory
+- `GET /api/events` - Retrieve all events (supports `?date=YYYY-MM-DD` query parameter for filtering)
+- `GET /api/events/dates` - Get list of available dates with events
 - `GET /api/health` - Health check endpoint
+
+**Note:** The app automatically loads CSV files from `backend/data/` on startup. The upload endpoint is still available for programmatic use.
 
 ## Phase 1 (MVP)
 
