@@ -1,0 +1,3 @@
+# Place your CSV file here
+# The server will automatically load the first .csv file found in this directory on startup
+# Or use POST /api/load-static to manually trigger loading
