@@ -2,5 +2,4 @@ node_modules/
 uploads/
 events.json
 .env
-data/*.csv
 !data/.gitkeep
