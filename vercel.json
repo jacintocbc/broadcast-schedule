@@ -5,8 +5,8 @@
   "installCommand": "npm install && cd frontend && npm install",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/api/resources/:type",
+      "destination": "/api/resources?type=:type"
     },
     {
       "source": "/(.*)",
