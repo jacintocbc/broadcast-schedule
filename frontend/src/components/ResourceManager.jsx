@@ -1,0 +1,165 @@
+import { useState, useEffect } from 'react';
+import { getResources, createResource, updateResource, deleteResource } from '../utils/api';
+
+function ResourceManager({ resourceType, displayName }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [newName, setNewName] = useState('');
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadItems();
+  }, [resourceType]);
+
+  const loadItems = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getResources(resourceType);
+      setItems(data);
+    } catch (err) {
+      setError(err.message);
+      console.error(`Error loading ${resourceType}:`, err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+
+    try {
+      setError(null);
+      await createResource(resourceType, newName.trim());
+      setNewName('');
+      loadItems();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setEditName(item.name);
+  };
+
+  const handleUpdate = async (id) => {
+    if (!editName.trim()) return;
+
+    try {
+      setError(null);
+      await updateResource(resourceType, id, editName.trim());
+      setEditingId(null);
+      setEditName('');
+      loadItems();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm(`Are you sure you want to delete this ${displayName.toLowerCase()}?`)) return;
+
+    try {
+      setError(null);
+      await deleteResource(resourceType, id);
+      loadItems();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditName('');
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <h2 className="text-xl font-bold mb-4">{displayName} Management</h2>
+      
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+          {error}
+        </div>
+      )}
+
+      {/* Create form */}
+      <form onSubmit={handleCreate} className="mb-6 flex gap-2">
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder={`Add new ${displayName.toLowerCase()}...`}
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          type="submit"
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          Add
+        </button>
+      </form>
+
+      {/* List */}
+      {loading ? (
+        <div className="text-gray-500">Loading...</div>
+      ) : items.length === 0 ? (
+        <div className="text-gray-500">No {displayName.toLowerCase()} yet. Add one above.</div>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-md">
+              {editingId === item.id ? (
+                <div className="flex-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => handleUpdate(item.id)}
+                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="px-3 py-1 bg-gray-400 text-white rounded hover:bg-gray-500"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span className="flex-1">{item.name}</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEdit(item)}
+                      className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export default ResourceManager;
