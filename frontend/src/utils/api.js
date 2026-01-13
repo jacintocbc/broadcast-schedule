@@ -1,14 +1,14 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-// Reference tables API
+// Reference tables API - now uses consolidated /api/resources/[type] endpoint
 export async function getResources(resourceType) {
-  const response = await fetch(`${API_BASE}/api/${resourceType}`);
+  const response = await fetch(`${API_BASE}/api/resources/${resourceType}`);
   if (!response.ok) throw new Error(`Failed to fetch ${resourceType}`);
   return response.json();
 }
 
 export async function createResource(resourceType, name) {
-  const response = await fetch(`${API_BASE}/api/${resourceType}`, {
+  const response = await fetch(`${API_BASE}/api/resources/${resourceType}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name })
@@ -21,7 +21,7 @@ export async function createResource(resourceType, name) {
 }
 
 export async function updateResource(resourceType, id, name) {
-  const response = await fetch(`${API_BASE}/api/${resourceType}`, {
+  const response = await fetch(`${API_BASE}/api/resources/${resourceType}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, name })
@@ -34,7 +34,7 @@ export async function updateResource(resourceType, id, name) {
 }
 
 export async function deleteResource(resourceType, id) {
-  const response = await fetch(`${API_BASE}/api/${resourceType}?id=${id}`, {
+  const response = await fetch(`${API_BASE}/api/resources/${resourceType}?id=${id}`, {
     method: 'DELETE'
   });
   if (!response.ok) {
