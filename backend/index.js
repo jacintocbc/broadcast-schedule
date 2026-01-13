@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import express from 'express';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
@@ -5,6 +7,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { supabase, testConnection } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -591,4 +594,22 @@ app.listen(PORT, () => {
   console.log('  POST /api/upload');
   console.log('  POST /api/load-static');
   loadStaticCSVOnStartup();
+});
+
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const connected = await testConnection();
+    if (connected) {
+      res.json({ 
+        status: 'success', 
+        message: 'Connected to Supabase',
+        url: process.env.SUPABASE_URL ? 'Set' : 'Missing',
+        key: process.env.SUPABASE_ANON_KEY ? 'Set' : 'Missing'
+      });
+    } else {
+      res.status(500).json({ status: 'error', message: 'Failed to connect' });
+    }
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
 });
