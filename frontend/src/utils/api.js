@@ -89,19 +89,26 @@ export async function deleteBlock(id) {
   }
 }
 
-// Block relationships API
+// Block relationships API - now uses consolidated /api/blocks/[blockId]/relationships endpoint
 export async function getBlockRelationships(blockId, relationshipType) {
-  const response = await fetch(`${API_BASE}/api/blocks/${blockId}/${relationshipType}`);
+  const response = await fetch(`${API_BASE}/api/blocks/${blockId}/relationships?relationshipType=${relationshipType}`);
   if (!response.ok) throw new Error(`Failed to fetch ${relationshipType}`);
   return response.json();
 }
 
 export async function addBlockRelationship(blockId, relationshipType, relationshipId, role = null) {
-  const body = relationshipType === 'commentators' 
-    ? { [`${relationshipType.slice(0, -1)}_id`]: relationshipId, role }
-    : { [`${relationshipType.slice(0, -1)}_id`]: relationshipId };
+  const bodyKey = relationshipType === 'commentators' 
+    ? 'commentator_id' 
+    : relationshipType === 'booths'
+    ? 'booth_id'
+    : 'network_id';
   
-  const response = await fetch(`${API_BASE}/api/blocks/${blockId}/${relationshipType}`, {
+  const body = { [bodyKey]: relationshipId };
+  if (relationshipType === 'commentators' && role) {
+    body.role = role;
+  }
+  
+  const response = await fetch(`${API_BASE}/api/blocks/${blockId}/relationships?relationshipType=${relationshipType}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -114,7 +121,7 @@ export async function addBlockRelationship(blockId, relationshipType, relationsh
 }
 
 export async function removeBlockRelationship(blockId, relationshipType, linkId) {
-  const response = await fetch(`${API_BASE}/api/blocks/${blockId}/${relationshipType}?linkId=${linkId}`, {
+  const response = await fetch(`${API_BASE}/api/blocks/${blockId}/relationships?relationshipType=${relationshipType}&linkId=${linkId}`, {
     method: 'DELETE'
   });
   if (!response.ok) {
