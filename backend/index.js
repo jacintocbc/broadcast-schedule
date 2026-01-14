@@ -5,6 +5,10 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -524,6 +528,565 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ============================================
+// Supabase Database Routes (for local development)
+// ============================================
+
+// Initialize Supabase client (if env vars are set)
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+let supabase = null;
+
+if (supabaseUrl && supabaseAnonKey) {
+  supabase = createClient(supabaseUrl, supabaseAnonKey);
+  console.log('✅ Supabase client initialized for database routes');
+} else {
+  console.log('⚠️  Supabase not configured - database routes will return errors');
+}
+
+// Valid resource types
+const validResourceTypes = ['commentators', 'producers', 'encoders', 'booths', 'suites', 'networks'];
+const validRelationshipTypes = ['commentators', 'booths', 'networks'];
+
+// Generic CRUD handler for resources
+async function handleResourceCRUD(tableName, req, res) {
+  if (!supabase) {
+    return res.status(500).json({ 
+      error: 'Database not configured',
+      details: 'SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env file'
+    });
+  }
+
+  try {
+    switch (req.method) {
+      case 'GET':
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('*')
+          .order('name');
+        if (error) throw error;
+        res.json(data || []);
+        break;
+
+      case 'POST':
+        const { name } = req.body;
+        if (!name || name.trim() === '') {
+          return res.status(400).json({ error: 'Name is required' });
+        }
+        const { data: newItem, error: insertError } = await supabase
+          .from(tableName)
+          .insert([{ name: name.trim() }])
+          .select()
+          .single();
+        if (insertError) {
+          if (insertError.code === '23505') {
+            return res.status(409).json({ error: `${tableName.slice(0, -1)} with this name already exists` });
+          }
+          throw insertError;
+        }
+        res.status(201).json(newItem);
+        break;
+
+      case 'PUT':
+        const { id, name: updatedName } = req.body;
+        if (!id) {
+          return res.status(400).json({ error: 'ID is required' });
+        }
+        if (!updatedName || updatedName.trim() === '') {
+          return res.status(400).json({ error: 'Name is required' });
+        }
+        const { data: updated, error: updateError } = await supabase
+          .from(tableName)
+          .update({ name: updatedName.trim() })
+          .eq('id', id)
+          .select()
+          .single();
+        if (updateError) {
+          if (updateError.code === '23505') {
+            return res.status(409).json({ error: `${tableName.slice(0, -1)} with this name already exists` });
+          }
+          throw updateError;
+        }
+        if (!updated) {
+          return res.status(404).json({ error: `${tableName.slice(0, -1)} not found` });
+        }
+        res.json(updated);
+        break;
+
+      case 'DELETE':
+        const deleteId = req.query.id;
+        if (!deleteId) {
+          return res.status(400).json({ error: 'ID is required' });
+        }
+        const { error: deleteError } = await supabase
+          .from(tableName)
+          .delete()
+          .eq('id', deleteId);
+        if (deleteError) throw deleteError;
+        res.status(204).end();
+        break;
+
+      default:
+        res.status(405).json({ error: 'Method not allowed' });
+    }
+  } catch (error) {
+    console.error(`Error in ${tableName} CRUD:`, error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+}
+
+// Resources endpoint: /api/resources/:type
+app.all('/api/resources/:type', async (req, res) => {
+  const resourceType = req.params.type;
+  
+  if (!validResourceTypes.includes(resourceType)) {
+    return res.status(400).json({ 
+      error: 'Invalid resource type',
+      received: resourceType,
+      validTypes: validResourceTypes
+    });
+  }
+  
+  return handleResourceCRUD(resourceType, req, res);
+});
+
+// Blocks CRUD: /api/blocks
+app.get('/api/blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+
+  try {
+    const blockId = req.query.id;
+    
+    if (blockId) {
+      // Get single block with relationships
+      const { data: block, error: blockError } = await supabase
+        .from('blocks')
+        .select(`
+          *,
+          encoder:encoders(*),
+          producer:producers(*),
+          suite:suites(*)
+        `)
+        .eq('id', blockId)
+        .single();
+      
+      if (blockError) throw blockError;
+      if (!block) {
+        return res.status(404).json({ error: 'Block not found' });
+      }
+
+      // Get multiple relationships
+      const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
+        supabase
+          .from('block_commentators')
+          .select('*, commentator:commentators(*)')
+          .eq('block_id', blockId),
+        supabase
+          .from('block_booths')
+          .select('*, booth:booths(*)')
+          .eq('block_id', blockId),
+        supabase
+          .from('block_networks')
+          .select('*, network:networks(*)')
+          .eq('block_id', blockId)
+      ]);
+
+      const blockData = {
+        ...block,
+        commentators: commentatorsRes.data?.map(c => ({
+          id: c.commentator.id,
+          name: c.commentator.name,
+          role: c.role
+        })) || [],
+        booths: boothsRes.data?.map(b => ({
+          id: b.booth.id,
+          name: b.booth.name
+        })) || [],
+        networks: networksRes.data?.map(n => ({
+          id: n.network.id,
+          name: n.network.name
+        })) || []
+      };
+
+      res.json(blockData);
+    } else {
+      // Get all blocks with relationships
+      const { data: blocks, error: blocksError } = await supabase
+        .from('blocks')
+        .select(`
+          *,
+          encoder:encoders(*),
+          producer:producers(*),
+          suite:suites(*)
+        `)
+        .order('start_time');
+      
+      if (blocksError) throw blocksError;
+
+      const blocksWithRelations = await Promise.all(
+        (blocks || []).map(async (block) => {
+          const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
+            supabase
+              .from('block_commentators')
+              .select('*, commentator:commentators(*)')
+              .eq('block_id', block.id),
+            supabase
+              .from('block_booths')
+              .select('*, booth:booths(*)')
+              .eq('block_id', block.id),
+            supabase
+              .from('block_networks')
+              .select('*, network:networks(*)')
+              .eq('block_id', block.id)
+          ]);
+
+          return {
+            ...block,
+            commentators: commentatorsRes.data?.map(c => ({
+              id: c.commentator.id,
+              name: c.commentator.name,
+              role: c.role
+            })) || [],
+            booths: boothsRes.data?.map(b => ({
+              id: b.booth.id,
+              name: b.booth.name
+            })) || [],
+            networks: networksRes.data?.map(n => ({
+              id: n.network.id,
+              name: n.network.name
+            })) || []
+          };
+        })
+      );
+
+      res.json(blocksWithRelations);
+    }
+  } catch (error) {
+    console.error('Error in /api/blocks:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.post('/api/blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+
+  try {
+    const { 
+      name, block_id, obs_id, start_time, end_time, duration,
+      encoder_id, producer_id, suite_id, source_event_id
+    } = req.body;
+
+    if (!name || !start_time || !end_time) {
+      return res.status(400).json({ error: 'Name, start_time, and end_time are required' });
+    }
+
+    let calculatedDuration = duration;
+    if (!calculatedDuration && start_time && end_time) {
+      const start = new Date(start_time);
+      const end = new Date(end_time);
+      const diffMs = end - start;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+      calculatedDuration = `${hours}:${minutes}:${seconds}`;
+    }
+
+    const { data: newBlock, error: insertError } = await supabase
+      .from('blocks')
+      .insert([{
+        name: name.trim(),
+        block_id: block_id?.trim() || null,
+        obs_id: obs_id?.trim() || null,
+        start_time,
+        end_time,
+        duration: calculatedDuration,
+        encoder_id: encoder_id || null,
+        producer_id: producer_id || null,
+        suite_id: suite_id || null,
+        source_event_id: source_event_id || null
+      }])
+      .select()
+      .single();
+    
+    if (insertError) throw insertError;
+    res.status(201).json(newBlock);
+  } catch (error) {
+    console.error('Error creating block:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.put('/api/blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+
+  try {
+    const { 
+      id, name, block_id, obs_id, start_time, end_time, duration,
+      encoder_id, producer_id, suite_id, source_event_id
+    } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: 'ID is required' });
+    }
+
+    let calcDuration = duration;
+    if (!calcDuration && start_time && end_time) {
+      const start = new Date(start_time);
+      const end = new Date(end_time);
+      const diffMs = end - start;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+      calcDuration = `${hours}:${minutes}:${seconds}`;
+    }
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name.trim();
+    if (block_id !== undefined) updateData.block_id = block_id?.trim() || null;
+    if (obs_id !== undefined) updateData.obs_id = obs_id?.trim() || null;
+    if (start_time !== undefined) updateData.start_time = start_time;
+    if (end_time !== undefined) updateData.end_time = end_time;
+    if (calcDuration !== undefined) updateData.duration = calcDuration;
+    if (encoder_id !== undefined) updateData.encoder_id = encoder_id || null;
+    if (producer_id !== undefined) updateData.producer_id = producer_id || null;
+    if (suite_id !== undefined) updateData.suite_id = suite_id || null;
+    if (source_event_id !== undefined) updateData.source_event_id = source_event_id || null;
+
+    const { data: updated, error: updateError } = await supabase
+      .from('blocks')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (updateError) throw updateError;
+    if (!updated) {
+      return res.status(404).json({ error: 'Block not found' });
+    }
+    
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating block:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.delete('/api/blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+
+  try {
+    const deleteId = req.query.id;
+    if (!deleteId) {
+      return res.status(400).json({ error: 'ID is required' });
+    }
+
+    const { error: deleteError } = await supabase
+      .from('blocks')
+      .delete()
+      .eq('id', deleteId);
+    
+    if (deleteError) throw deleteError;
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting block:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// Block relationships: /api/blocks/:blockId/relationships
+app.all('/api/blocks/:blockId/relationships', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+
+  const blockId = req.params.blockId;
+  let relationshipType = req.query.relationshipType;
+  
+  if (!relationshipType && req.url) {
+    const match = req.url.match(/\/relationships\?relationshipType=([^&]+)/);
+    if (match) relationshipType = match[1];
+  }
+
+  if (!blockId) {
+    return res.status(400).json({ error: 'Block ID is required' });
+  }
+
+  if (!relationshipType) {
+    return res.status(400).json({ error: 'Relationship type is required' });
+  }
+
+  if (!validRelationshipTypes.includes(relationshipType)) {
+    return res.status(400).json({ 
+      error: 'Invalid relationship type',
+      received: relationshipType,
+      validTypes: validRelationshipTypes
+    });
+  }
+
+  const tableName = `block_${relationshipType}`;
+  const foreignKey = relationshipType === 'commentators' 
+    ? 'commentator_id' 
+    : relationshipType === 'booths'
+    ? 'booth_id'
+    : 'network_id';
+  const relatedTable = relationshipType;
+  const relatedKey = relationshipType.slice(0, -1); // commentators -> commentator
+
+  try {
+    switch (req.method) {
+      case 'GET':
+        const { data, error } = await supabase
+          .from(tableName)
+          .select(`*, ${relatedKey}:${relatedTable}(*)`)
+          .eq('block_id', blockId)
+          .order('created_at');
+        if (error) throw error;
+        res.json(data || []);
+        break;
+
+      case 'POST':
+        const relationshipId = req.body[foreignKey];
+        const role = req.body.role;
+        
+        if (!relationshipId) {
+          return res.status(400).json({ error: `${foreignKey} is required` });
+        }
+
+        const insertData = {
+          block_id: blockId,
+          [foreignKey]: relationshipId
+        };
+        
+        if (relationshipType === 'commentators' && role) {
+          insertData.role = role;
+        }
+
+        const { data: link, error: linkError } = await supabase
+          .from(tableName)
+          .insert([insertData])
+          .select(`*, ${relatedKey}:${relatedTable}(*)`)
+          .single();
+        
+        if (linkError) {
+          if (linkError.code === '23505') {
+            return res.status(409).json({ error: `${relatedKey} is already linked to this block` });
+          }
+          throw linkError;
+        }
+        res.status(201).json(link);
+        break;
+
+      case 'DELETE':
+        const linkId = req.query.linkId;
+        if (!linkId) {
+          return res.status(400).json({ error: 'Link ID is required' });
+        }
+
+        const { error: deleteError } = await supabase
+          .from(tableName)
+          .delete()
+          .eq('id', linkId)
+          .eq('block_id', blockId);
+        
+        if (deleteError) throw deleteError;
+        res.status(204).end();
+        break;
+
+      default:
+        res.status(405).json({ error: 'Method not allowed' });
+    }
+  } catch (error) {
+    console.error(`Error in block ${relationshipType}:`, error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// Booth blocks: /api/booths/:boothId/blocks
+app.get('/api/booths/:boothId/blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+
+  try {
+    const boothId = req.params.boothId;
+
+    const { data: blockBooths, error: blockBoothsError } = await supabase
+      .from('block_booths')
+      .select('block_id')
+      .eq('booth_id', boothId);
+    
+    if (blockBoothsError) throw blockBoothsError;
+
+    if (!blockBooths || blockBooths.length === 0) {
+      return res.json([]);
+    }
+
+    const blockIds = blockBooths.map(bb => bb.block_id);
+
+    const { data: blocks, error: blocksError } = await supabase
+      .from('blocks')
+      .select(`
+        *,
+        encoder:encoders(*),
+        producer:producers(*),
+        suite:suites(*)
+      `)
+      .in('id', blockIds)
+      .order('start_time');
+    
+    if (blocksError) throw blocksError;
+
+    const blocksWithRelations = await Promise.all(
+      (blocks || []).map(async (block) => {
+        const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
+          supabase
+            .from('block_commentators')
+            .select('*, commentator:commentators(*)')
+            .eq('block_id', block.id),
+          supabase
+            .from('block_booths')
+            .select('*, booth:booths(*)')
+            .eq('block_id', block.id),
+          supabase
+            .from('block_networks')
+            .select('*, network:networks(*)')
+            .eq('block_id', block.id)
+        ]);
+
+        return {
+          ...block,
+          commentators: commentatorsRes.data?.map(c => ({
+            id: c.commentator.id,
+            name: c.commentator.name,
+            role: c.role
+          })) || [],
+          booths: boothsRes.data?.map(b => ({
+            id: b.booth.id,
+            name: b.booth.name
+          })) || [],
+          networks: networksRes.data?.map(n => ({
+            id: n.network.id,
+            name: n.network.name
+          })) || []
+        };
+      })
+    );
+
+    res.json(blocksWithRelations);
+  } catch (error) {
+    console.error('Error in booth blocks:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 // Auto-load CSV file from data directory on startup
 function loadStaticCSVOnStartup() {
   try {
@@ -588,7 +1151,15 @@ app.listen(PORT, () => {
   console.log('Available routes:');
   console.log('  GET  /api/health');
   console.log('  GET  /api/events');
+  console.log('  GET  /api/events/dates');
   console.log('  POST /api/upload');
   console.log('  POST /api/load-static');
+  if (supabase) {
+    console.log('  Database routes (Supabase):');
+    console.log('    GET/POST/PUT/DELETE /api/resources/:type');
+    console.log('    GET/POST/PUT/DELETE /api/blocks');
+    console.log('    GET/POST/DELETE /api/blocks/:blockId/relationships');
+    console.log('    GET /api/booths/:boothId/blocks');
+  }
   loadStaticCSVOnStartup();
 });
