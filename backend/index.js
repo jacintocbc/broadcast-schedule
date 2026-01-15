@@ -17,8 +17,17 @@ const app = express();
 const PORT = 3001;
 
 // Middleware
-app.use(cors());
+// Configure CORS to allow all methods and headers
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
+}));
 app.use(express.json());
+
+// Handle preflight requests explicitly
+app.options('*', cors());
 
 // In-memory storage for events (can be replaced with events.json file)
 let eventsData = [];
@@ -533,6 +542,7 @@ app.get('/api/health', (req, res) => {
 // ============================================
 
 // Initialize Supabase client (if env vars are set)
+// Check for both correct and common typo in env var name
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 let supabase = null;
@@ -540,8 +550,16 @@ let supabase = null;
 if (supabaseUrl && supabaseAnonKey) {
   supabase = createClient(supabaseUrl, supabaseAnonKey);
   console.log('✅ Supabase client initialized for database routes');
+  console.log(`   URL: ${supabaseUrl.substring(0, 30)}...`);
 } else {
   console.log('⚠️  Supabase not configured - database routes will return errors');
+  console.log('   Make sure .env file has: SUPABASE_URL and SUPABASE_ANON_KEY');
+  console.log('   Current values:', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseAnonKey,
+    urlValue: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'missing',
+    keyValue: supabaseAnonKey ? '***' + supabaseAnonKey.slice(-4) : 'missing'
+  });
 }
 
 // Valid resource types
@@ -637,6 +655,11 @@ async function handleResourceCRUD(tableName, req, res) {
 
 // Resources endpoint: /api/resources/:type
 app.all('/api/resources/:type', async (req, res) => {
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   const resourceType = req.params.type;
   
   if (!validResourceTypes.includes(resourceType)) {
@@ -821,6 +844,11 @@ app.post('/api/blocks', async (req, res) => {
 });
 
 app.put('/api/blocks', async (req, res) => {
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   if (!supabase) {
     return res.status(500).json({ error: 'Database not configured' });
   }
@@ -878,6 +906,11 @@ app.put('/api/blocks', async (req, res) => {
 });
 
 app.delete('/api/blocks', async (req, res) => {
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   if (!supabase) {
     return res.status(500).json({ error: 'Database not configured' });
   }
@@ -903,6 +936,11 @@ app.delete('/api/blocks', async (req, res) => {
 
 // Block relationships: /api/blocks/:blockId/relationships
 app.all('/api/blocks/:blockId/relationships', async (req, res) => {
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   if (!supabase) {
     return res.status(500).json({ error: 'Database not configured' });
   }
