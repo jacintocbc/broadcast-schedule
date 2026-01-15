@@ -222,13 +222,18 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
         key={`scrollable-${groups.length}-${selectedDate}`}
       >
         <div className="min-w-full">
-          {groups.map((group, groupIdx) => (
+          {groups.map((group, groupIdx) => {
+            // Check if this group has any blocks (CBC timeline) vs events (OBS timeline)
+            const hasBlocks = itemsByGroup[group]?.some(item => item.block) || false
+            const rowHeight = hasBlocks ? '200px' : '80px'
+            
+            return (
             <div
               key={group}
               className={`flex border-b border-gray-100 ${
                 groupIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
               }`}
-              style={{ minHeight: '80px' }}
+              style={{ minHeight: rowHeight }}
             >
               {/* Group label */}
               <div className="w-32 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 flex items-center justify-center">
@@ -236,7 +241,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
               </div>
 
               {/* Timeline area */}
-              <div className="flex-1 relative" style={{ minHeight: '80px' }}>
+              <div className="flex-1 relative" style={{ minHeight: rowHeight }}>
                 {/* Hour markers */}
                 <div className="absolute inset-0 flex">
                   {hours.map((_, idx) => (
@@ -287,42 +292,42 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                       title={event.title}
                     >
                       {isBlock ? (
-                        // Block display with metadata
-                        <div className="h-full flex flex-col text-white p-1.5 text-[10px]">
+                        // Block display with metadata - taller to show all fields
+                        <div className="h-full flex flex-col text-white p-2 text-[11px] leading-tight">
                           {/* Time ranges */}
-                          <div className="mb-1">
+                          <div className="mb-1.5 space-y-0.5">
                             {broadcastStart && broadcastEnd && (
-                              <div className="text-[9px] opacity-90">
+                              <div className="text-[10px] opacity-90">
                                 ({broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')})
                               </div>
                             )}
-                            <div className="text-[9px] opacity-90">
+                            <div className="text-[10px] opacity-90">
                               {startEST.format('HH:mm')} - {endEST.format('HH:mm')}
                             </div>
                           </div>
                           
-                          {/* Block ID / Sheet */}
-                          {block.block_id && (
-                            <div className="font-semibold mb-1 truncate">
-                              {block.block_id}
+                          {/* Encoder / Suite identifier */}
+                          {(block.encoder || block.suite) && (
+                            <div className="font-semibold mb-1.5 truncate text-[10px]">
+                              {block.encoder?.name || ''} {block.encoder && block.suite ? '-' : ''} {block.suite?.name || ''}
                             </div>
                           )}
                           
                           {/* Event name */}
-                          <div className="font-medium mb-1 truncate">
+                          <div className="font-medium mb-1.5 truncate text-[11px]">
                             {block.name || event.title}
                           </div>
                           
                           {/* TBD or other status */}
-                          <div className="text-[9px] opacity-75 mb-1">
+                          <div className="text-[10px] opacity-75 mb-1.5">
                             TBD
                           </div>
                           
                           {/* Networks */}
                           {block.networks && block.networks.length > 0 && (
-                            <div className="mt-auto space-y-0.5">
+                            <div className="mt-auto space-y-0.5 mb-1">
                               {block.networks.map((network, idx) => (
-                                <div key={network.id || idx} className="text-[9px] opacity-90">
+                                <div key={network.id || idx} className="text-[10px] opacity-90">
                                   {network.name}: VIS
                                 </div>
                               ))}
@@ -331,8 +336,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                           
                           {/* Booths */}
                           {block.booths && block.booths.length > 0 && (
-                            <div className="text-[9px] opacity-75 mt-1">
-                              Booths: {block.booths.map(b => b.name).join(', ')}
+                            <div className="text-[10px] opacity-75">
+                              {block.booths.map(b => b.name).join(', ')}
                             </div>
                           )}
                         </div>
@@ -360,7 +365,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                 })}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>

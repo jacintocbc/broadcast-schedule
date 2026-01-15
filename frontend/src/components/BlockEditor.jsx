@@ -11,7 +11,7 @@ import {
 function BlockEditor({ block, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
     name: '',
-    block_id: '',
+    block_id: '', // Keep for database, but don't display in UI
     obs_id: '',
     start_time: '',
     end_time: '',
@@ -44,7 +44,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
     if (block) {
       setFormData({
         name: block.name || '',
-        block_id: block.block_id || '',
+        block_id: block.block_id || '', // Keep for database, but don't display
         obs_id: block.obs_id || '',
         start_time: block.start_time ? moment(block.start_time).format('YYYY-MM-DDTHH:mm') : '',
         end_time: block.end_time ? moment(block.end_time).format('YYYY-MM-DDTHH:mm') : '',
@@ -190,15 +190,6 @@ function BlockEditor({ block, onClose, onUpdate }) {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Block ID</label>
-                <input
-                  type="text"
-                  value={formData.block_id}
-                  onChange={(e) => setFormData({ ...formData, block_id: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>

@@ -38,7 +38,7 @@ function CBCTimelineView() {
   const events = filteredBlocks.map(block => ({
     id: block.id,
     title: block.name,
-    group: block.block_id || `Block ${block.id.substring(0, 8)}`,
+    group: block.encoder?.name || 'No Encoder',
     start_time: block.start_time,
     end_time: block.end_time,
     block: block // Store full block data

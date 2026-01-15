@@ -18,17 +18,21 @@ export default async function handler(req, res) {
   }
 
   // Extract blockId and relationship type from URL
-  // URL: /api/blocks/{blockId}/{relationshipType}
-  const blockId = req.query.blockId || req.query['[blockId]'];
-  let relationshipType = req.query.relationshipType || req.query['[relationshipType]'];
+  // Vercel rewrite: /api/blocks/:blockId/:relationshipType -> /api/blocks/:blockId/relationships?relationshipType=:relationshipType&blockId=:blockId
+  // Dynamic route: api/blocks/[blockId]/relationships.js
+  // The rewrite adds both blockId and relationshipType to query params
+  let blockId = req.query.blockId;
+  let relationshipType = req.query.relationshipType;
   
-  // Parse from URL if not in query
-  if (!relationshipType && req.url) {
-    const urlPath = req.url.split('?')[0];
-    // Match /api/blocks/{blockId}/{relationshipType}
-    const match = urlPath.match(/\/blocks\/[^/]+\/([^/]+)$/);
-    if (match && match[1]) {
-      relationshipType = match[1];
+  // Fallback: Parse from URL path if not in query
+  if (!blockId || !relationshipType) {
+    if (req.url) {
+      const urlPath = req.url.split('?')[0];
+      // Match /api/blocks/{blockId}/relationships
+      const match = urlPath.match(/\/blocks\/([^/]+)\/relationships/);
+      if (match && match[1] && !blockId) {
+        blockId = match[1];
+      }
     }
   }
 

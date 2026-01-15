@@ -9,8 +9,8 @@
       "destination": "/api/resources?type=:type"
     },
     {
-      "source": "/api/blocks/:blockId/:relationshipType",
-      "destination": "/api/blocks/:blockId/relationships?relationshipType=:relationshipType"
+      "source": "/api/blocks/:blockId/relationships",
+      "destination": "/api/blocks/:blockId/relationships"
     },
     {
       "source": "/(.*)",
