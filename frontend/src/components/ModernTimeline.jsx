@@ -183,7 +183,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
         <div className="flex">
           <div className="w-32 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700">
             <div className="text-sm">
-              {selectedDate ? moment.tz(selectedDate, 'America/New_York').format('dddd, MMMM D, YYYY') : 'Select Date'}
+              {selectedDate ? moment.tz(selectedDate, 'America/New_York').format('dddd, MMMM D') : 'Select Date'}
             </div>
             <div className="text-xs text-gray-500 mt-1">
               EST / Rome
@@ -197,10 +197,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                 return (
                   <div
                     key={idx}
-                    className="flex-1 border-r border-gray-200 text-center p-2 text-xs text-gray-600"
+                    className="flex-1 border-r border-gray-200 text-center p-2 text-base text-gray-600"
                   >
-                    <div className="font-medium">{hour.format('HH:mm')}</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">
+                    <div className="font-medium text-base">{hour.format('HH:mm')}</div>
+                    <div className="text-sm text-gray-400 mt-0.5">
                       {hourRome.format('HH:mm')}
                     </div>
                   </div>
