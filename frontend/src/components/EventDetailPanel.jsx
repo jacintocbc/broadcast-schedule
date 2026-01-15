@@ -1,6 +1,6 @@
 import moment from 'moment'
 
-function EventDetailPanel({ event, onClose }) {
+function EventDetailPanel({ event, onClose, onAddToCBC }) {
   if (!event) {
     return null
   }
@@ -25,13 +25,24 @@ function EventDetailPanel({ event, onClose }) {
     <div className="h-full bg-white border-l border-gray-300 shadow-lg flex flex-col">
       <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-800">Event Details</h2>
-        <button
-          onClick={onClose}
-          className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
-          title="Close"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-2">
+          {onAddToCBC && (
+            <button
+              onClick={() => onAddToCBC(event)}
+              className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+              title="Add to CBC Timeline"
+            >
+              Add to CBC
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+            title="Close"
+          >
+            ×
+          </button>
+        </div>
       </div>
       
       <div className="flex-1 overflow-y-auto p-4">

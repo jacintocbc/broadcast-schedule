@@ -144,6 +144,8 @@ export default async function handler(req, res) {
           obs_id, 
           start_time, 
           end_time, 
+          broadcast_start_time,
+          broadcast_end_time,
           duration,
           encoder_id,
           producer_id,
@@ -175,6 +177,8 @@ export default async function handler(req, res) {
             obs_id: obs_id?.trim() || null,
             start_time,
             end_time,
+            broadcast_start_time: broadcast_start_time || null,
+            broadcast_end_time: broadcast_end_time || null,
             duration: calculatedDuration,
             encoder_id: encoder_id || null,
             producer_id: producer_id || null,
@@ -197,6 +201,8 @@ export default async function handler(req, res) {
           obs_id: updatedObsId, 
           start_time: updatedStartTime, 
           end_time: updatedEndTime,
+          broadcast_start_time: updatedBroadcastStartTime,
+          broadcast_end_time: updatedBroadcastEndTime,
           duration: updatedDuration,
           encoder_id: updatedEncoderId,
           producer_id: updatedProducerId,
@@ -226,6 +232,8 @@ export default async function handler(req, res) {
         if (updatedObsId !== undefined) updateData.obs_id = updatedObsId?.trim() || null;
         if (updatedStartTime !== undefined) updateData.start_time = updatedStartTime;
         if (updatedEndTime !== undefined) updateData.end_time = updatedEndTime;
+        if (updatedBroadcastStartTime !== undefined) updateData.broadcast_start_time = updatedBroadcastStartTime || null;
+        if (updatedBroadcastEndTime !== undefined) updateData.broadcast_end_time = updatedBroadcastEndTime || null;
         if (calcDuration !== undefined) updateData.duration = calcDuration;
         if (updatedEncoderId !== undefined) updateData.encoder_id = updatedEncoderId || null;
         if (updatedProducerId !== undefined) updateData.producer_id = updatedProducerId || null;

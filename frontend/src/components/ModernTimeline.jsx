@@ -255,9 +255,21 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                   const left = `${leftPercent}%`
                   const width = `${Math.max(rightPercent - leftPercent, 2)}%` // Minimum 2% width
                   
-                  // Use yellow for 0-duration events, blue for normal events
-                  const backgroundColor = event.isZeroDuration ? '#eab308' : '#3b82f6'
-                  const borderColor = event.isZeroDuration ? '#ca8a04' : '#2563eb'
+                  const isBlock = event.block
+                  const block = event.block || {}
+                  
+                  // Use yellow for 0-duration events, blue for normal events, green for blocks
+                  const backgroundColor = event.isZeroDuration ? '#eab308' : (isBlock ? '#10b981' : '#3b82f6')
+                  const borderColor = event.isZeroDuration ? '#ca8a04' : (isBlock ? '#059669' : '#2563eb')
+                  
+                  // Format times for display
+                  const startEST = moment(event.start_time).tz('America/New_York')
+                  const endEST = moment(event.end_time).tz('America/New_York')
+                  const startRome = moment(event.start_time).tz('Europe/Rome')
+                  const endRome = moment(event.end_time).tz('Europe/Rome')
+                  
+                  const broadcastStart = block.broadcast_start_time ? moment(block.broadcast_start_time).tz('America/New_York') : null
+                  const broadcastEnd = block.broadcast_end_time ? moment(block.broadcast_end_time).tz('America/New_York') : null
                   
                   return (
                     <div
@@ -267,29 +279,82 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                       style={{
                         left,
                         width,
-                        minWidth: '120px',
+                        minWidth: isBlock ? '200px' : '120px',
                         backgroundColor,
                         border: `2px solid ${borderColor}`,
                         zIndex: 10
                       }}
                       title={event.title}
                     >
-                      <div className="h-full flex flex-col text-white">
-                        <div className="flex-1 flex items-center px-2">
-                          <div className="truncate text-xs font-medium">{event.title}</div>
+                      {isBlock ? (
+                        // Block display with metadata
+                        <div className="h-full flex flex-col text-white p-1.5 text-[10px]">
+                          {/* Time ranges */}
+                          <div className="mb-1">
+                            {broadcastStart && broadcastEnd && (
+                              <div className="text-[9px] opacity-90">
+                                ({broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')})
+                              </div>
+                            )}
+                            <div className="text-[9px] opacity-90">
+                              {startEST.format('HH:mm')} - {endEST.format('HH:mm')}
+                            </div>
+                          </div>
+                          
+                          {/* Block ID / Sheet */}
+                          {block.block_id && (
+                            <div className="font-semibold mb-1 truncate">
+                              {block.block_id}
+                            </div>
+                          )}
+                          
+                          {/* Event name */}
+                          <div className="font-medium mb-1 truncate">
+                            {block.name || event.title}
+                          </div>
+                          
+                          {/* TBD or other status */}
+                          <div className="text-[9px] opacity-75 mb-1">
+                            TBD
+                          </div>
+                          
+                          {/* Networks */}
+                          {block.networks && block.networks.length > 0 && (
+                            <div className="mt-auto space-y-0.5">
+                              {block.networks.map((network, idx) => (
+                                <div key={network.id || idx} className="text-[9px] opacity-90">
+                                  {network.name}: VIS
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {/* Booths */}
+                          {block.booths && block.booths.length > 0 && (
+                            <div className="text-[9px] opacity-75 mt-1">
+                              Booths: {block.booths.map(b => b.name).join(', ')}
+                            </div>
+                          )}
                         </div>
-                        {/* Time label overlay - show both EST and Rome time, constrained to bottom, full width */}
-                        <div className="bg-black bg-opacity-30 text-white text-[9px] px-1 py-0.5 rounded-b-lg flex-shrink-0 w-full">
-                          <div className="flex justify-between items-center gap-1">
-                            <span className="truncate">
-                              EST: {moment(event.start_time).tz('America/New_York').format('HH:mm')}-{moment(event.end_time).tz('America/New_York').format('HH:mm')}
-                            </span>
-                            <span className="text-gray-300 truncate">
-                              Rome: {moment(event.start_time).tz('Europe/Rome').format('HH:mm')}-{moment(event.end_time).tz('Europe/Rome').format('HH:mm')}
-                            </span>
+                      ) : (
+                        // Regular event display
+                        <div className="h-full flex flex-col text-white">
+                          <div className="flex-1 flex items-center px-2">
+                            <div className="truncate text-xs font-medium">{event.title}</div>
+                          </div>
+                          {/* Time label overlay - show both EST and Rome time, constrained to bottom, full width */}
+                          <div className="bg-black bg-opacity-30 text-white text-[9px] px-1 py-0.5 rounded-b-lg flex-shrink-0 w-full">
+                            <div className="flex justify-between items-center gap-1">
+                              <span className="truncate">
+                                EST: {startEST.format('HH:mm')}-{endEST.format('HH:mm')}
+                              </span>
+                              <span className="text-gray-300 truncate">
+                                Rome: {startRome.format('HH:mm')}-{endRome.format('HH:mm')}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )
                 })}

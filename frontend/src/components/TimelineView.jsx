@@ -1,139 +1,150 @@
-import { useMemo } from 'react'
-import Timeline from 'react-calendar-timeline'
-import 'react-calendar-timeline/lib/Timeline.css'
-import moment from 'moment'
+import { useState, useEffect, useRef } from 'react'
+import ModernTimeline from './ModernTimeline'
+import DateNavigator from './DateNavigator'
+import EventDetailPanel from './EventDetailPanel'
 
-function TimelineView({ events, selectedDate, onItemSelect }) {
-  // Create a map of item id to original event for click handling
-  const itemToEventMap = useMemo(() => {
-    const map = {}
-    if (events && events.length > 0) {
-      events.forEach((event, index) => {
-        const itemId = `${event.id}-${index}`
-        map[itemId] = event
-      })
-    }
-    return map
-  }, [events])
+function TimelineView() {
+  const [events, setEvents] = useState([])
+  const [availableDates, setAvailableDates] = useState([])
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const datePickerRef = useRef(null)
+  const [datePickerHeight, setDatePickerHeight] = useState(0)
 
-  // Transform events data for react-calendar-timeline
-  const { groups, items, timeStart, timeEnd } = useMemo(() => {
-    if (!events || events.length === 0) {
-      const defaultDate = selectedDate ? moment(selectedDate) : moment()
-      return { 
-        groups: [], 
-        items: [], 
-        timeStart: defaultDate.startOf('day'), 
-        timeEnd: defaultDate.endOf('day') 
-      }
-    }
+  // Fetch available dates on mount
+  useEffect(() => {
+    fetchAvailableDates()
+  }, [])
 
-    // Get unique channel names (groups)
-    const uniqueChannels = [...new Set(events.map(e => e.group).filter(Boolean))]
-    const groups = uniqueChannels.map((channelName, index) => ({
-      id: index + 1,
-      title: channelName
-    }))
-
-    // Create a map of channel name to group id
-    const channelToGroupId = {}
-    groups.forEach(group => {
-      channelToGroupId[group.title] = group.id
-    })
-    
-    // Transform events to timeline items
-    const items = events
-      .filter(event => event.group && channelToGroupId[event.group])
-      .map((event, index) => {
-        const itemId = `${event.id}-${index}`
-        return {
-          id: itemId,
-          group: channelToGroupId[event.group],
-          title: event.title,
-          start_time: moment(event.start_time),
-          end_time: moment(event.end_time)
-        }
-      })
-
-    // For single day view, set time range to the selected day
+  // Fetch events when date changes
+  useEffect(() => {
     if (selectedDate) {
-      const dayStart = moment(selectedDate).startOf('day')
-      const dayEnd = moment(selectedDate).endOf('day')
-      return { groups, items, timeStart: dayStart, timeEnd: dayEnd }
+      fetchEvents(selectedDate)
+    } else if (availableDates.length > 0) {
+      // Auto-select first available date
+      setSelectedDate(availableDates[0])
     }
+  }, [selectedDate, availableDates])
 
-    // Calculate time range from events (fallback)
-    const allStartTimes = items.map(item => item.start_time.valueOf())
-    const allEndTimes = items.map(item => item.end_time.valueOf())
-    const minTime = Math.min(...allStartTimes)
-    const maxTime = Math.max(...allEndTimes)
-
-    // Add some padding
-    const timeStart = moment(minTime).subtract(1, 'hour')
-    const timeEnd = moment(maxTime).add(1, 'hour')
-
-    return { groups, items, timeStart, timeEnd }
-  }, [events, selectedDate])
-
-  if (groups.length === 0 || items.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-gray-500">
-        No events to display
-      </div>
-    )
-  }
-
-  const handleItemClick = (itemId, e, time) => {
-    const event = itemToEventMap[itemId]
-    if (event && onItemSelect) {
-      onItemSelect(event)
-    }
-  }
-
-  // Calculate minimum width for items based on title length
-  const itemRenderer = ({ item, itemContext, getItemProps }) => {
-    const { title } = item
-    // Calculate minimum width based on text length (approximately 8px per character)
-    const minWidth = Math.max(120, title.length * 8 + 20)
-    
-    const props = getItemProps({
-      style: {
-        minWidth: `${minWidth}px`,
-        ...getItemProps().style
+  const fetchAvailableDates = async () => {
+    try {
+      const response = await fetch('/api/events/dates')
+      if (!response.ok) {
+        throw new Error('Failed to fetch dates')
       }
-    })
-    
-    return (
-      <div {...props} style={{ ...props.style, minWidth: `${minWidth}px` }}>
-        <div className="rct-item-content" style={{ minWidth: `${minWidth - 10}px` }}>
-          {title}
-        </div>
-      </div>
-    )
+      const data = await response.json()
+      setAvailableDates(data)
+      if (data.length > 0 && !selectedDate) {
+        setSelectedDate(data[0])
+      }
+    } catch (err) {
+      console.error('Error fetching dates:', err)
+    }
   }
+
+  const fetchEvents = async (date) => {
+    try {
+      setLoading(true)
+      setError(null)
+      const url = date ? `/api/events?date=${date}` : '/api/events'
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error('Failed to fetch events')
+      }
+      const data = await response.json()
+      setEvents(data)
+    } catch (err) {
+      setError(err.message)
+      console.error('Error fetching events:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDateChange = (date) => {
+    setSelectedDate(date)
+  }
+
+  // Calculate date picker height for sticky positioning
+  useEffect(() => {
+    const updateDatePickerHeight = () => {
+      if (datePickerRef.current) {
+        setDatePickerHeight(datePickerRef.current.offsetHeight)
+      }
+    }
+    updateDatePickerHeight()
+    const timeout1 = setTimeout(updateDatePickerHeight, 0)
+    const timeout2 = setTimeout(updateDatePickerHeight, 100)
+    window.addEventListener('resize', updateDatePickerHeight)
+    return () => {
+      clearTimeout(timeout1)
+      clearTimeout(timeout2)
+      window.removeEventListener('resize', updateDatePickerHeight)
+    }
+  }, [availableDates, selectedDate])
+  
+  // Calculate navbar height for precise positioning
+  const [navbarHeight, setNavbarHeight] = useState(73)
+  useEffect(() => {
+    const header = document.querySelector('header')
+    if (header) {
+      setNavbarHeight(header.offsetHeight)
+    }
+  }, [])
 
   return (
-    <div className="h-full w-full overflow-x-auto">
-      <Timeline
-        groups={groups}
-        items={items}
-        defaultTimeStart={timeStart}
-        defaultTimeEnd={timeEnd}
-        visibleTimeStart={timeStart.valueOf()}
-        visibleTimeEnd={timeEnd.valueOf()}
-        canMove={false}
-        canResize={false}
-        canSelect={true}
-        onItemClick={handleItemClick}
-        canZoom={true}
-        canChangeGroup={false}
-        stackItems
-        lineHeight={60}
-        itemHeightRatio={0.75}
-        minZoom={60 * 60 * 1000} // 1 hour minimum
-        maxZoom={24 * 60 * 60 * 1000} // 24 hours maximum
-        itemRenderer={itemRenderer}
-      />
+    <div className="flex-1 flex flex-col">
+      <div ref={datePickerRef} className="p-4 border-b bg-gray-50 space-y-3 sticky z-40" style={{ top: `${navbarHeight}px` }}>
+        {availableDates.length > 0 && (
+          <DateNavigator 
+            dates={availableDates}
+            selectedDate={selectedDate}
+            onDateChange={handleDateChange}
+          />
+        )}
+      </div>
+      
+      <div className="flex-1 flex flex-col min-h-0">
+        {loading && events.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-gray-500">Loading events...</div>
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-red-500">Error: {error}</div>
+          </div>
+        ) : !selectedDate ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-gray-500">No events loaded. Please upload a CSV file.</div>
+          </div>
+        ) : events.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-gray-500">No events for selected date.</div>
+          </div>
+        ) : (
+          <div className="flex flex-1 min-h-0">
+            <div className={selectedEvent ? "flex-1 min-w-0 min-h-0" : "flex-1 min-w-0 min-h-0"}>
+              <ModernTimeline 
+                events={events} 
+                selectedDate={selectedDate}
+                onItemSelect={setSelectedEvent}
+                datePickerHeight={datePickerHeight}
+                navbarHeight={navbarHeight}
+              />
+            </div>
+            {selectedEvent && (
+              <div className="w-96 flex-shrink-0 overflow-y-auto">
+                <EventDetailPanel 
+                  event={selectedEvent}
+                  onClose={() => setSelectedEvent(null)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
