@@ -1,8 +1,12 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useEffect, useState } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
 
-function ModernTimeline({ events, selectedDate, onItemSelect }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight = 0, navbarHeight = 73 }) {
+  const containerRef = useRef(null)
+  const headerRef = useRef(null)
+  const scrollableRef = useRef(null)
+  const [availableHeight, setAvailableHeight] = useState(null)
   const { hours, groups, itemsByGroup } = useMemo(() => {
     if (!events || events.length === 0) {
       return { hours: [], groups: [], itemsByGroup: {} }
@@ -18,7 +22,31 @@ function ModernTimeline({ events, selectedDate, onItemSelect }) {
 
     // Get unique groups (channels)
     const uniqueGroups = [...new Set(events.map(e => e.group).filter(Boolean))]
-    const groups = uniqueGroups.sort()
+    
+    // Custom sort: DX01 first, then DX02-DX99 numerically, then others alphabetically
+    const groups = uniqueGroups.sort((a, b) => {
+      // Check if both are DX groups
+      const aIsDX = /^DX\d+$/i.test(a)
+      const bIsDX = /^DX\d+$/i.test(b)
+      
+      // DX01 always first
+      if (a.toUpperCase() === 'DX01') return -1
+      if (b.toUpperCase() === 'DX01') return 1
+      
+      // Both are DX groups - sort numerically
+      if (aIsDX && bIsDX) {
+        const aNum = parseInt(a.match(/\d+/)?.[0] || '999', 10)
+        const bNum = parseInt(b.match(/\d+/)?.[0] || '999', 10)
+        return aNum - bNum
+      }
+      
+      // Only one is DX - DX groups come before others
+      if (aIsDX) return -1
+      if (bIsDX) return 1
+      
+      // Neither is DX - sort alphabetically
+      return a.localeCompare(b)
+    })
 
     // Group events by channel
     const itemsByGroup = {}
@@ -88,6 +116,52 @@ function ModernTimeline({ events, selectedDate, onItemSelect }) {
     return { hours, groups, itemsByGroup }
   }, [events, selectedDate])
 
+  // Calculate available height for scrollable area
+  useEffect(() => {
+    const calculateHeight = () => {
+      if (containerRef.current && headerRef.current) {
+        const containerHeight = containerRef.current.clientHeight || containerRef.current.offsetHeight
+        const headerHeight = headerRef.current.offsetHeight || headerRef.current.clientHeight
+        if (containerHeight > 0 && headerHeight > 0) {
+          const calculatedHeight = containerHeight - headerHeight
+          if (calculatedHeight > 0) {
+            setAvailableHeight(calculatedHeight)
+          }
+        }
+      }
+    }
+
+    // Calculate immediately and after delays to catch all render cycles
+    calculateHeight()
+    const timeout1 = setTimeout(calculateHeight, 0)
+    const timeout2 = setTimeout(calculateHeight, 50)
+    const timeout3 = setTimeout(calculateHeight, 200)
+    const timeout4 = setTimeout(calculateHeight, 500)
+    
+    window.addEventListener('resize', calculateHeight)
+    
+    // Use ResizeObserver for more accurate tracking
+    let resizeObserver = null
+    if (containerRef.current && window.ResizeObserver) {
+      resizeObserver = new ResizeObserver(calculateHeight)
+      resizeObserver.observe(containerRef.current)
+      if (headerRef.current) {
+        resizeObserver.observe(headerRef.current)
+      }
+    }
+    
+    return () => {
+      clearTimeout(timeout1)
+      clearTimeout(timeout2)
+      clearTimeout(timeout3)
+      clearTimeout(timeout4)
+      window.removeEventListener('resize', calculateHeight)
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+    }
+  }, [groups.length, events.length, selectedDate])
+
   const handleItemClick = (event) => {
     if (onItemSelect) {
       onItemSelect(event)
@@ -103,20 +177,20 @@ function ModernTimeline({ events, selectedDate, onItemSelect }) {
   }
 
   return (
-    <div className="h-full w-full overflow-x-auto bg-white">
-      <div className="min-w-full">
-        {/* Header with hours */}
-        <div className="sticky top-0 z-20 bg-white border-b-2 border-gray-200 shadow-sm">
-          <div className="flex">
-            <div className="w-32 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700">
-              <div className="text-sm">
-                {selectedDate ? moment.tz(selectedDate, 'America/New_York').format('dddd, MMMM D, YYYY') : 'Select Date'}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                EST / Rome
-              </div>
+    <div ref={containerRef} className="h-full w-full flex flex-col bg-white">
+      {/* Header with hours - Fixed */}
+      <div ref={headerRef} className="flex-shrink-0 bg-white border-b-2 border-gray-200 shadow-sm sticky z-30" style={{ top: `${navbarHeight + datePickerHeight - 1}px` }}>
+        <div className="flex">
+          <div className="w-32 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700">
+            <div className="text-sm">
+              {selectedDate ? moment.tz(selectedDate, 'America/New_York').format('dddd, MMMM D, YYYY') : 'Select Date'}
             </div>
-            <div className="flex-1 flex">
+            <div className="text-xs text-gray-500 mt-1">
+              EST / Rome
+            </div>
+          </div>
+          <div className="flex-1 flex overflow-x-auto">
+            <div className="flex min-w-full">
               {hours.map((hour, idx) => {
                 // Convert EST hour to Rome time for display
                 const hourRome = hour.clone().tz('Europe/Rome')
@@ -135,9 +209,19 @@ function ModernTimeline({ events, selectedDate, onItemSelect }) {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Timeline rows */}
-        <div>
+      {/* Timeline rows - Scrollable */}
+      <div 
+        ref={scrollableRef}
+        className="flex-1 overflow-y-auto overflow-x-auto bg-white" 
+        style={{ 
+          minHeight: 0,
+          height: 0
+        }}
+        key={`scrollable-${groups.length}-${selectedDate}`}
+      >
+        <div className="min-w-full">
           {groups.map((group, groupIdx) => (
             <div
               key={group}
@@ -190,7 +274,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect }) {
                       }}
                       title={event.title}
                     >
-                      <div className="h-full flex flex-col text-white overflow-hidden">
+                      <div className="h-full flex flex-col text-white">
                         <div className="flex-1 flex items-center px-2">
                           <div className="truncate text-xs font-medium">{event.title}</div>
                         </div>

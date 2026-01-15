@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ModernTimeline from './components/ModernTimeline'
 import DateNavigator from './components/DateNavigator'
 import EventDetailPanel from './components/EventDetailPanel'
@@ -15,6 +15,8 @@ function App() {
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const datePickerRef = useRef(null)
+  const [datePickerHeight, setDatePickerHeight] = useState(0)
 
   // Fetch available dates on mount
   useEffect(() => {
@@ -72,6 +74,33 @@ function App() {
     setSelectedDate(date)
   }
 
+  // Calculate date picker height for sticky positioning
+  useEffect(() => {
+    const updateDatePickerHeight = () => {
+      if (datePickerRef.current) {
+        setDatePickerHeight(datePickerRef.current.offsetHeight)
+      }
+    }
+    updateDatePickerHeight()
+    const timeout1 = setTimeout(updateDatePickerHeight, 0)
+    const timeout2 = setTimeout(updateDatePickerHeight, 100)
+    window.addEventListener('resize', updateDatePickerHeight)
+    return () => {
+      clearTimeout(timeout1)
+      clearTimeout(timeout2)
+      window.removeEventListener('resize', updateDatePickerHeight)
+    }
+  }, [availableDates, selectedDate, view])
+  
+  // Calculate navbar height for precise positioning
+  const [navbarHeight, setNavbarHeight] = useState(73)
+  useEffect(() => {
+    const header = document.querySelector('header')
+    if (header) {
+      setNavbarHeight(header.offsetHeight)
+    }
+  }, [])
+
   const renderView = () => {
     switch (view) {
       case 'resources':
@@ -92,8 +121,8 @@ function App() {
       case 'timeline':
       default:
         return (
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <div className="p-4 border-b bg-gray-50 space-y-3">
+          <div className="flex-1 flex flex-col">
+            <div ref={datePickerRef} className="p-4 border-b bg-gray-50 space-y-3 sticky z-40" style={{ top: `${navbarHeight}px` }}>
               {availableDates.length > 0 && (
                 <DateNavigator 
                   dates={availableDates}
@@ -103,7 +132,7 @@ function App() {
               )}
             </div>
             
-            <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex-1 flex flex-col min-h-0">
               {loading && events.length === 0 ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-gray-500">Loading events...</div>
@@ -122,15 +151,17 @@ function App() {
                 </div>
               ) : (
                 <div className="flex flex-1 min-h-0">
-                  <div className={selectedEvent ? "flex-1 min-w-0" : "flex-1 min-w-0"}>
+                  <div className={selectedEvent ? "flex-1 min-w-0 min-h-0" : "flex-1 min-w-0 min-h-0"}>
                     <ModernTimeline 
                       events={events} 
                       selectedDate={selectedDate}
                       onItemSelect={setSelectedEvent}
+                      datePickerHeight={datePickerHeight}
+                      navbarHeight={navbarHeight}
                     />
                   </div>
                   {selectedEvent && (
-                    <div className="w-96 flex-shrink-0">
+                    <div className="w-96 flex-shrink-0 overflow-y-auto">
                       <EventDetailPanel 
                         event={selectedEvent}
                         onClose={() => setSelectedEvent(null)}
@@ -147,7 +178,7 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col">
-      <header className="bg-gray-800 text-white p-4 shadow-lg">
+      <header className="bg-gray-800 text-white p-4 shadow-lg fixed top-0 left-0 right-0 z-50">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold">Broadcast Resource Scheduler</h1>
           <nav className="flex gap-4">
@@ -179,7 +210,7 @@ function App() {
         </div>
       </header>
       
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1" style={{ paddingTop: `${navbarHeight}px` }}>
         {renderView()}
       </div>
     </div>
