@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import moment from 'moment'
+import 'moment-timezone'
 import { 
-  updateBlock, 
+  updateBlock,
+  deleteBlock,
   getResources,
   getBlockRelationships,
   addBlockRelationship,
@@ -42,14 +44,21 @@ function BlockEditor({ block, onClose, onUpdate }) {
 
   useEffect(() => {
     if (block) {
+      // Convert UTC times from database to EST for display in datetime-local inputs
+      const formatTimeForInput = (utcTime) => {
+        if (!utcTime) return ''
+        // Parse as UTC and convert to EST
+        return moment.utc(utcTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
+      }
+      
       setFormData({
         name: block.name || '',
         block_id: block.block_id || '', // Keep for database, but don't display
         obs_id: block.obs_id || '',
-        start_time: block.start_time ? moment(block.start_time).format('YYYY-MM-DDTHH:mm') : '',
-        end_time: block.end_time ? moment(block.end_time).format('YYYY-MM-DDTHH:mm') : '',
-        broadcast_start_time: block.broadcast_start_time ? moment(block.broadcast_start_time).format('YYYY-MM-DDTHH:mm') : '',
-        broadcast_end_time: block.broadcast_end_time ? moment(block.broadcast_end_time).format('YYYY-MM-DDTHH:mm') : '',
+        start_time: formatTimeForInput(block.start_time),
+        end_time: formatTimeForInput(block.end_time),
+        broadcast_start_time: formatTimeForInput(block.broadcast_start_time),
+        broadcast_end_time: formatTimeForInput(block.broadcast_end_time),
         encoder_id: block.encoder_id || '',
         producer_id: block.producer_id || '',
         suite_id: block.suite_id || ''
@@ -118,12 +127,21 @@ function BlockEditor({ block, onClose, onUpdate }) {
       setLoading(true)
       setError(null)
       
+      // Convert datetime-local values (interpreted as EST) to UTC ISO strings
+      const convertESTToUTC = (estDateTimeLocal) => {
+        if (!estDateTimeLocal) return null
+        // Parse the datetime-local value as EST and convert to UTC
+        return moment.tz(estDateTimeLocal, 'America/New_York').utc().toISOString()
+      }
+      
       const blockData = {
-        ...formData,
-        start_time: new Date(formData.start_time).toISOString(),
-        end_time: new Date(formData.end_time).toISOString(),
-        broadcast_start_time: formData.broadcast_start_time ? new Date(formData.broadcast_start_time).toISOString() : null,
-        broadcast_end_time: formData.broadcast_end_time ? new Date(formData.broadcast_end_time).toISOString() : null,
+        name: formData.name,
+        obs_id: formData.obs_id || null,
+        block_id: block.block_id || null, // Preserve block_id for relational use
+        start_time: convertESTToUTC(formData.start_time),
+        end_time: convertESTToUTC(formData.end_time),
+        broadcast_start_time: convertESTToUTC(formData.broadcast_start_time),
+        broadcast_end_time: convertESTToUTC(formData.broadcast_end_time),
         encoder_id: formData.encoder_id || null,
         producer_id: formData.producer_id || null,
         suite_id: formData.suite_id || null
@@ -153,6 +171,23 @@ function BlockEditor({ block, onClose, onUpdate }) {
       loadRelationships()
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!window.confirm('Are you sure you want to delete this block? This action cannot be undone.')) {
+      return
+    }
+    try {
+      setLoading(true)
+      setError(null)
+      await deleteBlock(block.id)
+      onUpdate() // This will reload blocks and close the editor
+      onClose()
+    } catch (err) {
+      setError(err.message || 'Failed to delete block')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -235,7 +270,20 @@ function BlockEditor({ block, onClose, onUpdate }) {
                   type="datetime-local"
                   value={formData.broadcast_start_time}
                   onChange={(e) => setFormData({ ...formData, broadcast_start_time: e.target.value })}
+                  min={formData.start_time ? (() => {
+                    // Set min to same date as start time, but allow any time
+                    const startDate = formData.start_time.split('T')[0]
+                    return `${startDate}T00:00`
+                  })() : undefined}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  onClick={(e) => {
+                    // When calendar opens, if empty, suggest 10 minutes before start time (same date)
+                    if (!formData.broadcast_start_time && formData.start_time) {
+                      const startMoment = moment.tz(formData.start_time, 'America/New_York')
+                      const suggested = startMoment.clone().subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      setFormData(prev => ({ ...prev, broadcast_start_time: suggested }))
+                    }
+                  }}
                 />
               </div>
               <div>
@@ -244,7 +292,20 @@ function BlockEditor({ block, onClose, onUpdate }) {
                   type="datetime-local"
                   value={formData.broadcast_end_time}
                   onChange={(e) => setFormData({ ...formData, broadcast_end_time: e.target.value })}
+                  min={formData.end_time ? (() => {
+                    // Set min to same date as end time, but allow any time
+                    const endDate = formData.end_time.split('T')[0]
+                    return `${endDate}T00:00`
+                  })() : undefined}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  onClick={(e) => {
+                    // When calendar opens, if empty, suggest 10 minutes after end time (same date)
+                    if (!formData.broadcast_end_time && formData.end_time) {
+                      const endMoment = moment.tz(formData.end_time, 'America/New_York')
+                      const suggested = endMoment.clone().add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      setFormData(prev => ({ ...prev, broadcast_end_time: suggested }))
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -405,20 +466,30 @@ function BlockEditor({ block, onClose, onUpdate }) {
             </div>
           </section>
 
-          <div className="flex gap-2 pt-4 border-t">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-            >
-              {loading ? 'Saving...' : 'Save Changes'}
-            </button>
+          <div className="flex flex-col gap-2 pt-4 border-t">
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+              >
+                {loading ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500"
+              onClick={handleDelete}
+              disabled={loading}
+              className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
             >
-              Cancel
+              {loading ? 'Deleting...' : 'Delete Block'}
             </button>
           </div>
         </div>

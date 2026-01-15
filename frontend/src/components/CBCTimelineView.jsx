@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import ModernTimeline from './ModernTimeline'
 import DateNavigator from './DateNavigator'
 import BlockEditor from './BlockEditor'
-import { getBlocks } from '../utils/api'
+import { getBlocks, getResources } from '../utils/api'
 import moment from 'moment'
 
 function CBCTimelineView() {
   const [blocks, setBlocks] = useState([])
+  const [encoders, setEncoders] = useState([])
   const [availableDates, setAvailableDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
   const [selectedBlock, setSelectedBlock] = useState(null)
@@ -15,10 +16,26 @@ function CBCTimelineView() {
   const datePickerRef = useRef(null)
   const [datePickerHeight, setDatePickerHeight] = useState(0)
 
-  // Fetch blocks and extract available dates
+  // Fetch blocks and encoders
   useEffect(() => {
     loadBlocks()
+    loadEncoders()
   }, [])
+
+  const loadEncoders = async () => {
+    try {
+      const data = await getResources('encoders')
+      // Sort encoders: TX 01 - TX 27
+      const sorted = data.sort((a, b) => {
+        const aNum = parseInt(a.name.match(/\d+/)?.[0] || '999', 10)
+        const bNum = parseInt(b.name.match(/\d+/)?.[0] || '999', 10)
+        return aNum - bNum
+      })
+      setEncoders(sorted)
+    } catch (err) {
+      console.error('Error loading encoders:', err)
+    }
+  }
 
   // Update available dates when blocks change
   useEffect(() => {
@@ -34,15 +51,44 @@ function CBCTimelineView() {
     ? blocks.filter(block => moment(block.start_time).format('YYYY-MM-DD') === selectedDate)
     : []
 
-  // Transform blocks to events format for ModernTimeline
-  const events = filteredBlocks.map(block => ({
-    id: block.id,
-    title: block.name,
-    group: block.encoder?.name || 'No Encoder',
-    start_time: block.start_time,
-    end_time: block.end_time,
-    block: block // Store full block data
-  }))
+  // Transform blocks to events format for ModernTimeline and ensure all encoders are shown
+  const events = useMemo(() => {
+    // Transform blocks to events format
+    const blockEvents = filteredBlocks.map(block => ({
+      id: block.id,
+      title: block.name,
+      group: block.encoder?.name || 'No Encoder',
+      start_time: block.start_time,
+      end_time: block.end_time,
+      block: block // Store full block data
+    }))
+
+    // Create events array starting with actual block events
+    const eventsList = [...blockEvents]
+
+    // Ensure all encoders are included in the groups by adding empty placeholder events
+    // This ensures all encoder rows are shown
+    if (encoders.length > 0) {
+      const encoderNames = new Set(encoders.map(e => e.name))
+      const existingGroups = new Set(blockEvents.map(e => e.group))
+      
+      // Add empty placeholder events for encoders that have no blocks
+      encoderNames.forEach(encoderName => {
+        if (!existingGroups.has(encoderName)) {
+          eventsList.push({
+            id: `empty-${encoderName}`,
+            title: '',
+            group: encoderName,
+            start_time: selectedDate ? moment.tz(selectedDate, 'America/New_York').startOf('day').toISOString() : new Date().toISOString(),
+            end_time: selectedDate ? moment.tz(selectedDate, 'America/New_York').startOf('day').toISOString() : new Date().toISOString(),
+            isEmpty: true // Flag to indicate this is an empty encoder row
+          })
+        }
+      })
+    }
+
+    return eventsList
+  }, [filteredBlocks, encoders, selectedDate])
 
   const loadBlocks = async () => {
     try {

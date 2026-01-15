@@ -856,6 +856,7 @@ app.put('/api/blocks', async (req, res) => {
   try {
     const { 
       id, name, block_id, obs_id, start_time, end_time, duration,
+      broadcast_start_time, broadcast_end_time,
       encoder_id, producer_id, suite_id, source_event_id
     } = req.body;
 
@@ -880,6 +881,8 @@ app.put('/api/blocks', async (req, res) => {
     if (obs_id !== undefined) updateData.obs_id = obs_id?.trim() || null;
     if (start_time !== undefined) updateData.start_time = start_time;
     if (end_time !== undefined) updateData.end_time = end_time;
+    if (broadcast_start_time !== undefined) updateData.broadcast_start_time = broadcast_start_time || null;
+    if (broadcast_end_time !== undefined) updateData.broadcast_end_time = broadcast_end_time || null;
     if (calcDuration !== undefined) updateData.duration = calcDuration;
     if (encoder_id !== undefined) updateData.encoder_id = encoder_id || null;
     if (producer_id !== undefined) updateData.producer_id = producer_id || null;

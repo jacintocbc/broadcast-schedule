@@ -2,13 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import ModernTimeline from './ModernTimeline'
 import DateNavigator from './DateNavigator'
 import EventDetailPanel from './EventDetailPanel'
-import { createBlock } from '../utils/api'
+import AddToCBCForm from './AddToCBCForm'
 
 function OBSTimelineView() {
   const [events, setEvents] = useState([])
   const [availableDates, setAvailableDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
   const [selectedEvent, setSelectedEvent] = useState(null)
+  const [eventToAdd, setEventToAdd] = useState(null) // For double-click add form
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const datePickerRef = useRef(null)
@@ -84,6 +85,17 @@ function OBSTimelineView() {
     }
   }
 
+  const handleDoubleClick = (event) => {
+    // Open the add form sidebar
+    setEventToAdd(event)
+    setSelectedEvent(null) // Close event details if open
+  }
+
+  const handleAddSuccess = () => {
+    // Optionally refresh or show success message
+    setEventToAdd(null)
+  }
+
   // Calculate date picker height for sticky positioning
   useEffect(() => {
     const updateDatePickerHeight = () => {
@@ -142,16 +154,26 @@ function OBSTimelineView() {
           </div>
         ) : (
           <div className="flex flex-1 min-h-0">
-            <div className={selectedEvent ? "flex-1 min-w-0 min-h-0" : "flex-1 min-w-0 min-h-0"}>
+            <div className={(selectedEvent || eventToAdd) ? "flex-1 min-w-0 min-h-0" : "flex-1 min-w-0 min-h-0"}>
               <ModernTimeline 
                 events={events} 
                 selectedDate={selectedDate}
                 onItemSelect={setSelectedEvent}
+                onItemDoubleClick={handleDoubleClick}
                 datePickerHeight={datePickerHeight}
                 navbarHeight={navbarHeight}
               />
             </div>
-            {selectedEvent && (
+            {eventToAdd && (
+              <div className="w-96 flex-shrink-0 overflow-y-auto">
+                <AddToCBCForm 
+                  event={eventToAdd}
+                  onClose={() => setEventToAdd(null)}
+                  onSuccess={handleAddSuccess}
+                />
+              </div>
+            )}
+            {selectedEvent && !eventToAdd && (
               <div className="w-96 flex-shrink-0 overflow-y-auto">
                 <EventDetailPanel 
                   event={selectedEvent}

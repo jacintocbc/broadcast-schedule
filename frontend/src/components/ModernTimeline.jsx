@@ -2,7 +2,7 @@ import { useMemo, useRef, useEffect, useState } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight = 0, navbarHeight = 73 }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73 }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
@@ -23,11 +23,15 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
     // Get unique groups (channels)
     const uniqueGroups = [...new Set(events.map(e => e.group).filter(Boolean))]
     
-    // Custom sort: DX01 first, then DX02-DX99 numerically, then others alphabetically
+    // Custom sort: DX01 first, then DX02-DX99 numerically, then TX 01-27 numerically, then others alphabetically
     const groups = uniqueGroups.sort((a, b) => {
       // Check if both are DX groups
       const aIsDX = /^DX\d+$/i.test(a)
       const bIsDX = /^DX\d+$/i.test(b)
+      
+      // Check if both are TX groups
+      const aIsTX = /^TX\s*\d+$/i.test(a)
+      const bIsTX = /^TX\s*\d+$/i.test(b)
       
       // DX01 always first
       if (a.toUpperCase() === 'DX01') return -1
@@ -44,7 +48,18 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
       if (aIsDX) return -1
       if (bIsDX) return 1
       
-      // Neither is DX - sort alphabetically
+      // Both are TX groups - sort numerically
+      if (aIsTX && bIsTX) {
+        const aNum = parseInt(a.match(/\d+/)?.[0] || '999', 10)
+        const bNum = parseInt(b.match(/\d+/)?.[0] || '999', 10)
+        return aNum - bNum
+      }
+      
+      // Only one is TX - TX groups come after DX but before others
+      if (aIsTX) return -1
+      if (bIsTX) return 1
+      
+      // Neither is DX or TX - sort alphabetically
       return a.localeCompare(b)
     })
 
@@ -162,9 +177,35 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
     }
   }, [groups.length, events.length, selectedDate])
 
+  // Track click timing to distinguish single vs double click
+  const clickTimeoutRef = useRef(null)
+  const lastClickRef = useRef({ event: null, time: 0 })
+
   const handleItemClick = (event) => {
-    if (onItemSelect) {
-      onItemSelect(event)
+    const now = Date.now()
+    const timeSinceLastClick = now - lastClickRef.current.time
+    const isDoubleClick = lastClickRef.current.event?.id === event.id && timeSinceLastClick < 300
+
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current)
+      clickTimeoutRef.current = null
+    }
+
+    if (isDoubleClick) {
+      // Double click detected
+      if (onItemDoubleClick) {
+        onItemDoubleClick(event)
+      }
+      lastClickRef.current = { event: null, time: 0 }
+    } else {
+      // Single click - wait a bit to see if it becomes a double click
+      lastClickRef.current = { event, time: now }
+      clickTimeoutRef.current = setTimeout(() => {
+        if (onItemSelect) {
+          onItemSelect(event)
+        }
+        lastClickRef.current = { event: null, time: 0 }
+      }, 300)
     }
   }
 
@@ -253,7 +294,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                 </div>
 
                 {/* Events */}
-                {itemsByGroup[group]?.map((event, eventIdx) => {
+                {itemsByGroup[group]?.filter(event => !event.isEmpty).map((event, eventIdx) => {
                   // Clamp to visible day (0-100%)
                   const leftPercent = Math.max(0, Math.min(100, event.startPercent))
                   const rightPercent = Math.max(0, Math.min(100, event.startPercent + event.widthPercent))
@@ -267,14 +308,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, datePickerHeight =
                   const backgroundColor = event.isZeroDuration ? '#eab308' : (isBlock ? '#10b981' : '#3b82f6')
                   const borderColor = event.isZeroDuration ? '#ca8a04' : (isBlock ? '#059669' : '#2563eb')
                   
-                  // Format times for display
-                  const startEST = moment(event.start_time).tz('America/New_York')
-                  const endEST = moment(event.end_time).tz('America/New_York')
-                  const startRome = moment(event.start_time).tz('Europe/Rome')
-                  const endRome = moment(event.end_time).tz('Europe/Rome')
+                  // Format times for display - explicitly parse as UTC first, then convert to EST
+                  const startEST = moment.utc(event.start_time).tz('America/New_York')
+                  const endEST = moment.utc(event.end_time).tz('America/New_York')
+                  const startRome = moment.utc(event.start_time).tz('Europe/Rome')
+                  const endRome = moment.utc(event.end_time).tz('Europe/Rome')
                   
-                  const broadcastStart = block.broadcast_start_time ? moment(block.broadcast_start_time).tz('America/New_York') : null
-                  const broadcastEnd = block.broadcast_end_time ? moment(block.broadcast_end_time).tz('America/New_York') : null
+                  const broadcastStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time).tz('America/New_York') : null
+                  const broadcastEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time).tz('America/New_York') : null
                   
                   return (
                     <div
