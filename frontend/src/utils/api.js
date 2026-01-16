@@ -114,8 +114,20 @@ export async function addBlockRelationship(blockId, relationshipType, relationsh
     body: JSON.stringify(body)
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || `Failed to add ${relationshipType}`);
+    let errorMessage = `Failed to add ${relationshipType}`;
+    try {
+      const error = await response.json();
+      errorMessage = error.error || errorMessage;
+    } catch (e) {
+      // If response is not JSON, try to get text
+      try {
+        const text = await response.text();
+        errorMessage = text || errorMessage;
+      } catch (e2) {
+        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      }
+    }
+    throw new Error(errorMessage);
   }
   return response.json();
 }

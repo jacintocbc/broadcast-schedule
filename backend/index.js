@@ -800,7 +800,8 @@ app.post('/api/blocks', async (req, res) => {
   try {
     const { 
       name, block_id, obs_id, start_time, end_time, duration,
-      encoder_id, producer_id, suite_id, source_event_id
+      broadcast_start_time, broadcast_end_time,
+      encoder_id, producer_id, suite_id, source_event_id, obs_group
     } = req.body;
 
     if (!name || !start_time || !end_time) {
@@ -827,10 +828,13 @@ app.post('/api/blocks', async (req, res) => {
         start_time,
         end_time,
         duration: calculatedDuration,
+        broadcast_start_time: broadcast_start_time || null,
+        broadcast_end_time: broadcast_end_time || null,
         encoder_id: encoder_id || null,
         producer_id: producer_id || null,
         suite_id: suite_id || null,
-        source_event_id: source_event_id || null
+        source_event_id: source_event_id || null,
+        obs_group: obs_group?.trim() || null
       }])
       .select()
       .single();
@@ -857,7 +861,7 @@ app.put('/api/blocks', async (req, res) => {
     const { 
       id, name, block_id, obs_id, start_time, end_time, duration,
       broadcast_start_time, broadcast_end_time,
-      encoder_id, producer_id, suite_id, source_event_id
+      encoder_id, producer_id, suite_id, source_event_id, obs_group
     } = req.body;
 
     if (!id) {
@@ -888,6 +892,7 @@ app.put('/api/blocks', async (req, res) => {
     if (producer_id !== undefined) updateData.producer_id = producer_id || null;
     if (suite_id !== undefined) updateData.suite_id = suite_id || null;
     if (source_event_id !== undefined) updateData.source_event_id = source_event_id || null;
+    if (obs_group !== undefined) updateData.obs_group = obs_group?.trim() || null;
 
     const { data: updated, error: updateError } = await supabase
       .from('blocks')
@@ -1020,7 +1025,8 @@ app.all('/api/blocks/:blockId/relationships', async (req, res) => {
           if (linkError.code === '23505') {
             return res.status(409).json({ error: `${relatedKey} is already linked to this block` });
           }
-          throw linkError;
+          console.error('Error adding relationship:', linkError);
+          return res.status(500).json({ error: linkError.message || 'Failed to add relationship' });
         }
         res.status(201).json(link);
         break;
@@ -1037,7 +1043,10 @@ app.all('/api/blocks/:blockId/relationships', async (req, res) => {
           .eq('id', linkId)
           .eq('block_id', blockId);
         
-        if (deleteError) throw deleteError;
+        if (deleteError) {
+          console.error('Error deleting relationship:', deleteError);
+          return res.status(500).json({ error: deleteError.message || 'Failed to delete relationship' });
+        }
         res.status(204).end();
         break;
 

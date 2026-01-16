@@ -266,7 +266,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           {groups.map((group, groupIdx) => {
             // Check if this group has any blocks (CBC timeline) vs events (OBS timeline)
             const hasBlocks = itemsByGroup[group]?.some(item => item.block) || false
-            const rowHeight = hasBlocks ? '200px' : '80px'
+            const rowMinHeight = hasBlocks ? '200px' : '80px'
             
             return (
             <div
@@ -274,7 +274,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               className={`flex border-b border-gray-100 ${
                 groupIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
               }`}
-              style={{ minHeight: rowHeight }}
+              style={{ minHeight: rowMinHeight }}
             >
               {/* Group label */}
               <div className="w-32 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 flex items-center justify-center">
@@ -282,7 +282,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               </div>
 
               {/* Timeline area */}
-              <div className="flex-1 relative" style={{ minHeight: rowHeight }}>
+              <div className="flex-1 relative" style={{ minHeight: rowMinHeight }}>
                 {/* Hour markers */}
                 <div className="absolute inset-0 flex">
                   {hours.map((_, idx) => (
@@ -328,59 +328,98 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                         minWidth: isBlock ? '200px' : '120px',
                         backgroundColor,
                         border: `2px solid ${borderColor}`,
-                        zIndex: 10
+                        zIndex: 10,
+                        height: isBlock ? 'auto' : undefined,
+                        minHeight: isBlock ? 'auto' : undefined
                       }}
                       title={event.title}
                     >
                       {isBlock ? (
-                        // Block display with metadata - taller to show all fields
-                        <div className="h-full flex flex-col text-white p-2 text-[11px] leading-tight">
-                          {/* Time ranges */}
-                          <div className="mb-1.5 space-y-0.5">
-                            {broadcastStart && broadcastEnd && (
-                              <div className="text-[10px] opacity-90">
-                                ({broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')})
-                              </div>
-                            )}
-                            <div className="text-[10px] opacity-90">
-                              {startEST.format('HH:mm')} - {endEST.format('HH:mm')}
-                            </div>
-                          </div>
-                          
-                          {/* Encoder / Suite identifier */}
-                          {(block.encoder || block.suite) && (
-                            <div className="font-semibold mb-1.5 truncate text-[10px]">
-                              {block.encoder?.name || ''} {block.encoder && block.suite ? '-' : ''} {block.suite?.name || ''}
+                        // Block display with metadata - matching the provided format
+                        <div className="flex flex-col text-white p-2 text-[14.6px] leading-tight" style={{ minHeight: '100%' }}>
+                          {/* Broadcast times in parentheses (first line) */}
+                          {broadcastStart && broadcastEnd && (
+                            <div className="text-[13.3px] opacity-90 mb-0.5">
+                              ({broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')})
                             </div>
                           )}
                           
-                          {/* Event name */}
-                          <div className="font-medium mb-1.5 truncate text-[11px]">
+                          {/* Actual event times (second line) */}
+                          <div className="text-[13.3px] opacity-90 mb-1">
+                            {startEST.format('HH:mm')} - {endEST.format('HH:mm')}
+                          </div>
+                          
+                          {/* DX Channel from OBS or Encoder/Suite identifier (third line) */}
+                          {block.obs_group ? (
+                            <div className="font-semibold mb-1 text-[13.3px]">
+                              {block.obs_group}
+                            </div>
+                          ) : (block.encoder || block.suite) ? (
+                            <div className="font-semibold mb-1 text-[13.3px]">
+                              {block.encoder?.name || ''} {block.encoder && block.suite ? '-' : ''} {block.suite?.name || ''}
+                            </div>
+                          ) : null}
+                          
+                          {/* Event name (fourth line) - wrap to show full title */}
+                          <div className="font-medium mb-1 text-[14.6px] break-words">
                             {block.name || event.title}
                           </div>
                           
-                          {/* TBD or other status */}
-                          <div className="text-[10px] opacity-75 mb-1.5">
-                            TBD
-                          </div>
-                          
-                          {/* Networks */}
-                          {block.networks && block.networks.length > 0 && (
-                            <div className="mt-auto space-y-0.5 mb-1">
-                              {block.networks.map((network, idx) => (
-                                <div key={network.id || idx} className="text-[10px] opacity-90">
-                                  {network.name}: VIS
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          
-                          {/* Booths */}
-                          {block.booths && block.booths.length > 0 && (
-                            <div className="text-[10px] opacity-75">
-                              {block.booths.map(b => b.name).join(', ')}
-                            </div>
-                          )}
+                          {/* Networks and Booths - one per line: "CBC TV : VT 52" format */}
+                          {/* Always show the three network labels if we have any booths */}
+                          {(() => {
+                            // Define the three network labels in order (with proper capitalization)
+                            const networkLabels = ['CBC TV', 'CBC WEB', 'R-C TV/WEB']
+                            const displayLabels = ['CBC TV', 'CBC Web', 'R-C TV/Web'] // Display labels
+                            const displayItems = []
+                            
+                            // If we have booths, always show the three network labels
+                            if (block.booths && block.booths.length > 0) {
+                              // For each network label, find matching booth by index
+                              networkLabels.forEach((networkLabel, labelIdx) => {
+                                // Match booths to network labels by index (first booth = CBC TV, second = CBC Web, third = R-C TV/Web)
+                                const booth = block.booths[labelIdx] || null
+                                
+                                // Always show the network label if we have a booth for it
+                                if (booth) {
+                                  displayItems.push({ 
+                                    networkName: displayLabels[labelIdx], 
+                                    boothName: booth.name 
+                                  })
+                                }
+                              })
+                            }
+                            
+                            // Also check for networks that exist in the database (in case they're stored differently)
+                            if (block.networks && block.networks.length > 0) {
+                              block.networks.forEach((network, idx) => {
+                                // Find the display label that matches this network
+                                const networkLabelIndex = networkLabels.findIndex(nl => nl === network.name)
+                                const displayLabel = networkLabelIndex >= 0 ? displayLabels[networkLabelIndex] : network.name
+                                
+                                // Find matching booth
+                                const booth = block.booths && block.booths[idx] ? block.booths[idx] : null
+                                
+                                // Only add if not already in displayItems
+                                if (!displayItems.find(item => item.networkName === displayLabel && item.boothName === booth?.name)) {
+                                  displayItems.push({ 
+                                    networkName: displayLabel, 
+                                    boothName: booth?.name || null 
+                                  })
+                                }
+                              })
+                            }
+                            
+                            return displayItems.length > 0 ? (
+                              <div className="mt-auto space-y-0.5 mb-1">
+                                {displayItems.map((item, idx) => (
+                                  <div key={idx} className="text-[13.3px] opacity-90">
+                                    {item.networkName}{item.boothName ? ` : ${item.boothName}` : ''}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null
+                          })()}
                         </div>
                       ) : (
                         // Regular event display

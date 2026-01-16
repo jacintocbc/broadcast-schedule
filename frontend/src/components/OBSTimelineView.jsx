@@ -68,23 +68,6 @@ function OBSTimelineView() {
     setSelectedDate(date)
   }
 
-  const handleAddToCBC = async (event) => {
-    try {
-      // Create a block from the event
-      await createBlock({
-        name: event.title,
-        obs_id: event.id,
-        start_time: event.start_time,
-        end_time: event.end_time,
-        source_event_id: event.id
-      })
-      alert('Event added to CBC Timeline!')
-    } catch (err) {
-      alert('Error adding event to CBC: ' + err.message)
-      console.error('Error adding to CBC:', err)
-    }
-  }
-
   const handleDoubleClick = (event) => {
     // Open the add form sidebar
     setEventToAdd(event)
@@ -178,7 +161,6 @@ function OBSTimelineView() {
                 <EventDetailPanel 
                   event={selectedEvent}
                   onClose={() => setSelectedEvent(null)}
-                  onAddToCBC={handleAddToCBC}
                 />
               </div>
             )}

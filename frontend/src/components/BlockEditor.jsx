@@ -38,6 +38,27 @@ function BlockEditor({ block, onClose, onUpdate }) {
     booths: [],
     networks: []
   })
+  
+  // State for booth selections (networks are automatically added based on booth selection)
+  const [boothSelections, setBoothSelections] = useState({
+    cbcTv: '',
+    cbcWeb: '',
+    rcTvWeb: ''
+  })
+  
+  // State for commentator selections (three dropdowns: PxP, Color, Spare)
+  const [commentatorSelections, setCommentatorSelections] = useState({
+    pxp: '',
+    color: '',
+    spare: ''
+  })
+  
+  // Network labels that correspond to booth selections
+  const networkLabels = {
+    cbcTv: 'CBC TV',
+    cbcWeb: 'CBC WEB',
+    rcTvWeb: 'R-C TV/WEB'
+  }
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -116,6 +137,59 @@ function BlockEditor({ block, onClose, onUpdate }) {
           linkId: n.id 
         }))
       })
+      
+      // Initialize booth selections from relationships
+      // Match booths to their corresponding network labels
+      const boothMap = {}
+      const networkLabels = {
+        'CBC TV': 'cbcTv',
+        'CBC WEB': 'cbcWeb',
+        'R-C TV/WEB': 'rcTvWeb'
+      }
+      
+      // Match each booth to its network label
+      boothsRes.forEach(boothRel => {
+        const matchingNetwork = networksRes.find(n => {
+          const networkLabel = networkLabels[n.network.name]
+          return networkLabel
+        })
+        if (matchingNetwork) {
+          const labelKey = networkLabels[matchingNetwork.network.name]
+          if (labelKey) {
+            boothMap[labelKey] = boothRel.booth.id
+          }
+        }
+      })
+      
+      // Also check if we have unmatched booths (fallback to first 3)
+      if (!boothMap.cbcTv && boothsRes[0]) boothMap.cbcTv = boothsRes[0].booth.id
+      if (!boothMap.cbcWeb && boothsRes[1]) boothMap.cbcWeb = boothsRes[1].booth.id
+      if (!boothMap.rcTvWeb && boothsRes[2]) boothMap.rcTvWeb = boothsRes[2].booth.id
+      
+      setBoothSelections({
+        cbcTv: boothMap.cbcTv || '',
+        cbcWeb: boothMap.cbcWeb || '',
+        rcTvWeb: boothMap.rcTvWeb || ''
+      })
+      
+      // Initialize commentator selections from relationships
+      const commentatorMap = {
+        pxp: '',
+        color: '',
+        spare: ''
+      }
+      
+      commentatorsRes.forEach(c => {
+        if (c.role === 'PxP') {
+          commentatorMap.pxp = c.commentator.id
+        } else if (c.role === 'Color') {
+          commentatorMap.color = c.commentator.id
+        } else if (c.role === 'Spare') {
+          commentatorMap.spare = c.commentator.id
+        }
+      })
+      
+      setCommentatorSelections(commentatorMap)
     } catch (err) {
       console.error('Error loading relationships:', err)
     }
@@ -214,35 +288,20 @@ function BlockEditor({ block, onClose, onUpdate }) {
         )}
 
         <div className="space-y-4">
-          {/* Basic Information */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Basic Information</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">Event Name *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">OBS ID</label>
-                <input
-                  type="text"
-                  value={formData.obs_id}
-                  onChange={(e) => setFormData({ ...formData, obs_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
-            </div>
-          </section>
+          {/* Event Name */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Event Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            />
+          </div>
 
           {/* Times */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Times</h3>
+          <div>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Start Time *</label>
@@ -309,12 +368,13 @@ function BlockEditor({ block, onClose, onUpdate }) {
                 />
               </div>
             </div>
-          </section>
+          </div>
 
-          {/* Single Relationships */}
+          {/* Resources */}
           <section>
             <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Resources</h3>
             <div className="space-y-3">
+              {/* Encoder */}
               <div>
                 <label className="block text-sm font-medium mb-1">Encoder</label>
                 <select
@@ -328,6 +388,219 @@ function BlockEditor({ block, onClose, onUpdate }) {
                   ))}
                 </select>
               </div>
+              
+              {/* Booths - networks are automatically added based on booth selection */}
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-sm font-medium mb-1">CBC TV - Booth</label>
+                  <select
+                    value={boothSelections.cbcTv}
+                    onChange={async (e) => {
+                      const newValue = e.target.value
+                      const oldValue = boothSelections.cbcTv
+                      setBoothSelections({ ...boothSelections, cbcTv: newValue })
+                      
+                      // Remove old booth and its network
+                      if (oldValue && oldValue !== newValue) {
+                        const existingBooth = relationships.booths.find(b => b.id === oldValue)
+                        if (existingBooth) {
+                          await handleRemoveRelationship('booths', existingBooth.linkId)
+                        }
+                        // Find and remove the corresponding network
+                        const existingNetwork = relationships.networks.find(n => n.name === networkLabels.cbcTv)
+                        if (existingNetwork) {
+                          await handleRemoveRelationship('networks', existingNetwork.linkId)
+                        }
+                      }
+                      
+                      // Add new booth and its network
+                      if (newValue) {
+                        await handleAddRelationship('booths', newValue)
+                        // Find network by label
+                        const network = networks.find(n => n.name === networkLabels.cbcTv)
+                        if (network) {
+                          await handleAddRelationship('networks', network.id)
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  >
+                    <option value="">None</option>
+                    {booths.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">CBC WEB - Booth</label>
+                  <select
+                    value={boothSelections.cbcWeb}
+                    onChange={async (e) => {
+                      const newValue = e.target.value
+                      const oldValue = boothSelections.cbcWeb
+                      setBoothSelections({ ...boothSelections, cbcWeb: newValue })
+                      
+                      if (oldValue && oldValue !== newValue) {
+                        const existingBooth = relationships.booths.find(b => b.id === oldValue)
+                        if (existingBooth) {
+                          await handleRemoveRelationship('booths', existingBooth.linkId)
+                        }
+                        const existingNetwork = relationships.networks.find(n => n.name === networkLabels.cbcWeb)
+                        if (existingNetwork) {
+                          await handleRemoveRelationship('networks', existingNetwork.linkId)
+                        }
+                      }
+                      
+                      if (newValue) {
+                        await handleAddRelationship('booths', newValue)
+                        const network = networks.find(n => n.name === networkLabels.cbcWeb)
+                        if (network) {
+                          await handleAddRelationship('networks', network.id)
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  >
+                    <option value="">None</option>
+                    {booths.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">R-C TV/WEB - Booth</label>
+                  <select
+                    value={boothSelections.rcTvWeb}
+                    onChange={async (e) => {
+                      const newValue = e.target.value
+                      const oldValue = boothSelections.rcTvWeb
+                      setBoothSelections({ ...boothSelections, rcTvWeb: newValue })
+                      
+                      if (oldValue && oldValue !== newValue) {
+                        const existingBooth = relationships.booths.find(b => b.id === oldValue)
+                        if (existingBooth) {
+                          await handleRemoveRelationship('booths', existingBooth.linkId)
+                        }
+                        const existingNetwork = relationships.networks.find(n => n.name === networkLabels.rcTvWeb)
+                        if (existingNetwork) {
+                          await handleRemoveRelationship('networks', existingNetwork.linkId)
+                        }
+                      }
+                      
+                      if (newValue) {
+                        await handleAddRelationship('booths', newValue)
+                        const network = networks.find(n => n.name === networkLabels.rcTvWeb)
+                        if (network) {
+                          await handleAddRelationship('networks', network.id)
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  >
+                    <option value="">None</option>
+                    {booths.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              {/* Commentators */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Commentators</label>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">PxP</label>
+                    <select
+                      value={commentatorSelections.pxp}
+                      onChange={async (e) => {
+                        const newValue = e.target.value
+                        const oldValue = commentatorSelections.pxp
+                        setCommentatorSelections({ ...commentatorSelections, pxp: newValue })
+                        
+                        // Remove old commentator relationship if it exists
+                        if (oldValue) {
+                          const existing = relationships.commentators.find(c => c.id === oldValue && c.role === 'PxP')
+                          if (existing) {
+                            await handleRemoveRelationship('commentators', existing.linkId)
+                          }
+                        }
+                        
+                        // Add new commentator relationship with role
+                        if (newValue) {
+                          await handleAddRelationship('commentators', newValue, 'PxP')
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="">None</option>
+                      {commentators.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Color</label>
+                    <select
+                      value={commentatorSelections.color}
+                      onChange={async (e) => {
+                        const newValue = e.target.value
+                        const oldValue = commentatorSelections.color
+                        setCommentatorSelections({ ...commentatorSelections, color: newValue })
+                        
+                        if (oldValue) {
+                          const existing = relationships.commentators.find(c => c.id === oldValue && c.role === 'Color')
+                          if (existing) {
+                            await handleRemoveRelationship('commentators', existing.linkId)
+                          }
+                        }
+                        
+                        if (newValue) {
+                          await handleAddRelationship('commentators', newValue, 'Color')
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="">None</option>
+                      {commentators.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Spare</label>
+                    <select
+                      value={commentatorSelections.spare}
+                      onChange={async (e) => {
+                        const newValue = e.target.value
+                        const oldValue = commentatorSelections.spare
+                        setCommentatorSelections({ ...commentatorSelections, spare: newValue })
+                        
+                        if (oldValue) {
+                          const existing = relationships.commentators.find(c => c.id === oldValue && c.role === 'Spare')
+                          if (existing) {
+                            await handleRemoveRelationship('commentators', existing.linkId)
+                          }
+                        }
+                        
+                        if (newValue) {
+                          await handleAddRelationship('commentators', newValue, 'Spare')
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="">None</option>
+                      {commentators.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Producer */}
               <div>
                 <label className="block text-sm font-medium mb-1">Producer</label>
                 <select
@@ -341,6 +614,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
                   ))}
                 </select>
               </div>
+              
+              {/* Suite */}
               <div>
                 <label className="block text-sm font-medium mb-1">Suite</label>
                 <select
@@ -357,139 +632,31 @@ function BlockEditor({ block, onClose, onUpdate }) {
             </div>
           </section>
 
-          {/* Multiple Relationships */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Commentators</h3>
-            <div className="space-y-2">
-              {relationships.commentators.length === 0 ? (
-                <p className="text-sm text-gray-500">No commentators</p>
-              ) : (
-                relationships.commentators.map(c => (
-                  <div key={c.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                    <span className="text-sm">{c.name} {c.role && `(${c.role})`}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRelationship('commentators', c.linkId)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))
-              )}
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleAddRelationship('commentators', e.target.value)
-                    e.target.value = ''
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="">+ Add Commentator</option>
-                {commentators.filter(c => !relationships.commentators.find(r => r.id === c.id)).map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-          </section>
-
-          <section>
-            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Booths</h3>
-            <div className="space-y-2">
-              {relationships.booths.length === 0 ? (
-                <p className="text-sm text-gray-500">No booths</p>
-              ) : (
-                relationships.booths.map(b => (
-                  <div key={b.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                    <span className="text-sm">{b.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRelationship('booths', b.linkId)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))
-              )}
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleAddRelationship('booths', e.target.value)
-                    e.target.value = ''
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="">+ Add Booth</option>
-                {booths.filter(b => !relationships.booths.find(r => r.id === b.id)).map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </div>
-          </section>
-
-          <section>
-            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Networks</h3>
-            <div className="space-y-2">
-              {relationships.networks.length === 0 ? (
-                <p className="text-sm text-gray-500">No networks</p>
-              ) : (
-                relationships.networks.map(n => (
-                  <div key={n.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                    <span className="text-sm">{n.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRelationship('networks', n.linkId)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))
-              )}
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleAddRelationship('networks', e.target.value)
-                    e.target.value = ''
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="">+ Add Network</option>
-                {networks.filter(n => !relationships.networks.find(r => r.id === n.id)).map(n => (
-                  <option key={n.id} value={n.id}>{n.name}</option>
-                ))}
-              </select>
-            </div>
-          </section>
-
-          <div className="flex flex-col gap-2 pt-4 border-t">
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-              >
-                {loading ? 'Saving...' : 'Save Changes'}
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500"
-              >
-                Cancel
-              </button>
-            </div>
+          <div className="flex gap-2 pt-4 border-t">
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+            >
+              {loading ? 'Saving...' : 'Save Changes'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500"
+            >
+              Cancel
+            </button>
             <button
               type="button"
               onClick={handleDelete}
               disabled={loading}
-              className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+              title="Delete Block"
             >
-              {loading ? 'Deleting...' : 'Delete Block'}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
             </button>
           </div>
         </div>
