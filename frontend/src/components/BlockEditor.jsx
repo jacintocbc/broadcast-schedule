@@ -56,7 +56,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
   // Network labels that correspond to booth selections
   const networkLabels = {
     cbcTv: 'CBC TV',
-    cbcWeb: 'CBC WEB',
+    cbcWeb: 'CBC Gem',
     rcTvWeb: 'R-C TV/WEB'
   }
 
@@ -143,7 +143,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
       const boothMap = {}
       const networkLabels = {
         'CBC TV': 'cbcTv',
-        'CBC WEB': 'cbcWeb',
+        'CBC Gem': 'cbcWeb',
         'R-C TV/WEB': 'rcTvWeb'
       }
       
@@ -433,7 +433,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium mb-1">CBC WEB - Booth</label>
+                  <label className="block text-sm font-medium mb-1">CBC Gem - Booth</label>
                   <select
                     value={boothSelections.cbcWeb}
                     onChange={async (e) => {

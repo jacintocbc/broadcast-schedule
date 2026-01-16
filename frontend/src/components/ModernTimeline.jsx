@@ -369,15 +369,15 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           {/* Always show the three network labels if we have any booths */}
                           {(() => {
                             // Define the three network labels in order (with proper capitalization)
-                            const networkLabels = ['CBC TV', 'CBC WEB', 'R-C TV/WEB']
-                            const displayLabels = ['CBC TV', 'CBC Web', 'R-C TV/Web'] // Display labels
+                            const networkLabels = ['CBC TV', 'CBC Gem', 'R-C TV/WEB']
+                            const displayLabels = ['CBC TV', 'CBC Gem', 'R-C TV/Web'] // Display labels
                             const displayItems = []
                             
                             // If we have booths, always show the three network labels
                             if (block.booths && block.booths.length > 0) {
                               // For each network label, find matching booth by index
                               networkLabels.forEach((networkLabel, labelIdx) => {
-                                // Match booths to network labels by index (first booth = CBC TV, second = CBC Web, third = R-C TV/Web)
+                                // Match booths to network labels by index (first booth = CBC TV, second = CBC Gem, third = R-C TV/Web)
                                 const booth = block.booths[labelIdx] || null
                                 
                                 // Always show the network label if we have a booth for it

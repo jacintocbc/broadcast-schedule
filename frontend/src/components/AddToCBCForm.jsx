@@ -40,7 +40,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
   // Network labels that correspond to booth selections (these are just labels, not actual network records)
   const networkLabels = {
     cbcTv: 'CBC TV',
-    cbcWeb: 'CBC WEB',
+    cbcWeb: 'CBC Gem',
     rcTvWeb: 'R-C TV/WEB'
   }
 
@@ -314,7 +314,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium mb-1">CBC WEB - Booth</label>
+                  <label className="block text-sm font-medium mb-1">CBC Gem - Booth</label>
                   <select
                     value={boothSelections.cbcWeb}
                     onChange={(e) => setBoothSelections({ ...boothSelections, cbcWeb: e.target.value })}
