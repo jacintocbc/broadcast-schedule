@@ -268,6 +268,9 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
             const hasBlocks = itemsByGroup[group]?.some(item => item.block) || false
             const rowMinHeight = hasBlocks ? '200px' : '80px'
             
+            // Check if this is a TX encoder row (CBC timeline)
+            const isTXEncoder = /^TX\s*\d+$/i.test(group)
+            
             return (
             <div
               key={group}
@@ -277,8 +280,36 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               style={{ minHeight: rowMinHeight }}
             >
               {/* Group label */}
-              <div className="w-32 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 flex items-center justify-center">
-                <div className="font-semibold text-gray-800 text-sm">{group}</div>
+              <div className="w-32 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 flex flex-col items-center justify-center">
+                {isTXEncoder ? (
+                  // CBC Timeline TX encoders: Always show TX, OLY, and RX labels
+                  (() => {
+                    // Extract TX number from encoder name (e.g., "TX 01" -> "01")
+                    const txMatch = group.match(/TX\s*(\d+)/i)
+                    const txNum = txMatch ? txMatch[1] : null
+                    
+                    // Generate OLY label: OLY + (900 + TX number) -> OLY901, OLY902, etc.
+                    const olyLabel = txNum ? `OLY${900 + parseInt(txNum)}` : ''
+                    
+                    // Generate RX label from TX number (TX 01 -> RX 01)
+                    const rxLabel = txNum ? `RX ${txNum.padStart(2, '0')}` : ''
+                    
+                    return (
+                      <>
+                        <div className="font-semibold text-gray-800 text-sm">{group}</div>
+                        {olyLabel && (
+                          <div className="font-semibold text-gray-800 text-sm mt-1">{olyLabel}</div>
+                        )}
+                        {rxLabel && (
+                          <div className="font-semibold text-gray-800 text-sm mt-1">{rxLabel}</div>
+                        )}
+                      </>
+                    )
+                  })()
+                ) : (
+                  // OBS Timeline or other groups: Just show group name
+                  <div className="font-semibold text-gray-800 text-sm">{group}</div>
+                )}
               </div>
 
               {/* Timeline area */}
