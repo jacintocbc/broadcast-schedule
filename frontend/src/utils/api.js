@@ -104,8 +104,26 @@ export async function deleteBlock(id) {
 
 // Block relationships API - now uses consolidated /api/blocks/[blockId]/relationships endpoint
 export async function getBlockRelationships(blockId, relationshipType) {
-  const response = await fetch(`${API_BASE}/api/blocks/${blockId}/relationships?relationshipType=${relationshipType}`);
-  if (!response.ok) throw new Error(`Failed to fetch ${relationshipType}`);
+  const url = `${API_BASE}/api/blocks/${blockId}/relationships?relationshipType=${relationshipType}`;
+  const response = await fetch(url);
+  
+  // Check if response is HTML (error page) instead of JSON
+  const contentType = response.headers.get('content-type');
+  if (contentType && !contentType.includes('application/json')) {
+    const text = await response.text();
+    console.error('Non-JSON response from relationships API:', {
+      url,
+      status: response.status,
+      contentType,
+      responsePreview: text.substring(0, 200)
+    });
+    throw new Error(`API returned non-JSON response (${response.status}): ${response.statusText}`);
+  }
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: `Failed to fetch ${relationshipType}` }));
+    throw new Error(error.error || `Failed to fetch ${relationshipType}`);
+  }
   return response.json();
 }
 

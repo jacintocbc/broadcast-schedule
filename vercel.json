@@ -9,12 +9,15 @@
       "destination": "/api/resources?type=:type"
     },
     {
-      "source": "/api/blocks/:blockId/relationships",
-      "destination": "/api/blocks/:blockId/relationships"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/:path*",
+      "destination": "/index.html",
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": "text/html"
+        }
+      ]
     }
   ],
   "functions": {

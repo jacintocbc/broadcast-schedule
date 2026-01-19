@@ -17,31 +17,60 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Extract blockId and relationship type from URL
-  // Vercel rewrite: /api/blocks/:blockId/:relationshipType -> /api/blocks/:blockId/relationships?relationshipType=:relationshipType&blockId=:blockId
-  // Dynamic route: api/blocks/[blockId]/relationships.js
-  // The rewrite adds both blockId and relationshipType to query params
-  let blockId = req.query.blockId;
+  // Extract blockId from URL path (Vercel dynamic route: [blockId])
+  // In Vercel, dynamic route params are in req.query with the bracket name or without brackets
+  let blockId = req.query.blockId || req.query['[blockId]'];
   let relationshipType = req.query.relationshipType;
   
-  // Fallback: Parse from URL path if not in query
-  if (!blockId || !relationshipType) {
-    if (req.url) {
-      const urlPath = req.url.split('?')[0];
-      // Match /api/blocks/{blockId}/relationships
-      const match = urlPath.match(/\/blocks\/([^/]+)\/relationships/);
-      if (match && match[1] && !blockId) {
-        blockId = match[1];
-      }
+  // Debug logging (remove in production if needed)
+  console.log('Relationships API called:', {
+    url: req.url,
+    method: req.method,
+    query: req.query,
+    blockId,
+    relationshipType
+  });
+  
+  // Fallback: Parse blockId from URL path if not in query
+  if (!blockId && req.url) {
+    const urlPath = req.url.split('?')[0];
+    // Match /api/blocks/{blockId}/relationships
+    const match = urlPath.match(/\/blocks\/([^/]+)\/relationships/);
+    if (match && match[1]) {
+      blockId = match[1];
+    }
+  }
+  
+  // Additional fallback: Try to get it from the request path segments
+  if (!blockId && req.url) {
+    const urlPath = req.url.split('?')[0];
+    const parts = urlPath.split('/');
+    const blocksIndex = parts.indexOf('blocks');
+    if (blocksIndex >= 0 && parts[blocksIndex + 1]) {
+      blockId = parts[blocksIndex + 1];
     }
   }
 
   if (!blockId) {
-    return res.status(400).json({ error: 'Block ID is required' });
+    return res.status(400).json({ 
+      error: 'Block ID is required',
+      debug: {
+        url: req.url,
+        query: req.query,
+        parsedBlockId: blockId
+      }
+    });
   }
 
   if (!relationshipType) {
-    return res.status(400).json({ error: 'Relationship type is required' });
+    return res.status(400).json({ 
+      error: 'Relationship type is required',
+      debug: {
+        url: req.url,
+        query: req.query,
+        relationshipType
+      }
+    });
   }
 
   if (!validTypes.includes(relationshipType)) {
