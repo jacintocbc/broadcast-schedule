@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect, useState } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
-import { getBlockTypeColor } from '../utils/blockTypes'
+import { getBlockTypeColor, darkenColor } from '../utils/blockTypes'
 
 function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73 }) {
   const containerRef = useRef(null)
@@ -347,7 +347,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   } else if (isBlock) {
                     // Get color from block type, or use default green
                     backgroundColor = getBlockTypeColor(block.type)
-                    borderColor = '#059669' // Keep green border for blocks
+                    // Use a darker version of the background color for the border
+                    borderColor = darkenColor(backgroundColor, 30)
                     
                     // Use dark text for light backgrounds (white and light pastel colors)
                     // Light colors have high RGB values (above ~200 for each channel)

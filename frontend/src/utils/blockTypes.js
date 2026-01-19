@@ -118,3 +118,35 @@ export function getBlockTypeColor(type) {
   if (!type) return DEFAULT_BLOCK_COLOR
   return BLOCK_TYPE_COLORS[type] || DEFAULT_BLOCK_COLOR
 }
+
+/**
+ * Darkens a hex color by a specified amount
+ * @param {string} hex - Hex color code (e.g., '#fef08a')
+ * @param {number} percent - Percentage to darken (0-100, default 30)
+ * @returns {string} - Darkened hex color code
+ */
+export function darkenColor(hex, percent = 30) {
+  if (!hex) return '#000000'
+  
+  // Remove # if present
+  hex = hex.replace('#', '')
+  
+  // Parse RGB
+  const r = parseInt(hex.substr(0, 2), 16)
+  const g = parseInt(hex.substr(2, 2), 16)
+  const b = parseInt(hex.substr(4, 2), 16)
+  
+  // Darken by reducing each component
+  const factor = 1 - (percent / 100)
+  const newR = Math.max(0, Math.floor(r * factor))
+  const newG = Math.max(0, Math.floor(g * factor))
+  const newB = Math.max(0, Math.floor(b * factor))
+  
+  // Convert back to hex
+  const toHex = (n) => {
+    const hex = n.toString(16)
+    return hex.length === 1 ? '0' + hex : hex
+  }
+  
+  return `#${toHex(newR)}${toHex(newG)}${toHex(newB)}`
+}
