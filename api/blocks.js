@@ -55,7 +55,7 @@ export default async function handler(req, res) {
               .eq('block_id', blockId),
             supabase
               .from('block_booths')
-              .select('*, booth:booths(*)')
+              .select('*, booth:booths(*), network:networks(*)')
               .eq('block_id', blockId),
             supabase
               .from('block_networks')
@@ -72,7 +72,12 @@ export default async function handler(req, res) {
             })) || [],
             booths: boothsRes.data?.map(b => ({
               id: b.booth.id,
-              name: b.booth.name
+              name: b.booth.name,
+              network_id: b.network_id,
+              network: b.network ? {
+                id: b.network.id,
+                name: b.network.name
+              } : null
             })) || [],
             networks: networksRes.data?.map(n => ({
               id: n.network.id,
@@ -105,7 +110,7 @@ export default async function handler(req, res) {
                   .eq('block_id', block.id),
                 supabase
                   .from('block_booths')
-                  .select('*, booth:booths(*)')
+                  .select('*, booth:booths(*), network:networks(*)')
                   .eq('block_id', block.id),
                 supabase
                   .from('block_networks')
@@ -122,7 +127,12 @@ export default async function handler(req, res) {
                 })) || [],
                 booths: boothsRes.data?.map(b => ({
                   id: b.booth.id,
-                  name: b.booth.name
+                  name: b.booth.name,
+                  network_id: b.network_id,
+                  network: b.network ? {
+                    id: b.network.id,
+                    name: b.network.name
+                  } : null
                 })) || [],
                 networks: networksRes.data?.map(n => ({
                   id: n.network.id,
@@ -150,7 +160,10 @@ export default async function handler(req, res) {
           encoder_id,
           producer_id,
           suite_id,
-          source_event_id
+          source_event_id,
+          obs_group,
+          type,
+          canadian_content
         } = req.body;
 
         if (!name || !start_time || !end_time) {
@@ -183,7 +196,10 @@ export default async function handler(req, res) {
             encoder_id: encoder_id || null,
             producer_id: producer_id || null,
             suite_id: suite_id || null,
-            source_event_id: source_event_id || null
+            source_event_id: source_event_id || null,
+            obs_group: obs_group?.trim() || null,
+            type: type && type.trim() ? type.trim() : null,
+            canadian_content: canadian_content === true || canadian_content === 'true'
           }])
           .select()
           .single();
@@ -207,7 +223,10 @@ export default async function handler(req, res) {
           encoder_id: updatedEncoderId,
           producer_id: updatedProducerId,
           suite_id: updatedSuiteId,
-          source_event_id: updatedSourceEventId
+          source_event_id: updatedSourceEventId,
+          obs_group: updatedObsGroup,
+          type: updatedType,
+          canadian_content: updatedCanadianContent
         } = req.body;
 
         if (!id) {
@@ -239,6 +258,9 @@ export default async function handler(req, res) {
         if (updatedProducerId !== undefined) updateData.producer_id = updatedProducerId || null;
         if (updatedSuiteId !== undefined) updateData.suite_id = updatedSuiteId || null;
         if (updatedSourceEventId !== undefined) updateData.source_event_id = updatedSourceEventId || null;
+        if (updatedObsGroup !== undefined) updateData.obs_group = updatedObsGroup?.trim() || null;
+        if (updatedType !== undefined) updateData.type = updatedType?.trim() || null;
+        if (updatedCanadianContent !== undefined) updateData.canadian_content = updatedCanadianContent === true || updatedCanadianContent === 'true';
 
         const { data: updated, error: updateError } = await supabase
           .from('blocks')

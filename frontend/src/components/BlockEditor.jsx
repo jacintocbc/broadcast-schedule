@@ -162,11 +162,20 @@ function BlockEditor({ block, onClose, onUpdate }) {
   const loadRelationships = async () => {
     if (!block) return
     try {
-      const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
+      // Always fetch booth relationships to get the correct structure with link IDs
+      const boothsData = await getBlockRelationships(block.id, 'booths')
+      const boothsRes = boothsData || []
+      
+      // Debug: Log booth data to see what we're getting
+      console.log('Booths data from API:', boothsRes)
+      console.log('Block booths data:', block.booths)
+      
+      const [commentatorsRes, networksRes] = await Promise.all([
         getBlockRelationships(block.id, 'commentators'),
-        getBlockRelationships(block.id, 'booths'),
         getBlockRelationships(block.id, 'networks')
       ])
+      
+      console.log('Networks data from API:', networksRes)
       
 
       setRelationships({
@@ -176,16 +185,21 @@ function BlockEditor({ block, onClose, onUpdate }) {
           role: c.role, 
           linkId: c.id 
         })),
-        booths: boothsRes.map(b => ({ 
-          id: b.booth.id, 
-          name: b.booth.name, 
-          linkId: b.id,
-          network_id: b.network_id || (b.network ? b.network.id : null), // Include network_id for matching
-          network: b.network ? {
-            id: b.network.id,
-            name: b.network.name
-          } : null
-        })),
+        booths: boothsRes.map(b => {
+          // Handle both structures: from block.booths and from getBlockRelationships
+          const boothId = b.booth?.id || b.id
+          const boothName = b.booth?.name || b.name
+          return {
+            id: boothId,
+            name: boothName,
+            linkId: b.id || b.linkId,
+            network_id: b.network_id || (b.network ? b.network.id : null),
+            network: b.network ? {
+              id: b.network.id,
+              name: b.network.name
+            } : null
+          }
+        }),
         networks: networksRes.map(n => ({ 
           id: n.network.id, 
           name: n.network.name, 
@@ -234,33 +248,68 @@ function BlockEditor({ block, onClose, onUpdate }) {
       // Match booths to networks by network_id
       // Each booth relationship has a network_id that links it to a specific network
       boothsRes.forEach(boothRel => {
+        // getBlockRelationships returns: { id: linkId, booth: { id, name }, network_id, network: {...} }
+        // But we need to handle the case where booth might be nested or flat
+        const boothId = boothRel.booth?.id || boothRel.booth_id || boothRel.id
         const boothNetworkId = boothRel.network_id || (boothRel.network ? boothRel.network.id : null)
+        
+        console.log('Processing booth relationship:', {
+          boothRel,
+          boothId,
+          boothNetworkId,
+          hasNetwork: !!boothRel.network,
+          networkName: boothRel.network?.name,
+          networkIdToName: networkIdToName
+        })
+        
+        if (!boothId) {
+          console.warn('Booth relationship missing booth ID:', boothRel)
+          return
+        }
+        
         if (boothNetworkId) {
-          const networkName = networkIdToName[boothNetworkId] || (boothRel.network ? boothRel.network.name : null)
+          // Try to get network name from networkIdToName map first
+          let networkName = networkIdToName[boothNetworkId]
+          
+          // Fallback to boothRel.network.name if not in map
+          if (!networkName && boothRel.network && boothRel.network.name) {
+            networkName = boothRel.network.name
+          }
+          
+          console.log('Network name for booth:', networkName, 'from networkId:', boothNetworkId, 'boothId:', boothId)
+          
           if (networkName) {
             const labelKey = matchNetworkName(networkName)
+            console.log('Matched to label key:', labelKey, 'for network:', networkName)
             if (labelKey) {
-              boothMap[labelKey] = boothRel.booth.id
+              boothMap[labelKey] = boothId
             }
+          } else {
+            console.warn('No network name found for networkId:', boothNetworkId, 'Available networks:', Object.keys(networkIdToName))
           }
-        }
-      })
-      
-      // Also check if network name is in the booth's network object (fallback)
-      boothsRes.forEach(boothRel => {
-        if (boothRel.network && boothRel.network.name && !boothMap[matchNetworkName(boothRel.network.name)]) {
+        } else if (boothRel.network && boothRel.network.name) {
+          // Fallback: use network name directly if network_id is missing
           const labelKey = matchNetworkName(boothRel.network.name)
+          console.log('Using network name directly, matched to:', labelKey)
           if (labelKey) {
-            boothMap[labelKey] = boothRel.booth.id
+            boothMap[labelKey] = boothId
           }
+        } else {
+          console.warn('Booth relationship missing network info:', boothRel)
         }
       })
       
-      setBoothSelections({
+      console.log('Final booth map before setting state:', boothMap)
+      
+      const finalSelections = {
         cbcTv: boothMap.cbcTv || '',
         cbcWeb: boothMap.cbcWeb || '',
         rcTvWeb: boothMap.rcTvWeb || ''
-      })
+      }
+      
+      console.log('Setting booth selections to:', finalSelections)
+      
+      setBoothSelections(finalSelections)
       
       // Initialize commentator selections from relationships
       const commentatorMap = {

@@ -60,9 +60,14 @@ export default async function handler(req, res) {
     switch (req.method) {
       case 'GET':
         // Get all relationships for a block
+        // For booths, also include network relationship
+        const selectFields = relationshipType === 'booths'
+          ? `*, ${relationshipType.slice(0, -1)}:${relatedTable}(*), network:networks(*)`
+          : `*, ${relationshipType.slice(0, -1)}:${relatedTable}(*)`;
+        
         const { data, error } = await supabase
           .from(tableName)
-          .select(`*, ${relationshipType.slice(0, -1)}:${relatedTable}(*)`)
+          .select(selectFields)
           .eq('block_id', blockId)
           .order('created_at');
         
@@ -80,9 +85,15 @@ export default async function handler(req, res) {
         
         const relationshipId = req.body[bodyKey];
         const role = req.body.role; // Only for commentators
+        const networkId = req.body.network_id; // For booths, we need to know which network
         
         if (!relationshipId) {
           return res.status(400).json({ error: `${bodyKey} is required` });
+        }
+
+        // For booths: require network_id to associate booth with a specific network
+        if (relationshipType === 'booths' && !networkId) {
+          return res.status(400).json({ error: 'network_id is required when adding a booth relationship' });
         }
 
         const insertData = {
@@ -93,18 +104,73 @@ export default async function handler(req, res) {
         if (relationshipType === 'commentators' && role) {
           insertData.role = role;
         }
+        
+        // For booths, include network_id to allow same booth for different networks
+        if (relationshipType === 'booths' && networkId) {
+          insertData.network_id = networkId;
+        }
+
+        // For booths, also include network in the select
+        const selectFieldsForInsert = relationshipType === 'booths'
+          ? `*, ${relationshipType.slice(0, -1)}:${relatedTable}(*), network:networks(*)`
+          : `*, ${relationshipType.slice(0, -1)}:${relatedTable}(*)`;
 
         const { data: link, error: linkError } = await supabase
           .from(tableName)
           .insert([insertData])
-          .select(`*, ${relationshipType.slice(0, -1)}:${relatedTable}(*)`)
+          .select(selectFieldsForInsert)
           .single();
         
         if (linkError) {
+          console.error('Supabase insert error:', {
+            code: linkError.code,
+            message: linkError.message,
+            details: linkError.details,
+            hint: linkError.hint,
+            relationshipType,
+            insertData
+          });
+          
           if (linkError.code === '23505') {
-            return res.status(409).json({ error: `${relationshipType.slice(0, -1)} is already linked to this block` });
+            // Duplicate key error - relationship already exists
+            // For booths with network_id, check if this exact combination exists
+            if (relationshipType === 'booths' && networkId) {
+              try {
+                const { data: existingLink, error: fetchError } = await supabase
+                  .from(tableName)
+                  .select(selectFieldsForInsert)
+                  .eq('block_id', blockId)
+                  .eq(foreignKey, relationshipId)
+                  .eq('network_id', networkId)
+                  .single();
+                
+                if (existingLink && !fetchError) {
+                  return res.status(200).json(existingLink);
+                }
+              } catch (fetchErr) {
+                // Continue to return 409
+              }
+            } else {
+              // For non-booth relationships, try to fetch existing
+              try {
+                const { data: existingLink, error: fetchError } = await supabase
+                  .from(tableName)
+                  .select(selectFieldsForInsert)
+                  .eq('block_id', blockId)
+                  .eq(foreignKey, relationshipId)
+                  .single();
+                
+                if (existingLink && !fetchError) {
+                  return res.status(200).json(existingLink);
+                }
+              } catch (fetchErr) {
+                // Continue to return 409
+              }
+            }
+            return res.status(409).json({ error: `${relationshipType.slice(0, -1)} is already linked to this block${relationshipType === 'booths' ? ' for this network' : ''}` });
           }
-          throw linkError;
+          console.error('Error adding relationship:', linkError);
+          return res.status(500).json({ error: linkError.message || 'Failed to add relationship' });
         }
         res.status(201).json(link);
         break;
