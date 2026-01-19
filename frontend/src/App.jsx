@@ -5,6 +5,8 @@ import CBCTimelineView from './components/CBCTimelineView'
 import ResourceManager from './components/ResourceManager'
 import BlockManager from './components/BlockManager'
 import BoothPage from './components/BoothPage'
+import LiveBoothsView from './components/LiveBoothsView'
+import BoothDetailView from './components/BoothDetailView'
 
 function Navigation() {
   const location = useLocation()
@@ -48,6 +50,12 @@ function Navigation() {
           >
             Booths
           </Link>
+          <Link
+            to="/live-booths"
+            className={`px-4 py-2 rounded ${isActive('/live-booths') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Live Booths
+          </Link>
         </nav>
       </div>
     </header>
@@ -81,6 +89,8 @@ function AppContent() {
           </div>
         } />
         <Route path="/booths" element={<BoothPage />} />
+        <Route path="/live-booths" element={<LiveBoothsView />} />
+        <Route path="/live-booths/:boothId" element={<BoothDetailView />} />
       </Routes>
     </div>
   )
