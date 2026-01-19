@@ -391,9 +391,16 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                       {isBlock ? (
                         // Block display with metadata - matching the provided format
                         <div 
-                          className={`flex flex-col p-2 text-[14.6px] leading-tight ${textColor}`}
+                          className={`flex flex-col p-2 text-[14.6px] leading-tight ${textColor} relative`}
                           style={{ minHeight: '100%' }}
                         >
+                          {/* Canadian Content Maple Leaf - top right corner */}
+                          {block.canadian_content && (
+                            <div className="absolute top-2 right-2 text-red-600 text-lg leading-none" style={{ lineHeight: '1' }}>
+                              🍁
+                            </div>
+                          )}
+                          
                           {/* Broadcast times in parentheses (first line) */}
                           {broadcastStart && broadcastEnd && (
                             <div className="text-[13.3px] opacity-90 mb-0.5">

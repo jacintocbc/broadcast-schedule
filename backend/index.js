@@ -811,7 +811,7 @@ app.post('/api/blocks', async (req, res) => {
     const { 
       name, block_id, obs_id, start_time, end_time, duration,
       broadcast_start_time, broadcast_end_time,
-      encoder_id, producer_id, suite_id, source_event_id, obs_group, type
+      encoder_id, producer_id, suite_id, source_event_id, obs_group, type, canadian_content
     } = req.body;
 
     if (!name || !start_time || !end_time) {
@@ -845,7 +845,8 @@ app.post('/api/blocks', async (req, res) => {
         suite_id: suite_id || null,
         source_event_id: source_event_id || null,
         obs_group: obs_group?.trim() || null,
-        type: type && type.trim() ? type.trim() : null
+        type: type && type.trim() ? type.trim() : null,
+        canadian_content: canadian_content === true || canadian_content === 'true'
       }])
       .select()
       .single();
@@ -886,7 +887,7 @@ app.put('/api/blocks', async (req, res) => {
     const { 
       id, name, block_id, obs_id, start_time, end_time, duration,
       broadcast_start_time, broadcast_end_time,
-      encoder_id, producer_id, suite_id, source_event_id, obs_group, type
+      encoder_id, producer_id, suite_id, source_event_id, obs_group, type, canadian_content
     } = req.body;
 
     if (!id) {
@@ -919,6 +920,7 @@ app.put('/api/blocks', async (req, res) => {
     if (source_event_id !== undefined) updateData.source_event_id = source_event_id || null;
     if (obs_group !== undefined) updateData.obs_group = obs_group?.trim() || null;
     if (type !== undefined) updateData.type = type?.trim() || null;
+    if (canadian_content !== undefined) updateData.canadian_content = canadian_content === true || canadian_content === 'true';
 
     const { data: updated, error: updateError } = await supabase
       .from('blocks')

@@ -15,7 +15,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     encoder_id: '',
     producer_id: '',
     suite_id: '',
-    type: ''
+    type: '',
+    canadian_content: false
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -69,7 +70,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         encoder_id: '',
         producer_id: '',
         suite_id: '',
-        type: inferredType
+        type: inferredType,
+        canadian_content: false
       })
     }
     loadReferenceData()
@@ -198,7 +200,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         suite_id: formData.suite_id || null,
         source_event_id: event?.id || null,
         obs_group: event?.group || null, // Store the DX channel from OBS event
-        type: formData.type && formData.type.trim() ? formData.type.trim() : null
+        type: formData.type && formData.type.trim() ? formData.type.trim() : null,
+        canadian_content: formData.canadian_content || false
       }
 
        const newBlock = await createBlock(blockData)
@@ -411,19 +414,33 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Type */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">None</option>
-              {BLOCK_TYPES.map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
+          {/* Type and Canadian Content */}
+          <div className="flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1">Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              >
+                <option value="">None</option>
+                {BLOCK_TYPES.map(type => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 pb-1">
+              <input
+                type="checkbox"
+                id="canadian_content"
+                checked={formData.canadian_content}
+                onChange={(e) => setFormData({ ...formData, canadian_content: e.target.checked })}
+                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+              />
+              <label htmlFor="canadian_content" className="text-sm font-medium text-red-600 cursor-pointer">
+                🍁
+              </label>
+            </div>
           </div>
 
           {/* Resources */}

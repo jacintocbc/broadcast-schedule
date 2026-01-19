@@ -24,7 +24,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
     encoder_id: '',
     producer_id: '',
     suite_id: '',
-    type: ''
+    type: '',
+    canadian_content: false
   })
 
   // Reference data
@@ -87,7 +88,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
         encoder_id: block.encoder_id || '',
         producer_id: block.producer_id || '',
         suite_id: block.suite_id || '',
-        type: block.type || ''
+        type: block.type || '',
+        canadian_content: block.canadian_content || false
       })
       loadRelationships()
     }
@@ -307,7 +309,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
         encoder_id: formData.encoder_id || null,
         producer_id: formData.producer_id || null,
         suite_id: formData.suite_id || null,
-        type: formData.type || null
+        type: formData.type || null,
+        canadian_content: formData.canadian_content || false
       }
 
       await updateBlock(block.id, blockData)
@@ -460,19 +463,33 @@ function BlockEditor({ block, onClose, onUpdate }) {
             </div>
           </div>
 
-          {/* Type */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">None</option>
-              {BLOCK_TYPES.map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
+          {/* Type and Canadian Content */}
+          <div className="flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1">Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              >
+                <option value="">None</option>
+                {BLOCK_TYPES.map(type => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 pb-1">
+              <input
+                type="checkbox"
+                id="canadian_content"
+                checked={formData.canadian_content}
+                onChange={(e) => setFormData({ ...formData, canadian_content: e.target.checked })}
+                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+              />
+              <label htmlFor="canadian_content" className="text-sm font-medium text-red-600 cursor-pointer">
+                🍁
+              </label>
+            </div>
           </div>
 
           {/* Resources */}
