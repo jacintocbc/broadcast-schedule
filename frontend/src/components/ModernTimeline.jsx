@@ -3,22 +3,30 @@ import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor } from '../utils/blockTypes'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73 }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0 }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
   const [availableHeight, setAvailableHeight] = useState(null)
+  // Calculate selectedDayStart outside useMemo so it's available in render
+  const selectedDayStart = useMemo(() => {
+    return selectedDate 
+      ? moment.tz(selectedDate, 'America/New_York').startOf('day')
+      : moment.tz('America/New_York').startOf('day')
+  }, [selectedDate])
+
   const { hours, groups, itemsByGroup } = useMemo(() => {
     if (!events || events.length === 0) {
       return { hours: [], groups: [], itemsByGroup: {} }
     }
 
-    // Generate 24 hours for the day in EST timezone for display
-    const dayStart = selectedDate 
-      ? moment.tz(selectedDate, 'America/New_York').startOf('day')
-      : moment.tz('America/New_York').startOf('day')
-    const hours = Array.from({ length: 24 }, (_, i) => 
-      dayStart.clone().add(i, 'hours')
+    // Generate hours based on zoom level
+    // For zoomed views, generate hours for the visible range
+    // For 24h view, show all 24 hours
+    const totalHours = zoomHours === 24 ? 24 : zoomHours
+    const startHour = zoomHours === 24 ? 0 : scrollPosition
+    const hours = Array.from({ length: totalHours }, (_, i) => 
+      selectedDayStart.clone().add(startHour + i, 'hours')
     )
 
     // Get unique groups (channels)
@@ -66,10 +74,6 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
 
     // Group events by channel
     const itemsByGroup = {}
-    // Parse selected date in EST timezone for display
-    const selectedDayStart = selectedDate 
-      ? moment.tz(selectedDate, 'America/New_York').startOf('day')
-      : moment.tz('America/New_York').startOf('day')
     
     groups.forEach(group => {
       itemsByGroup[group] = events
@@ -99,15 +103,22 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           const startMinutesFromDayStart = start.diff(selectedDayStart, 'minutes')
           const endMinutesFromDayStart = end.diff(selectedDayStart, 'minutes')
           
-          // Convert to percentage of the day
-          const startPercent = (startMinutesFromDayStart / (24 * 60)) * 100
-          const endPercent = (endMinutesFromDayStart / (24 * 60)) * 100
+          // Convert to percentage of visible time range (not full day for zoomed views)
+          const visibleStartMinutes = zoomHours === 24 ? 0 : scrollPosition * 60
+          const visibleEndMinutes = zoomHours === 24 ? 24 * 60 : (scrollPosition + zoomHours) * 60
+          const visibleRangeMinutes = visibleEndMinutes - visibleStartMinutes
+          
+          // Calculate position relative to visible range
+          const startPercent = ((startMinutesFromDayStart - visibleStartMinutes) / visibleRangeMinutes) * 100
+          const endPercent = ((endMinutesFromDayStart - visibleStartMinutes) / visibleRangeMinutes) * 100
           
           // Calculate duration and width
           const durationMinutes = end.diff(start, 'minutes')
-          // For 0-duration events, use minimum 3 hours width
-          const minDurationMinutes = durationMinutes === 0 ? 180 : durationMinutes
-          const widthPercent = (minDurationMinutes / (24 * 60)) * 100
+          // For 0-duration events, use minimum width based on zoom level
+          const minDurationMinutes = durationMinutes === 0 
+            ? Math.max(5, (zoomHours * 60) / 20) // Scale minimum width with zoom
+            : durationMinutes
+          const widthPercent = (minDurationMinutes / visibleRangeMinutes) * 100
           
           // Store Rome times for display
           return {
@@ -130,7 +141,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
     })
 
     return { hours, groups, itemsByGroup }
-  }, [events, selectedDate])
+  }, [events, selectedDate, zoomHours, scrollPosition, selectedDayStart])
 
   // Calculate available height for scrollable area
   useEffect(() => {
@@ -231,15 +242,20 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               EST / Rome
             </div>
           </div>
-          <div className="flex-1 flex overflow-x-auto">
-            <div className="flex min-w-full">
+          <div className={`flex-1 flex ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
+            <div className="flex w-full">
               {hours.map((hour, idx) => {
                 // Convert EST hour to Rome time for display
                 const hourRome = hour.clone().tz('Europe/Rome')
                 return (
                   <div
                     key={idx}
-                    className="flex-1 border-r border-gray-200 text-center p-2 text-base text-gray-600"
+                    className="border-r border-gray-200 text-center p-2 text-base text-gray-600"
+                    style={{ 
+                      width: zoomHours < 24 ? `${100 / zoomHours}%` : `${100 / hours.length}%`,
+                      minWidth: zoomHours < 24 ? `${100 / zoomHours}%` : `${100 / hours.length}%`,
+                      flexShrink: 0
+                    }}
                   >
                     <div className="font-medium text-base">{hour.format('HH:mm')}</div>
                     <div className="text-sm text-gray-400 mt-0.5">
@@ -256,14 +272,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       {/* Timeline rows - Scrollable */}
       <div 
         ref={scrollableRef}
-        className="flex-1 overflow-y-auto overflow-x-auto bg-white" 
+        className={`flex-1 overflow-y-auto bg-white ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}
         style={{ 
           minHeight: 0,
           height: 0
         }}
-        key={`scrollable-${groups.length}-${selectedDate}`}
+        key={`scrollable-${groups.length}-${selectedDate}-${zoomHours}-${scrollPosition}`}
       >
-        <div className="min-w-full">
+        <div className="w-full">
           {groups.map((group, groupIdx) => {
             // Check if this group has any blocks (CBC timeline) vs events (OBS timeline)
             const hasBlocks = itemsByGroup[group]?.some(item => item.block) || false
@@ -316,22 +332,45 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               {/* Timeline area */}
               <div className="flex-1 relative" style={{ minHeight: rowMinHeight }}>
                 {/* Hour markers */}
-                <div className="absolute inset-0 flex">
+                <div className="absolute inset-0 flex w-full">
                   {hours.map((_, idx) => (
                     <div
                       key={idx}
-                      className="flex-1 border-r border-gray-100"
+                      className="border-r border-gray-100"
+                      style={{ 
+                        width: zoomHours < 24 ? `${100 / zoomHours}%` : `${100 / hours.length}%`,
+                        minWidth: zoomHours < 24 ? `${100 / zoomHours}%` : `${100 / hours.length}%`,
+                        flexShrink: 0
+                      }}
                     />
                   ))}
                 </div>
 
                 {/* Events */}
-                {itemsByGroup[group]?.filter(event => !event.isEmpty).map((event, eventIdx) => {
-                  // Clamp to visible day (0-100%)
-                  const leftPercent = Math.max(0, Math.min(100, event.startPercent))
-                  const rightPercent = Math.max(0, Math.min(100, event.startPercent + event.widthPercent))
+                {itemsByGroup[group]?.filter(event => {
+                  if (event.isEmpty) return false
+                  // Filter events that are outside the visible range
+                  if (zoomHours < 24) {
+                    const visibleStartMinutes = scrollPosition * 60
+                    const visibleEndMinutes = (scrollPosition + zoomHours) * 60
+                    const eventStartMinutes = event.startEST.diff(selectedDayStart, 'minutes')
+                    const eventEndMinutes = event.endEST.diff(selectedDayStart, 'minutes')
+                    // Show event if it overlaps with visible range
+                    return eventEndMinutes >= visibleStartMinutes && eventStartMinutes <= visibleEndMinutes
+                  }
+                  return true
+                }).map((event, eventIdx) => {
+                  // For zoomed views, position is already relative to visible range
+                  // For 24h view, clamp to visible day (0-100%)
+                  let leftPercent = event.startPercent
+                  let rightPercent = event.startPercent + event.widthPercent
+                  
+                  // Clamp to visible range (0-100%)
+                  leftPercent = Math.max(0, Math.min(100, leftPercent))
+                  rightPercent = Math.max(0, Math.min(100, rightPercent))
+                  
                   const left = `${leftPercent}%`
-                  const width = `${Math.max(rightPercent - leftPercent, 2)}%` // Minimum 2% width
+                  const width = `${Math.max(rightPercent - leftPercent, 0.5)}%` // Minimum 0.5% width
                   
                   const isBlock = event.block
                   const block = event.block || {}

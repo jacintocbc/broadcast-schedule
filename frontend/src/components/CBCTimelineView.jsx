@@ -16,6 +16,8 @@ function CBCTimelineView() {
   const [error, setError] = useState(null)
   const datePickerRef = useRef(null)
   const [datePickerHeight, setDatePickerHeight] = useState(0)
+  const [zoomHours, setZoomHours] = useState(24) // 1, 3, 8, or 24 hours
+  const [scrollPosition, setScrollPosition] = useState(0) // Current scroll position in hours
 
   // Fetch blocks and encoders
   useEffect(() => {
@@ -149,13 +151,59 @@ function CBCTimelineView() {
 
   return (
     <div className="flex-1 flex flex-col">
-      <div ref={datePickerRef} className="p-4 border-b bg-gray-50 space-y-3 sticky z-40" style={{ top: `${navbarHeight}px` }}>
+      <div ref={datePickerRef} className="p-4 border-b bg-gray-50 sticky z-40" style={{ top: `${navbarHeight}px` }}>
         {availableDates.length > 0 && (
-          <DateNavigator 
-            dates={availableDates}
-            selectedDate={selectedDate}
-            onDateChange={handleDateChange}
-          />
+          <div className="flex items-center gap-4 flex-wrap mb-3">
+            <DateNavigator 
+              dates={availableDates}
+              selectedDate={selectedDate}
+              onDateChange={handleDateChange}
+            />
+            
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">Zoom:</span>
+              <div className="flex gap-1">
+                {[1, 3, 8, 24].map(hours => (
+                  <button
+                    key={hours}
+                    onClick={() => {
+                      setZoomHours(hours)
+                      setScrollPosition(0) // Reset scroll when changing zoom
+                    }}
+                    className={`px-3 py-1 text-sm rounded ${
+                      zoomHours === hours
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    {hours}h
+                  </button>
+                ))}
+              </div>
+              {zoomHours < 24 && (
+                <>
+                  <button
+                    onClick={() => setScrollPosition(Math.max(0, scrollPosition - zoomHours))}
+                    disabled={scrollPosition === 0}
+                    className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    ← Prev
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    {String(Math.floor(scrollPosition)).padStart(2, '0')}:00 - {String(Math.floor(scrollPosition + zoomHours) % 24).padStart(2, '0')}:00
+                  </span>
+                  <button
+                    onClick={() => setScrollPosition(Math.min(24 - zoomHours, scrollPosition + zoomHours))}
+                    disabled={scrollPosition >= 24 - zoomHours}
+                    className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next →
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         )}
         
         {/* Legend - Show for CBC timeline */}
@@ -210,6 +258,8 @@ function CBCTimelineView() {
                 onItemSelect={handleBlockSelect}
                 datePickerHeight={datePickerHeight}
                 navbarHeight={navbarHeight}
+                zoomHours={zoomHours}
+                scrollPosition={scrollPosition}
               />
             </div>
             {selectedBlock && (
