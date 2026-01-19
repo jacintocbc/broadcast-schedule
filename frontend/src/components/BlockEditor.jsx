@@ -166,16 +166,10 @@ function BlockEditor({ block, onClose, onUpdate }) {
       const boothsData = await getBlockRelationships(block.id, 'booths')
       const boothsRes = boothsData || []
       
-      // Debug: Log booth data to see what we're getting
-      console.log('Booths data from API:', boothsRes)
-      console.log('Block booths data:', block.booths)
-      
       const [commentatorsRes, networksRes] = await Promise.all([
         getBlockRelationships(block.id, 'commentators'),
         getBlockRelationships(block.id, 'networks')
       ])
-      
-      console.log('Networks data from API:', networksRes)
       
 
       setRelationships({
@@ -253,17 +247,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
         const boothId = boothRel.booth?.id || boothRel.booth_id || boothRel.id
         const boothNetworkId = boothRel.network_id || (boothRel.network ? boothRel.network.id : null)
         
-        console.log('Processing booth relationship:', {
-          boothRel,
-          boothId,
-          boothNetworkId,
-          hasNetwork: !!boothRel.network,
-          networkName: boothRel.network?.name,
-          networkIdToName: networkIdToName
-        })
-        
         if (!boothId) {
-          console.warn('Booth relationship missing booth ID:', boothRel)
           return
         }
         
@@ -276,40 +260,26 @@ function BlockEditor({ block, onClose, onUpdate }) {
             networkName = boothRel.network.name
           }
           
-          console.log('Network name for booth:', networkName, 'from networkId:', boothNetworkId, 'boothId:', boothId)
-          
           if (networkName) {
             const labelKey = matchNetworkName(networkName)
-            console.log('Matched to label key:', labelKey, 'for network:', networkName)
             if (labelKey) {
               boothMap[labelKey] = boothId
             }
-          } else {
-            console.warn('No network name found for networkId:', boothNetworkId, 'Available networks:', Object.keys(networkIdToName))
           }
         } else if (boothRel.network && boothRel.network.name) {
           // Fallback: use network name directly if network_id is missing
           const labelKey = matchNetworkName(boothRel.network.name)
-          console.log('Using network name directly, matched to:', labelKey)
           if (labelKey) {
             boothMap[labelKey] = boothId
           }
-        } else {
-          console.warn('Booth relationship missing network info:', boothRel)
         }
       })
       
-      console.log('Final booth map before setting state:', boothMap)
-      
-      const finalSelections = {
+      setBoothSelections({
         cbcTv: boothMap.cbcTv || '',
         cbcWeb: boothMap.cbcWeb || '',
         rcTvWeb: boothMap.rcTvWeb || ''
-      }
-      
-      console.log('Setting booth selections to:', finalSelections)
-      
-      setBoothSelections(finalSelections)
+      })
       
       // Initialize commentator selections from relationships
       const commentatorMap = {

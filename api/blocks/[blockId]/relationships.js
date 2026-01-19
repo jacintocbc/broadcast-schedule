@@ -22,15 +22,6 @@ export default async function handler(req, res) {
   let blockId = req.query.blockId || req.query['[blockId]'];
   let relationshipType = req.query.relationshipType;
   
-  // Debug logging (remove in production if needed)
-  console.log('Relationships API called:', {
-    url: req.url,
-    method: req.method,
-    query: req.query,
-    blockId,
-    relationshipType
-  });
-  
   // Fallback: Parse blockId from URL path if not in query
   if (!blockId && req.url) {
     const urlPath = req.url.split('?')[0];
