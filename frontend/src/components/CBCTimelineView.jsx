@@ -263,7 +263,15 @@ function CBCTimelineView() {
               />
             </div>
             {selectedBlock && (
-              <div className="w-96 flex-shrink-0 overflow-y-auto">
+              <div 
+                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
+                style={{
+                  position: 'sticky',
+                  top: `${navbarHeight + datePickerHeight}px`,
+                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
+                  alignSelf: 'flex-start'
+                }}
+              >
                 <BlockEditor 
                   block={selectedBlock}
                   onClose={() => setSelectedBlock(null)}

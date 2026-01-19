@@ -198,7 +198,15 @@ function OBSTimelineView() {
               />
             </div>
             {eventToAdd && (
-              <div className="w-96 flex-shrink-0 overflow-y-auto">
+              <div 
+                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
+                style={{
+                  position: 'sticky',
+                  top: `${navbarHeight + datePickerHeight}px`,
+                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
+                  alignSelf: 'flex-start'
+                }}
+              >
                 <AddToCBCForm 
                   event={eventToAdd}
                   onClose={() => setEventToAdd(null)}
@@ -207,7 +215,15 @@ function OBSTimelineView() {
               </div>
             )}
             {selectedEvent && !eventToAdd && (
-              <div className="w-96 flex-shrink-0 overflow-y-auto">
+              <div 
+                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
+                style={{
+                  position: 'sticky',
+                  top: `${navbarHeight + datePickerHeight}px`,
+                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
+                  alignSelf: 'flex-start'
+                }}
+              >
                 <EventDetailPanel 
                   event={selectedEvent}
                   onClose={() => setSelectedEvent(null)}

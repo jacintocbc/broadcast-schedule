@@ -40,11 +40,25 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     rcTvWeb: ''
   })
   
+  // Collapsible sections state (collapsed by default)
+  const [expandedSections, setExpandedSections] = useState({
+    commentators: false,
+    producer: false,
+    suite: false
+  })
+  
   // Network labels that correspond to booth selections (these are just labels, not actual network records)
   const networkLabels = {
     cbcTv: 'CBC TV',
     cbcWeb: 'CBC Gem',
     rcTvWeb: 'R-C TV/WEB'
+  }
+  
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }))
   }
 
   useEffect(() => {
@@ -539,78 +553,115 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
               
               {/* Commentators */}
               <div>
-                <label className="block text-sm font-medium mb-1">Commentators</label>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">PxP</label>
-                    <select
-                      value={commentatorSelections.pxp}
-                      onChange={(e) => setCommentatorSelections({ ...commentatorSelections, pxp: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                    >
-                      <option value="">None</option>
-                      {commentators.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('commentators')}
+                  className="flex items-center gap-2 w-full text-left text-sm font-medium mb-1 hover:text-gray-700"
+                >
+                  <span className={`transform transition-transform ${expandedSections.commentators ? 'rotate-90' : ''}`}>
+                    ▶
+                  </span>
+                  <span>Commentators</span>
+                </button>
+                {expandedSections.commentators && (
+                  <div className="space-y-2 ml-6">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">PxP</label>
+                      <select
+                        value={commentatorSelections.pxp}
+                        onChange={(e) => setCommentatorSelections({ ...commentatorSelections, pxp: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      >
+                        <option value="">None</option>
+                        {commentators.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Color</label>
+                      <select
+                        value={commentatorSelections.color}
+                        onChange={(e) => setCommentatorSelections({ ...commentatorSelections, color: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      >
+                        <option value="">None</option>
+                        {commentators.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Spare</label>
+                      <select
+                        value={commentatorSelections.spare}
+                        onChange={(e) => setCommentatorSelections({ ...commentatorSelections, spare: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      >
+                        <option value="">None</option>
+                        {commentators.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Color</label>
-                    <select
-                      value={commentatorSelections.color}
-                      onChange={(e) => setCommentatorSelections({ ...commentatorSelections, color: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                    >
-                      <option value="">None</option>
-                      {commentators.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Spare</label>
-                    <select
-                      value={commentatorSelections.spare}
-                      onChange={(e) => setCommentatorSelections({ ...commentatorSelections, spare: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                    >
-                      <option value="">None</option>
-                      {commentators.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                )}
               </div>
-              
+
               {/* Producer */}
               <div>
-                <label className="block text-sm font-medium mb-1">Producer</label>
-                <select
-                  value={formData.producer_id}
-                  onChange={(e) => setFormData({ ...formData, producer_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                <button
+                  type="button"
+                  onClick={() => toggleSection('producer')}
+                  className="flex items-center gap-2 w-full text-left text-sm font-medium mb-1 hover:text-gray-700"
                 >
-                  <option value="">None</option>
-                  {producers.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                  <span className={`transform transition-transform ${expandedSections.producer ? 'rotate-90' : ''}`}>
+                    ▶
+                  </span>
+                  <span>Producer</span>
+                </button>
+                {expandedSections.producer && (
+                  <div className="ml-6">
+                    <select
+                      value={formData.producer_id}
+                      onChange={(e) => setFormData({ ...formData, producer_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">None</option>
+                      {producers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
               
               {/* Suite */}
               <div>
-                <label className="block text-sm font-medium mb-1">Suite</label>
-                <select
-                  value={formData.suite_id}
-                  onChange={(e) => setFormData({ ...formData, suite_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                <button
+                  type="button"
+                  onClick={() => toggleSection('suite')}
+                  className="flex items-center gap-2 w-full text-left text-sm font-medium mb-1 hover:text-gray-700"
                 >
-                  <option value="">None</option>
-                  {suites.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+                  <span className={`transform transition-transform ${expandedSections.suite ? 'rotate-90' : ''}`}>
+                    ▶
+                  </span>
+                  <span>Suite</span>
+                </button>
+                {expandedSections.suite && (
+                  <div className="ml-6">
+                    <select
+                      value={formData.suite_id}
+                      onChange={(e) => setFormData({ ...formData, suite_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">None</option>
+                      {suites.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </section>
