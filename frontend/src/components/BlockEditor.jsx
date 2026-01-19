@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
 import { 
   updateBlock,
   deleteBlock,
   getResources,
+  getBlocks,
   getBlockRelationships,
   addBlockRelationship,
   removeBlockRelationship
 } from '../utils/api'
+import { BLOCK_TYPES } from '../utils/blockTypes'
 
 function BlockEditor({ block, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
@@ -21,7 +23,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
     broadcast_end_time: '',
     encoder_id: '',
     producer_id: '',
-    suite_id: ''
+    suite_id: '',
+    type: ''
   })
 
   // Reference data
@@ -31,6 +34,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
   const [commentators, setCommentators] = useState([])
   const [booths, setBooths] = useState([])
   const [networks, setNetworks] = useState([])
+  const [allBlocks, setAllBlocks] = useState([]) // For checking booth availability
 
   // Block relationships
   const [relationships, setRelationships] = useState({
@@ -82,7 +86,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
         broadcast_end_time: formatTimeForInput(block.broadcast_end_time),
         encoder_id: block.encoder_id || '',
         producer_id: block.producer_id || '',
-        suite_id: block.suite_id || ''
+        suite_id: block.suite_id || '',
+        type: block.type || ''
       })
       loadRelationships()
     }
@@ -91,13 +96,14 @@ function BlockEditor({ block, onClose, onUpdate }) {
 
   const loadReferenceData = async () => {
     try {
-      const [encodersData, producersData, suitesData, commentatorsData, boothsData, networksData] = await Promise.all([
+      const [encodersData, producersData, suitesData, commentatorsData, boothsData, networksData, blocksData] = await Promise.all([
         getResources('encoders'),
         getResources('producers'),
         getResources('suites'),
         getResources('commentators'),
         getResources('booths'),
-        getResources('networks')
+        getResources('networks'),
+        getBlocks() // Load all blocks to check booth availability
       ])
       setEncoders(encodersData)
       setProducers(producersData)
@@ -105,10 +111,51 @@ function BlockEditor({ block, onClose, onUpdate }) {
       setCommentators(commentatorsData)
       setBooths(boothsData)
       setNetworks(networksData)
+      setAllBlocks(blocksData || [])
     } catch (err) {
       console.error('Error loading reference data:', err)
     }
   }
+
+  // Check if a booth is available during the block's time range
+  // When editing, exclude the current block from availability checks
+  // VIS can always be used (can be assigned to multiple blocks at the same time)
+  const isBoothAvailable = useMemo(() => {
+    return (boothId) => {
+      if (!formData.start_time || !formData.end_time || !boothId) return true
+      
+      // Find the booth to check its name
+      const booth = booths.find(b => b.id === boothId)
+      
+      // VIS can always be used (no availability check needed)
+      if (booth && booth.name === 'VIS') {
+        return true
+      }
+      
+      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
+      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      
+      // Check if any existing block (other than the current one) uses this booth during an overlapping time period
+      return !allBlocks.some(existingBlock => {
+        // Skip the current block being edited
+        if (block && existingBlock.id === block.id) return false
+        
+        // Skip if block has no time range
+        if (!existingBlock.start_time || !existingBlock.end_time) return false
+        
+        // Check if this block uses the booth
+        const hasBooth = existingBlock.booths && existingBlock.booths.some(b => b.id === boothId)
+        if (!hasBooth) return false
+        
+        // Check for time overlap
+        const existingStart = moment.utc(existingBlock.start_time)
+        const existingEnd = moment.utc(existingBlock.end_time)
+        
+        // Two time ranges overlap if: start1 < end2 && start2 < end1
+        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
+      })
+    }
+  }, [formData.start_time, formData.end_time, allBlocks, block, booths])
 
   const loadRelationships = async () => {
     if (!block) return
@@ -118,6 +165,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
         getBlockRelationships(block.id, 'booths'),
         getBlockRelationships(block.id, 'networks')
       ])
+      
 
       setRelationships({
         commentators: commentatorsRes.map(c => ({ 
@@ -129,7 +177,12 @@ function BlockEditor({ block, onClose, onUpdate }) {
         booths: boothsRes.map(b => ({ 
           id: b.booth.id, 
           name: b.booth.name, 
-          linkId: b.id 
+          linkId: b.id,
+          network_id: b.network_id || (b.network ? b.network.id : null), // Include network_id for matching
+          network: b.network ? {
+            id: b.network.id,
+            name: b.network.name
+          } : null
         })),
         networks: networksRes.map(n => ({ 
           id: n.network.id, 
@@ -139,32 +192,67 @@ function BlockEditor({ block, onClose, onUpdate }) {
       })
       
       // Initialize booth selections from relationships
-      // Match booths to their corresponding network labels
+      // Match networks to their corresponding booths
+      // Since the same booth can be used for multiple networks, we need to match each network to a booth
+      // We match by checking the network_id in each booth relationship
       const boothMap = {}
-      const networkLabels = {
-        'CBC TV': 'cbcTv',
-        'CBC Gem': 'cbcWeb',
-        'R-C TV/WEB': 'rcTvWeb'
+      
+      // Flexible network name matching function
+      const matchNetworkName = (networkName) => {
+        if (!networkName) return null
+        const nameLower = networkName.toLowerCase().trim()
+        // CBC TV
+        if (nameLower === 'cbc tv' || nameLower.includes('cbc tv')) {
+          return 'cbcTv'
+        }
+        // CBC Gem / CBC Web / Gem / Web
+        // Note: Database has 'Gem' but we treat it as 'CBC Gem'
+        if (nameLower === 'cbc gem' || nameLower === 'cbc web' || 
+            nameLower === 'gem' || nameLower === 'web' ||
+            nameLower.includes('cbc gem') || nameLower.includes('cbc web')) {
+          return 'cbcWeb'
+        }
+        // R-C TV/Web (handle various formats)
+        if (nameLower.includes('r-c') || nameLower.includes('rc tv') || 
+            nameLower.includes('radio-canada')) {
+          return 'rcTvWeb'
+        }
+        return null
       }
       
-      // Match each booth to its network label
+      
+      // First, create a map of network IDs to network names from networksRes
+      const networkIdToName = {}
+      networksRes.forEach(networkRel => {
+        if (networkRel.network) {
+          networkIdToName[networkRel.network.id] = networkRel.network.name
+        }
+      })
+      
+      // Match booths to networks by network_id
+      // Each booth relationship has a network_id that links it to a specific network
       boothsRes.forEach(boothRel => {
-        const matchingNetwork = networksRes.find(n => {
-          const networkLabel = networkLabels[n.network.name]
-          return networkLabel
-        })
-        if (matchingNetwork) {
-          const labelKey = networkLabels[matchingNetwork.network.name]
+        const boothNetworkId = boothRel.network_id || (boothRel.network ? boothRel.network.id : null)
+        if (boothNetworkId) {
+          const networkName = networkIdToName[boothNetworkId] || (boothRel.network ? boothRel.network.name : null)
+          if (networkName) {
+            const labelKey = matchNetworkName(networkName)
+            if (labelKey) {
+              boothMap[labelKey] = boothRel.booth.id
+            }
+          }
+        }
+      })
+      
+      // Also check if network name is in the booth's network object (fallback)
+      boothsRes.forEach(boothRel => {
+        if (boothRel.network && boothRel.network.name && !boothMap[matchNetworkName(boothRel.network.name)]) {
+          const labelKey = matchNetworkName(boothRel.network.name)
           if (labelKey) {
             boothMap[labelKey] = boothRel.booth.id
           }
         }
       })
-      
-      // Also check if we have unmatched booths (fallback to first 3)
-      if (!boothMap.cbcTv && boothsRes[0]) boothMap.cbcTv = boothsRes[0].booth.id
-      if (!boothMap.cbcWeb && boothsRes[1]) boothMap.cbcWeb = boothsRes[1].booth.id
-      if (!boothMap.rcTvWeb && boothsRes[2]) boothMap.rcTvWeb = boothsRes[2].booth.id
       
       setBoothSelections({
         cbcTv: boothMap.cbcTv || '',
@@ -218,7 +306,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
         broadcast_end_time: convertESTToUTC(formData.broadcast_end_time),
         encoder_id: formData.encoder_id || null,
         producer_id: formData.producer_id || null,
-        suite_id: formData.suite_id || null
+        suite_id: formData.suite_id || null,
+        type: formData.type || null
       }
 
       await updateBlock(block.id, blockData)
@@ -233,8 +322,9 @@ function BlockEditor({ block, onClose, onUpdate }) {
   const handleAddRelationship = async (relationshipType, relationshipId, role = null) => {
     try {
       await addBlockRelationship(block.id, relationshipType, relationshipId, role)
-      loadRelationships()
+      await loadRelationships()
     } catch (err) {
+      console.error(`Error adding ${relationshipType} relationship:`, err)
       setError(err.message)
     }
   }
@@ -370,6 +460,21 @@ function BlockEditor({ block, onClose, onUpdate }) {
             </div>
           </div>
 
+          {/* Type */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Type</label>
+            <select
+              value={formData.type}
+              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            >
+              <option value="">None</option>
+              {BLOCK_TYPES.map(type => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Resources */}
           <section>
             <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Resources</h3>
@@ -400,35 +505,96 @@ function BlockEditor({ block, onClose, onUpdate }) {
                       const oldValue = boothSelections.cbcTv
                       setBoothSelections({ ...boothSelections, cbcTv: newValue })
                       
-                      // Remove old booth and its network
+                      // Remove old booth relationship for this specific network
                       if (oldValue && oldValue !== newValue) {
-                        const existingBooth = relationships.booths.find(b => b.id === oldValue)
-                        if (existingBooth) {
-                          await handleRemoveRelationship('booths', existingBooth.linkId)
-                        }
-                        // Find and remove the corresponding network
-                        const existingNetwork = relationships.networks.find(n => n.name === networkLabels.cbcTv)
-                        if (existingNetwork) {
-                          await handleRemoveRelationship('networks', existingNetwork.linkId)
+                        const network = networks.find(n => n.name === networkLabels.cbcTv)
+                        if (network) {
+                          // Find and remove the booth relationship for this specific network
+                          const currentBooths = await getBlockRelationships(block.id, 'booths')
+                          const boothToRemove = currentBooths.find(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return b.booth.id === oldValue && boothNetworkId === network.id
+                          })
+                          if (boothToRemove) {
+                            await handleRemoveRelationship('booths', boothToRemove.id)
+                          }
+                          // Check if this network is still used by other booths before removing
+                          const remainingBoothsForNetwork = currentBooths.filter(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return boothNetworkId === network.id && b.booth.id !== oldValue
+                          })
+                          // Only remove network relationship if no other booths use it
+                          if (remainingBoothsForNetwork.length === 0) {
+                            const existingNetwork = relationships.networks.find(n => n.name === networkLabels.cbcTv)
+                            if (existingNetwork) {
+                              await handleRemoveRelationship('networks', existingNetwork.linkId)
+                            }
+                          }
                         }
                       }
                       
-                      // Add new booth and its network
+                      // Add new booth with its network
                       if (newValue) {
-                        await handleAddRelationship('booths', newValue)
-                        // Find network by label
                         const network = networks.find(n => n.name === networkLabels.cbcTv)
                         if (network) {
-                          await handleAddRelationship('networks', network.id)
+                          try {
+                            // First, ensure the network relationship exists (idempotent - will handle duplicates)
+                            try {
+                              await addBlockRelationship(block.id, 'networks', network.id)
+                            } catch (networkErr) {
+                              // Network might already exist (409), that's okay - continue
+                              if (!networkErr.message || !networkErr.message.includes('409')) {
+                                // Non-409 error, but continue anyway
+                              }
+                            }
+                            // Add booth relationship with network_id to link booth to this specific network
+                            // This allows the same booth to be used for different networks
+                            await addBlockRelationship(block.id, 'booths', newValue, null, network.id)
+                            // Reload relationships to update the UI
+                            await loadRelationships()
+                          } catch (err) {
+                            setError(err.message || 'Failed to add booth relationship')
+                            // Reload to sync state
+                            await loadRelationships()
+                          }
                         }
+                      } else {
+                        // If clearing the selection, check if we should remove the network
+                        const network = networks.find(n => n.name === networkLabels.cbcTv)
+                        if (network) {
+                          const currentBooths = await getBlockRelationships(block.id, 'booths')
+                          const remainingBoothsForNetwork = currentBooths.filter(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return boothNetworkId === network.id
+                          })
+                          // Only remove network relationship if no booths use it
+                          if (remainingBoothsForNetwork.length === 0) {
+                            const existingNetwork = relationships.networks.find(n => n.id === network.id)
+                            if (existingNetwork) {
+                              await handleRemoveRelationship('networks', existingNetwork.linkId)
+                            }
+                          }
+                        }
+                        // Reload relationships to update the UI
+                        await loadRelationships()
                       }
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
+                    {booths.map(b => {
+                      const available = isBoothAvailable(b.id)
+                      return (
+                        <option 
+                          key={b.id} 
+                          value={b.id}
+                          disabled={!available}
+                          style={{ color: available ? 'inherit' : '#9ca3af' }}
+                        >
+                          {b.name}{!available ? ' (Unavailable)' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 
@@ -442,30 +608,111 @@ function BlockEditor({ block, onClose, onUpdate }) {
                       setBoothSelections({ ...boothSelections, cbcWeb: newValue })
                       
                       if (oldValue && oldValue !== newValue) {
-                        const existingBooth = relationships.booths.find(b => b.id === oldValue)
-                        if (existingBooth) {
-                          await handleRemoveRelationship('booths', existingBooth.linkId)
-                        }
-                        const existingNetwork = relationships.networks.find(n => n.name === networkLabels.cbcWeb)
-                        if (existingNetwork) {
-                          await handleRemoveRelationship('networks', existingNetwork.linkId)
+                        const network = networks.find(n => n.name === networkLabels.cbcWeb)
+                        if (network) {
+                          // Find and remove the booth relationship for this specific network
+                          const currentBooths = await getBlockRelationships(block.id, 'booths')
+                          const boothToRemove = currentBooths.find(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return b.booth.id === oldValue && boothNetworkId === network.id
+                          })
+                          if (boothToRemove) {
+                            await handleRemoveRelationship('booths', boothToRemove.id)
+                          }
+                          // Check if this network is still used by other booths before removing
+                          const remainingBoothsForNetwork = currentBooths.filter(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return boothNetworkId === network.id && b.booth.id !== oldValue
+                          })
+                          // Only remove network relationship if no other booths use it
+                          if (remainingBoothsForNetwork.length === 0) {
+                            const existingNetwork = relationships.networks.find(n => n.name === networkLabels.cbcWeb)
+                            if (existingNetwork) {
+                              await handleRemoveRelationship('networks', existingNetwork.linkId)
+                            }
+                          }
                         }
                       }
                       
                       if (newValue) {
-                        await handleAddRelationship('booths', newValue)
+                        // Try multiple possible names for CBC Gem - case insensitive and flexible matching
+                        // Note: Database has 'Gem' but we want to match it as 'CBC Gem'
+                        const network = networks.find(n => {
+                          if (!n.name) return false
+                          const nameLower = n.name.toLowerCase().trim()
+                          return nameLower === 'cbc gem' || 
+                                 nameLower === 'cbc web' ||
+                                 nameLower === 'gem' ||  // Database has just 'Gem'
+                                 nameLower === 'web' ||  // In case it's 'Web'
+                                 nameLower.includes('cbc gem') ||
+                                 nameLower.includes('cbc web') ||
+                                 n.name === networkLabels.cbcWeb ||
+                                 n.name === 'CBC Gem' || 
+                                 n.name === 'CBC GEM' ||
+                                 n.name === 'CBC Web' ||
+                                 n.name === 'CBC WEB' ||
+                                 n.name === 'Gem' ||  // Exact match for database value
+                                 n.name === 'Web'     // In case it's 'Web'
+                        })
+                        if (network) {
+                          try {
+                            // First, ensure the network relationship exists (idempotent - will handle duplicates)
+                            try {
+                              await addBlockRelationship(block.id, 'networks', network.id)
+                            } catch (networkErr) {
+                              // Network might already exist (409), that's okay - continue
+                              if (!networkErr.message || !networkErr.message.includes('409')) {
+                                // Non-409 error, but continue anyway
+                              }
+                            }
+                            // Add booth relationship with network_id to link booth to this specific network
+                            // This allows the same booth to be used for different networks
+                            await addBlockRelationship(block.id, 'booths', newValue, null, network.id)
+                            // Reload relationships to update the UI
+                            await loadRelationships()
+                          } catch (err) {
+                            setError(err.message || 'Failed to add booth relationship')
+                            // Reload to sync state
+                            await loadRelationships()
+                          }
+                        }
+                      } else {
+                        // If clearing the selection, check if we should remove the network
                         const network = networks.find(n => n.name === networkLabels.cbcWeb)
                         if (network) {
-                          await handleAddRelationship('networks', network.id)
+                          const currentBooths = await getBlockRelationships(block.id, 'booths')
+                          const remainingBoothsForNetwork = currentBooths.filter(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return boothNetworkId === network.id
+                          })
+                          // Only remove network relationship if no booths use it
+                          if (remainingBoothsForNetwork.length === 0) {
+                            const existingNetwork = relationships.networks.find(n => n.id === network.id)
+                            if (existingNetwork) {
+                              await handleRemoveRelationship('networks', existingNetwork.linkId)
+                            }
+                          }
                         }
+                        // Reload relationships to update the UI
+                        await loadRelationships()
                       }
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
+                    {booths.map(b => {
+                      const available = isBoothAvailable(b.id)
+                      return (
+                        <option 
+                          key={b.id} 
+                          value={b.id}
+                          disabled={!available}
+                          style={{ color: available ? 'inherit' : '#9ca3af' }}
+                        >
+                          {b.name}{!available ? ' (Unavailable)' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 
@@ -479,22 +726,86 @@ function BlockEditor({ block, onClose, onUpdate }) {
                       setBoothSelections({ ...boothSelections, rcTvWeb: newValue })
                       
                       if (oldValue && oldValue !== newValue) {
-                        const existingBooth = relationships.booths.find(b => b.id === oldValue)
-                        if (existingBooth) {
-                          await handleRemoveRelationship('booths', existingBooth.linkId)
-                        }
-                        const existingNetwork = relationships.networks.find(n => n.name === networkLabels.rcTvWeb)
-                        if (existingNetwork) {
-                          await handleRemoveRelationship('networks', existingNetwork.linkId)
+                        const network = networks.find(n => n.name === networkLabels.rcTvWeb)
+                        if (network) {
+                          // Find and remove the booth relationship for this specific network
+                          const currentBooths = await getBlockRelationships(block.id, 'booths')
+                          const boothToRemove = currentBooths.find(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return b.booth.id === oldValue && boothNetworkId === network.id
+                          })
+                          if (boothToRemove) {
+                            await handleRemoveRelationship('booths', boothToRemove.id)
+                          }
+                          // Check if this network is still used by other booths before removing
+                          const remainingBoothsForNetwork = currentBooths.filter(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return boothNetworkId === network.id && b.booth.id !== oldValue
+                          })
+                          // Only remove network relationship if no other booths use it
+                          if (remainingBoothsForNetwork.length === 0) {
+                            const existingNetwork = relationships.networks.find(n => n.name === networkLabels.rcTvWeb)
+                            if (existingNetwork) {
+                              await handleRemoveRelationship('networks', existingNetwork.linkId)
+                            }
+                          }
                         }
                       }
                       
                       if (newValue) {
-                        await handleAddRelationship('booths', newValue)
+                        // Try multiple possible names for R-C TV/Web - case insensitive and flexible matching
+                        const network = networks.find(n => {
+                          const nameLower = n.name.toLowerCase().trim()
+                          return nameLower.includes('r-c') || 
+                                 nameLower.includes('r-c tv') ||
+                                 nameLower.includes('rc tv') ||
+                                 nameLower.includes('radio-canada') ||
+                                 n.name === networkLabels.rcTvWeb ||
+                                 n.name === 'R-C TV/WEB' || 
+                                 n.name === 'R-C TV/Web' ||
+                                 n.name === 'R-C TV/WEB'
+                        })
+                        if (network) {
+                          try {
+                            // First, ensure the network relationship exists (idempotent - will handle duplicates)
+                            try {
+                              await addBlockRelationship(block.id, 'networks', network.id)
+                            } catch (networkErr) {
+                              // Network might already exist (409), that's okay - continue
+                              if (!networkErr.message || !networkErr.message.includes('409')) {
+                                // Non-409 error, but continue anyway
+                              }
+                            }
+                            // Add booth relationship with network_id to link booth to this specific network
+                            // This allows the same booth to be used for different networks
+                            await addBlockRelationship(block.id, 'booths', newValue, null, network.id)
+                            // Reload relationships to update the UI
+                            await loadRelationships()
+                          } catch (err) {
+                            setError(err.message || 'Failed to add booth relationship')
+                            // Reload to sync state
+                            await loadRelationships()
+                          }
+                        }
+                      } else {
+                        // If clearing the selection, check if we should remove the network
                         const network = networks.find(n => n.name === networkLabels.rcTvWeb)
                         if (network) {
-                          await handleAddRelationship('networks', network.id)
+                          const currentBooths = await getBlockRelationships(block.id, 'booths')
+                          const remainingBoothsForNetwork = currentBooths.filter(b => {
+                            const boothNetworkId = b.network_id || (b.network ? b.network.id : null)
+                            return boothNetworkId === network.id
+                          })
+                          // Only remove network relationship if no booths use it
+                          if (remainingBoothsForNetwork.length === 0) {
+                            const existingNetwork = relationships.networks.find(n => n.id === network.id)
+                            if (existingNetwork) {
+                              await handleRemoveRelationship('networks', existingNetwork.linkId)
+                            }
+                          }
                         }
+                        // Reload relationships to update the UI
+                        await loadRelationships()
                       }
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"

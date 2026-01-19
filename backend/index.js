@@ -708,7 +708,7 @@ app.get('/api/blocks', async (req, res) => {
           .eq('block_id', blockId),
         supabase
           .from('block_booths')
-          .select('*, booth:booths(*)')
+          .select('*, booth:booths(*), network:networks(*)')
           .eq('block_id', blockId),
         supabase
           .from('block_networks')
@@ -725,7 +725,12 @@ app.get('/api/blocks', async (req, res) => {
         })) || [],
         booths: boothsRes.data?.map(b => ({
           id: b.booth.id,
-          name: b.booth.name
+          name: b.booth.name,
+          network_id: b.network_id,
+          network: b.network ? {
+            id: b.network.id,
+            name: b.network.name
+          } : null
         })) || [],
         networks: networksRes.data?.map(n => ({
           id: n.network.id,
@@ -757,7 +762,7 @@ app.get('/api/blocks', async (req, res) => {
               .eq('block_id', block.id),
             supabase
               .from('block_booths')
-              .select('*, booth:booths(*)')
+              .select('*, booth:booths(*), network:networks(*)')
               .eq('block_id', block.id),
             supabase
               .from('block_networks')
@@ -774,7 +779,12 @@ app.get('/api/blocks', async (req, res) => {
             })) || [],
             booths: boothsRes.data?.map(b => ({
               id: b.booth.id,
-              name: b.booth.name
+              name: b.booth.name,
+              network_id: b.network_id,
+              network: b.network ? {
+                id: b.network.id,
+                name: b.network.name
+              } : null
             })) || [],
             networks: networksRes.data?.map(n => ({
               id: n.network.id,
@@ -801,7 +811,7 @@ app.post('/api/blocks', async (req, res) => {
     const { 
       name, block_id, obs_id, start_time, end_time, duration,
       broadcast_start_time, broadcast_end_time,
-      encoder_id, producer_id, suite_id, source_event_id, obs_group
+      encoder_id, producer_id, suite_id, source_event_id, obs_group, type
     } = req.body;
 
     if (!name || !start_time || !end_time) {
@@ -834,16 +844,31 @@ app.post('/api/blocks', async (req, res) => {
         producer_id: producer_id || null,
         suite_id: suite_id || null,
         source_event_id: source_event_id || null,
-        obs_group: obs_group?.trim() || null
+        obs_group: obs_group?.trim() || null,
+        type: type && type.trim() ? type.trim() : null
       }])
       .select()
       .single();
     
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error('Supabase insert error:', insertError);
+      throw insertError;
+    }
     res.status(201).json(newBlock);
   } catch (error) {
     console.error('Error creating block:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    });
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    });
   }
 });
 
@@ -861,7 +886,7 @@ app.put('/api/blocks', async (req, res) => {
     const { 
       id, name, block_id, obs_id, start_time, end_time, duration,
       broadcast_start_time, broadcast_end_time,
-      encoder_id, producer_id, suite_id, source_event_id, obs_group
+      encoder_id, producer_id, suite_id, source_event_id, obs_group, type
     } = req.body;
 
     if (!id) {
@@ -893,6 +918,7 @@ app.put('/api/blocks', async (req, res) => {
     if (suite_id !== undefined) updateData.suite_id = suite_id || null;
     if (source_event_id !== undefined) updateData.source_event_id = source_event_id || null;
     if (obs_group !== undefined) updateData.obs_group = obs_group?.trim() || null;
+    if (type !== undefined) updateData.type = type?.trim() || null;
 
     const { data: updated, error: updateError } = await supabase
       .from('blocks')
@@ -989,9 +1015,14 @@ app.all('/api/blocks/:blockId/relationships', async (req, res) => {
   try {
     switch (req.method) {
       case 'GET':
+        // For booths, also include network relationship if network_id exists
+        const selectFields = relationshipType === 'booths'
+          ? `*, ${relatedKey}:${relatedTable}(*), network:networks(*)`
+          : `*, ${relatedKey}:${relatedTable}(*)`;
+        
         const { data, error } = await supabase
           .from(tableName)
-          .select(`*, ${relatedKey}:${relatedTable}(*)`)
+          .select(selectFields)
           .eq('block_id', blockId)
           .order('created_at');
         if (error) throw error;
@@ -1001,9 +1032,15 @@ app.all('/api/blocks/:blockId/relationships', async (req, res) => {
       case 'POST':
         const relationshipId = req.body[foreignKey];
         const role = req.body.role;
+        const networkId = req.body.network_id; // For booths, we need to know which network
         
         if (!relationshipId) {
           return res.status(400).json({ error: `${foreignKey} is required` });
+        }
+
+        // For booths: require network_id to associate booth with a specific network
+        if (relationshipType === 'booths' && !networkId) {
+          return res.status(400).json({ error: 'network_id is required when adding a booth relationship' });
         }
 
         const insertData = {
@@ -1014,16 +1051,79 @@ app.all('/api/blocks/:blockId/relationships', async (req, res) => {
         if (relationshipType === 'commentators' && role) {
           insertData.role = role;
         }
+        
+        // For booths, include network_id to allow same booth for different networks
+        if (relationshipType === 'booths' && networkId) {
+          insertData.network_id = networkId;
+        }
 
+        // For booths, also include network in the select
+        const selectFieldsForInsert = relationshipType === 'booths'
+          ? `*, ${relatedKey}:${relatedTable}(*), network:networks(*)`
+          : `*, ${relatedKey}:${relatedTable}(*)`;
+        
         const { data: link, error: linkError } = await supabase
           .from(tableName)
           .insert([insertData])
-          .select(`*, ${relatedKey}:${relatedTable}(*)`)
+          .select(selectFieldsForInsert)
           .single();
         
         if (linkError) {
+          console.error('Supabase insert error:', {
+            code: linkError.code,
+            message: linkError.message,
+            details: linkError.details,
+            hint: linkError.hint,
+            relationshipType,
+            insertData
+          });
+          
           if (linkError.code === '23505') {
-            return res.status(409).json({ error: `${relatedKey} is already linked to this block` });
+            // Duplicate key error - relationship already exists
+            // For booths with network_id, check if this exact combination exists
+            if (relationshipType === 'booths' && networkId) {
+              // For booths, also include network in the select
+              const selectFieldsForExisting = relationshipType === 'booths'
+                ? `*, ${relatedKey}:${relatedTable}(*), network:networks(*)`
+                : `*, ${relatedKey}:${relatedTable}(*)`;
+              
+              try {
+                const { data: existingLink, error: fetchError } = await supabase
+                  .from(tableName)
+                  .select(selectFieldsForExisting)
+                  .eq('block_id', blockId)
+                  .eq(foreignKey, relationshipId)
+                  .eq('network_id', networkId)
+                  .single();
+                
+                if (existingLink && !fetchError) {
+                  return res.status(200).json(existingLink);
+                }
+                // If fetchError, log it but continue to return 409
+                if (fetchError) {
+                  console.log('Error fetching existing booth relationship:', fetchError);
+                }
+              } catch (fetchErr) {
+                // Continue to return 409
+              }
+            } else {
+              // For non-booth relationships (networks, commentators), try to fetch existing
+              const selectFieldsForExisting = relationshipType === 'booths'
+                ? `*, ${relatedKey}:${relatedTable}(*), network:networks(*)`
+                : `*, ${relatedKey}:${relatedTable}(*)`;
+              
+              const { data: existingLink, error: fetchError } = await supabase
+                .from(tableName)
+                .select(selectFieldsForExisting)
+                .eq('block_id', blockId)
+                .eq(foreignKey, relationshipId)
+                .single();
+              
+              if (existingLink && !fetchError) {
+                return res.status(200).json(existingLink);
+              }
+            }
+            return res.status(409).json({ error: `${relatedKey} is already linked to this block${relationshipType === 'booths' ? ' for this network' : ''}` });
           }
           console.error('Error adding relationship:', linkError);
           return res.status(500).json({ error: linkError.message || 'Failed to add relationship' });

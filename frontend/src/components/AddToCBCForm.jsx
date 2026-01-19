@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
-import { createBlock, addBlockRelationship } from '../utils/api'
-import { getResources } from '../utils/api'
+import { createBlock, addBlockRelationship, getBlocks, getResources } from '../utils/api'
+import { BLOCK_TYPES, inferBlockType } from '../utils/blockTypes'
 
 function AddToCBCForm({ event, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
@@ -14,7 +14,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     broadcast_end_time: '',
     encoder_id: '',
     producer_id: '',
-    suite_id: ''
+    suite_id: '',
+    type: ''
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -24,6 +25,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
   const [commentators, setCommentators] = useState([])
   const [booths, setBooths] = useState([])
   const [networks, setNetworks] = useState([])
+  const [allBlocks, setAllBlocks] = useState([]) // For checking booth availability
   
   // Form state for commentators and booths
   const [commentatorSelections, setCommentatorSelections] = useState({
@@ -53,6 +55,9 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         return moment.utc(utcTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
       }
       
+      // Infer type from event name
+      const inferredType = inferBlockType(event.title || '')
+      
       // Pre-fill form with event data
       setFormData({
         name: event.title || '',
@@ -63,7 +68,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         broadcast_end_time: '',
         encoder_id: '',
         producer_id: '',
-        suite_id: ''
+        suite_id: '',
+        type: inferredType
       })
     }
     loadReferenceData()
@@ -71,13 +77,14 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
 
   const loadReferenceData = async () => {
     try {
-      const [encodersData, producersData, suitesData, commentatorsData, boothsData, networksData] = await Promise.all([
+      const [encodersData, producersData, suitesData, commentatorsData, boothsData, networksData, blocksData] = await Promise.all([
         getResources('encoders'),
         getResources('producers'),
         getResources('suites'),
         getResources('commentators'),
         getResources('booths'),
-        getResources('networks')
+        getResources('networks'),
+        getBlocks() // Load all blocks to check booth availability
       ])
       setEncoders(encodersData)
       setProducers(producersData)
@@ -85,10 +92,82 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
       setCommentators(commentatorsData)
       setBooths(boothsData)
       setNetworks(networksData)
+      setAllBlocks(blocksData || [])
     } catch (err) {
       console.error('Error loading reference data:', err)
     }
   }
+
+  // Check which booths are unavailable (already assigned to blocks that overlap with this block's time)
+  const unavailableBooths = useMemo(() => {
+    if (!formData.start_time || !formData.end_time) {
+      return new Set()
+    }
+
+    // Convert form times (EST) to UTC for comparison
+    const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
+    const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+
+    const unavailable = new Set()
+
+    // Check all existing blocks for time overlaps
+    allBlocks.forEach(block => {
+      if (!block.start_time || !block.end_time) return
+
+      const existingStart = moment.utc(block.start_time)
+      const existingEnd = moment.utc(block.end_time)
+
+      // Check if time ranges overlap
+      // Two time ranges overlap if: start1 < end2 && start2 < end1
+      if (blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)) {
+        // This block overlaps with our time range
+        // Mark all booths assigned to this block as unavailable
+        if (block.booths && block.booths.length > 0) {
+          block.booths.forEach(booth => {
+            unavailable.add(booth.id)
+          })
+        }
+      }
+    })
+
+    return unavailable
+  }, [formData.start_time, formData.end_time, allBlocks])
+  
+  // Check if a booth is available during the block's time range
+  // VIS can always be used (can be assigned to multiple blocks at the same time)
+  const isBoothAvailable = useMemo(() => {
+    return (boothId) => {
+      if (!formData.start_time || !formData.end_time || !boothId) return true
+      
+      // Find the booth to check its name
+      const booth = booths.find(b => b.id === boothId)
+      
+      // VIS can always be used (no availability check needed)
+      if (booth && booth.name === 'VIS') {
+        return true
+      }
+      
+      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
+      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      
+      // Check if any existing block uses this booth during an overlapping time period
+      return !allBlocks.some(block => {
+        // Skip if block has no time range
+        if (!block.start_time || !block.end_time) return false
+        
+        // Check if this block uses the booth
+        const hasBooth = block.booths && block.booths.some(b => b.id === boothId)
+        if (!hasBooth) return false
+        
+        // Check for time overlap
+        const existingStart = moment.utc(block.start_time)
+        const existingEnd = moment.utc(block.end_time)
+        
+        // Two time ranges overlap if: start1 < end2 && start2 < end1
+        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
+      })
+    }
+  }, [formData.start_time, formData.end_time, allBlocks, booths])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -118,10 +197,11 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         producer_id: formData.producer_id || null,
         suite_id: formData.suite_id || null,
         source_event_id: event?.id || null,
-        obs_group: event?.group || null // Store the DX channel from OBS event
+        obs_group: event?.group || null, // Store the DX channel from OBS event
+        type: formData.type && formData.type.trim() ? formData.type.trim() : null
       }
 
-      const newBlock = await createBlock(blockData)
+       const newBlock = await createBlock(blockData)
       
       // Add commentator relationships
       try {
@@ -136,15 +216,68 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         }
         
         // Add booth relationships and corresponding network labels
-        // When a booth is selected, we need to find or create the network with the matching label
+        // Each booth is linked to a specific network via network_id in block_booths
+        // Track which networks we've already added to avoid duplicates
+        const addedNetworks = new Set()
+        
         const addBoothWithNetwork = async (boothId, networkLabel) => {
           if (boothId) {
-            await addBlockRelationship(newBlock.id, 'booths', boothId)
-            // Find network by label name
-            const network = networks.find(n => n.name === networkLabel)
-            if (network) {
-              await addBlockRelationship(newBlock.id, 'networks', network.id)
-            }
+            // Flexible network matching to handle database name variations
+            // Database has: 'CBC TV', 'Gem', 'R-C TV / Web'
+            // We're looking for: 'CBC TV', 'CBC Gem', 'R-C TV/WEB'
+            const network = networks.find(n => {
+              if (!n.name) return false
+              const nameLower = n.name.toLowerCase().trim()
+              const labelLower = networkLabel.toLowerCase().trim()
+              
+              // Exact match first
+              if (n.name === networkLabel) return true
+              
+              // CBC TV matching
+              if (labelLower === 'cbc tv' && (nameLower === 'cbc tv' || nameLower.includes('cbc tv'))) {
+                return true
+              }
+              
+              // CBC Gem matching - database has 'Gem', we're looking for 'CBC Gem'
+              if (labelLower === 'cbc gem' || labelLower === 'cbc web') {
+                return nameLower === 'cbc gem' || 
+                       nameLower === 'cbc web' ||
+                       nameLower === 'gem' || 
+                       nameLower === 'web' ||
+                       nameLower.includes('cbc gem') ||
+                       nameLower.includes('cbc web')
+              }
+              
+              // R-C TV/Web matching - database has 'R-C TV / Web', we're looking for 'R-C TV/WEB'
+              if (labelLower.includes('r-c') || labelLower.includes('rc tv')) {
+                return nameLower.includes('r-c') || 
+                       nameLower.includes('rc tv') || 
+                       nameLower.includes('radio-canada')
+              }
+              
+              return false
+            })
+            
+             if (network && network.id) {
+               // Add booth relationship with network_id to link booth to this specific network
+               await addBlockRelationship(newBlock.id, 'booths', boothId, null, network.id)
+               // Also add the network relationship, but only once per network
+               if (!addedNetworks.has(network.id)) {
+                 try {
+                   await addBlockRelationship(newBlock.id, 'networks', network.id)
+                   addedNetworks.add(network.id)
+                 } catch (err) {
+                   // If network already exists (409), that's fine - just continue
+                   if (err.message && err.message.includes('409')) {
+                     addedNetworks.add(network.id)
+                   } else {
+                     throw err
+                   }
+                 }
+               }
+             } else {
+               throw new Error(`Network not found for label "${networkLabel}". Available networks: ${networks.map(n => n.name).join(', ')}`)
+             }
           }
         }
         
@@ -278,6 +411,21 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
             </div>
           </div>
 
+          {/* Type */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Type</label>
+            <select
+              value={formData.type}
+              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            >
+              <option value="">None</option>
+              {BLOCK_TYPES.map(type => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Resources */}
           <section>
             <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Resources</h3>
@@ -307,9 +455,19 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
+                    {booths.map(b => {
+                      const available = isBoothAvailable(b.id)
+                      return (
+                        <option 
+                          key={b.id} 
+                          value={b.id}
+                          disabled={!available}
+                          style={{ color: available ? 'inherit' : '#9ca3af' }}
+                        >
+                          {b.name}{!available ? ' (Unavailable)' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 
@@ -321,9 +479,19 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
+                    {booths.map(b => {
+                      const available = isBoothAvailable(b.id)
+                      return (
+                        <option 
+                          key={b.id} 
+                          value={b.id}
+                          disabled={!available}
+                          style={{ color: available ? 'inherit' : '#9ca3af' }}
+                        >
+                          {b.name}{!available ? ' (Unavailable)' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 
@@ -335,9 +503,19 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
+                    {booths.map(b => {
+                      const available = isBoothAvailable(b.id)
+                      return (
+                        <option 
+                          key={b.id} 
+                          value={b.id}
+                          disabled={!available}
+                          style={{ color: available ? 'inherit' : '#9ca3af' }}
+                        >
+                          {b.name}{!available ? ' (Unavailable)' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
               </div>

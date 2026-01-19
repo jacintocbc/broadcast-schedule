@@ -60,8 +60,21 @@ export async function createBlock(blockData) {
     body: JSON.stringify(blockData)
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create block');
+    // Check if response is JSON before trying to parse
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create block');
+      } catch (parseError) {
+        // If JSON parsing fails, get text instead
+        const text = await response.text();
+        throw new Error(text || `Failed to create block: ${response.status} ${response.statusText}`);
+      }
+    } else {
+      const text = await response.text();
+      throw new Error(text || `Failed to create block: ${response.status} ${response.statusText}`);
+    }
   }
   return response.json();
 }
@@ -96,7 +109,7 @@ export async function getBlockRelationships(blockId, relationshipType) {
   return response.json();
 }
 
-export async function addBlockRelationship(blockId, relationshipType, relationshipId, role = null) {
+export async function addBlockRelationship(blockId, relationshipType, relationshipId, role = null, networkId = null) {
   const bodyKey = relationshipType === 'commentators' 
     ? 'commentator_id' 
     : relationshipType === 'booths'
@@ -107,12 +120,30 @@ export async function addBlockRelationship(blockId, relationshipType, relationsh
   if (relationshipType === 'commentators' && role) {
     body.role = role;
   }
+  // For booths, include network_id to link booth to a specific network
+  if (relationshipType === 'booths' && networkId) {
+    body.network_id = networkId;
+  }
   
   const response = await fetch(`${API_BASE}/api/blocks/${blockId}/relationships?relationshipType=${relationshipType}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
+  
+  // Handle 409 Conflict (relationship already exists) gracefully
+  if (response.status === 409) {
+    // Relationship already exists, return success (idempotent operation)
+    // Don't throw an error, just return a success indicator
+    try {
+      const data = await response.json();
+      return data;
+    } catch (e) {
+      // If no JSON, just return a success-like object
+      return { success: true, message: 'Relationship already exists' };
+    }
+  }
+  
   if (!response.ok) {
     let errorMessage = `Failed to add ${relationshipType}`;
     try {

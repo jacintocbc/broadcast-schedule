@@ -1,6 +1,7 @@
 import { useMemo, useRef, useEffect, useState } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
+import { getBlockTypeColor } from '../utils/blockTypes'
 
 function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73 }) {
   const containerRef = useRef(null)
@@ -335,9 +336,30 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   const isBlock = event.block
                   const block = event.block || {}
                   
-                  // Use yellow for 0-duration events, blue for normal events, green for blocks
-                  const backgroundColor = event.isZeroDuration ? '#eab308' : (isBlock ? '#10b981' : '#3b82f6')
-                  const borderColor = event.isZeroDuration ? '#ca8a04' : (isBlock ? '#059669' : '#2563eb')
+                  // Use yellow for 0-duration events, blue for normal events, type-based color for blocks
+                  let backgroundColor
+                  let borderColor
+                  let textColor = 'text-white' // Default to white text
+                  
+                  if (event.isZeroDuration) {
+                    backgroundColor = '#eab308'
+                    borderColor = '#ca8a04'
+                  } else if (isBlock) {
+                    // Get color from block type, or use default green
+                    backgroundColor = getBlockTypeColor(block.type)
+                    borderColor = '#059669' // Keep green border for blocks
+                    
+                    // Use dark text for light backgrounds (white and light pastel colors)
+                    // Light colors have high RGB values (above ~200 for each channel)
+                    const lightColors = ['#ffffff', '#fef08a', '#bbf7d0', '#fed7aa', '#bfdbfe', 
+                                        '#fbcfe8', '#e5e7eb', '#9ca3af', '#fce7f3', '#e9d5ff', '#fde047']
+                    if (lightColors.includes(backgroundColor)) {
+                      textColor = 'text-gray-900'
+                    }
+                  } else {
+                    backgroundColor = '#3b82f6'
+                    borderColor = '#2563eb'
+                  }
                   
                   // Format times for display - explicitly parse as UTC first, then convert to EST
                   const startEST = moment.utc(event.start_time).tz('America/New_York')
@@ -367,7 +389,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     >
                       {isBlock ? (
                         // Block display with metadata - matching the provided format
-                        <div className="flex flex-col text-white p-2 text-[14.6px] leading-tight" style={{ minHeight: '100%' }}>
+                        <div 
+                          className={`flex flex-col p-2 text-[14.6px] leading-tight ${textColor}`}
+                          style={{ minHeight: '100%' }}
+                        >
                           {/* Broadcast times in parentheses (first line) */}
                           {broadcastStart && broadcastEnd && (
                             <div className="text-[13.3px] opacity-90 mb-0.5">
@@ -396,56 +421,97 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                             {block.name || event.title}
                           </div>
                           
-                          {/* Networks and Booths - one per line: "CBC TV : VT 52" format */}
-                          {/* Always show the three network labels if we have any booths */}
+                          {/* Networks and Booths - one per line: "CBC TV : VIS" format */}
+                          {/* Match each network to its booth using network_id */}
                           {(() => {
                             // Define the three network labels in order (with proper capitalization)
-                            const networkLabels = ['CBC TV', 'CBC Gem', 'R-C TV/WEB']
-                            const displayLabels = ['CBC TV', 'CBC Gem', 'R-C TV/Web'] // Display labels
+                            // Flexible network name matching
+                            const matchNetworkName = (networkName) => {
+                              if (!networkName) return null
+                              const nameLower = networkName.toLowerCase().trim()
+                              // CBC TV
+                              if (nameLower === 'cbc tv' || nameLower.includes('cbc tv')) {
+                                return { label: 'CBC TV', order: 0 }
+                              }
+                              // CBC Gem / CBC Web / Gem / Web
+                              // Note: Database has 'Gem' but we display it as 'CBC Gem'
+                              if (nameLower === 'cbc gem' || nameLower === 'cbc web' || 
+                                  nameLower === 'gem' || nameLower === 'web' ||
+                                  nameLower.includes('cbc gem') || nameLower.includes('cbc web')) {
+                                return { label: 'CBC Gem', order: 1 }
+                              }
+                              // R-C TV/Web (handle various formats)
+                              if (nameLower.includes('r-c') || nameLower.includes('rc tv') || 
+                                  nameLower.includes('radio-canada')) {
+                                return { label: 'R-C TV/Web', order: 2 }
+                              }
+                              return null
+                            }
+                            
                             const displayItems = []
                             
-                            // If we have booths, always show the three network labels
+                            // Match each network to its corresponding booth using network_id
+                            // The block.booths array contains booth entries with network_id
+                            // Iterate through booths and match them to networks
+                            
+                            // Use a Set to track which networks we've already added (to avoid duplicates)
+                            const addedNetworks = new Set()
+                            
                             if (block.booths && block.booths.length > 0) {
-                              // For each network label, find matching booth by index
-                              networkLabels.forEach((networkLabel, labelIdx) => {
-                                // Match booths to network labels by index (first booth = CBC TV, second = CBC Gem, third = R-C TV/Web)
-                                const booth = block.booths[labelIdx] || null
+                              // Iterate through booths and match them to networks
+                              block.booths.forEach((booth) => {
+                                // Get the network_id from the booth
+                                const boothNetworkId = booth.network_id || (booth.network ? booth.network.id : null)
                                 
-                                // Always show the network label if we have a booth for it
-                                if (booth) {
-                                  displayItems.push({ 
-                                    networkName: displayLabels[labelIdx], 
-                                    boothName: booth.name 
-                                  })
+                                if (boothNetworkId && !addedNetworks.has(boothNetworkId)) {
+                                  // Find the network that matches this network_id
+                                  const network = block.networks?.find(n => n.id === boothNetworkId)
+                                  
+                                  if (network) {
+                                    // Use flexible matching to get display label
+                                    const match = matchNetworkName(network.name)
+                                    if (match) {
+                                      const boothName = booth.name || (booth.booth ? booth.booth.name : '')
+                                      
+                                      if (boothName) {
+                                        addedNetworks.add(boothNetworkId)
+                                        displayItems.push({ 
+                                          networkName: match.label, 
+                                          boothName: boothName,
+                                          sortOrder: match.order
+                                        })
+                                      }
+                                    }
+                                  }
+                                } else if (booth.network && booth.network.name && !addedNetworks.has(booth.network.id)) {
+                                  // Fallback: use network name from booth.network object
+                                  const match = matchNetworkName(booth.network.name)
+                                  if (match) {
+                                    const boothName = booth.name || (booth.booth ? booth.booth.name : '')
+                                    
+                                    if (boothName) {
+                                      addedNetworks.add(booth.network.id)
+                                      displayItems.push({ 
+                                        networkName: match.label, 
+                                        boothName: boothName,
+                                        sortOrder: match.order
+                                      })
+                                    }
+                                  }
                                 }
                               })
                             }
                             
-                            // Also check for networks that exist in the database (in case they're stored differently)
-                            if (block.networks && block.networks.length > 0) {
-                              block.networks.forEach((network, idx) => {
-                                // Find the display label that matches this network
-                                const networkLabelIndex = networkLabels.findIndex(nl => nl === network.name)
-                                const displayLabel = networkLabelIndex >= 0 ? displayLabels[networkLabelIndex] : network.name
-                                
-                                // Find matching booth
-                                const booth = block.booths && block.booths[idx] ? block.booths[idx] : null
-                                
-                                // Only add if not already in displayItems
-                                if (!displayItems.find(item => item.networkName === displayLabel && item.boothName === booth?.name)) {
-                                  displayItems.push({ 
-                                    networkName: displayLabel, 
-                                    boothName: booth?.name || null 
-                                  })
-                                }
-                              })
-                            }
+                            // Sort display items to maintain consistent order (CBC TV, CBC Gem, R-C TV/Web)
+                            displayItems.sort((a, b) => {
+                              return a.sortOrder - b.sortOrder
+                            })
                             
                             return displayItems.length > 0 ? (
                               <div className="mt-auto space-y-0.5 mb-1">
                                 {displayItems.map((item, idx) => (
                                   <div key={idx} className="text-[13.3px] opacity-90">
-                                    {item.networkName}{item.boothName ? ` : ${item.boothName}` : ''}
+                                    {item.networkName} : {item.boothName}
                                   </div>
                                 ))}
                               </div>
