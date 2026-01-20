@@ -221,12 +221,13 @@ function BoothDetailView() {
       <div className="bg-black p-4 shadow-lg sticky top-0 z-10">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold" style={{ fontSize: '1.4em' }}>Booth {booth.name}</h1>
-          <div className="flex items-center" style={{ gap: '50px' }}>
+          <div className="flex items-center">
             <div className="text-3xl font-bold text-white" style={{ fontSize: '1.4em' }}>
-              {times.et} <span className="font-bold">EST</span>
+              <span className="font-mono">{times.et}</span> <span className="font-bold">EST</span>
             </div>
+            <span className="text-3xl font-bold text-white" style={{ fontSize: '1.4em', margin: '0 1rem', transform: 'translateY(-2px)' }}>/</span>
             <div className="text-3xl font-bold text-white" style={{ fontSize: '1.4em' }}>
-              {times.cet} ITA
+              <span className="font-mono">{times.cet}</span> ITA
             </div>
           </div>
         </div>

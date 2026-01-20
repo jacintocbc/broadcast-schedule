@@ -209,11 +209,12 @@ function LiveBoothsView() {
       <div className="bg-gray-800 p-4 shadow-lg sticky top-0 z-10">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold">Booth Summary</h1>
-          <div className="flex items-center" style={{ gap: '50px' }}>
-            <div className="text-3xl font-bold text-white">
+          <div className="flex items-center">
+            <div className="text-3xl font-bold text-white font-mono">
               {times.et} <span className="font-bold">EST</span>
             </div>
-            <div className="text-3xl font-bold text-white">
+            <span className="text-3xl font-bold text-white mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
+            <div className="text-3xl font-bold text-white font-mono">
               {times.cet} ITA
             </div>
           </div>
