@@ -280,7 +280,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       {/* Header with hours - Fixed */}
       <div ref={headerRef} className="flex-shrink-0 bg-white border-b-2 border-gray-200 shadow-sm sticky z-30" style={{ top: `${navbarHeight + datePickerHeight - 1}px` }}>
         <div className="flex relative">
-          <div className="w-32 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700">
+          <div className="w-24 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700">
             <div className="text-sm">
               {selectedDate ? moment.tz(selectedDate, 'America/New_York').format('dddd, MMMM D') : 'Select Date'}
             </div>
@@ -363,7 +363,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               style={{ minHeight: rowMinHeight }}
             >
               {/* Group label */}
-              <div className="w-32 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 flex flex-col items-center justify-center">
+              <div className="w-24 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 flex flex-col items-center justify-center">
                 {isTXEncoder ? (
                   // CBC Timeline TX encoders: Always show TX, OLY, and RX labels
                   (() => {

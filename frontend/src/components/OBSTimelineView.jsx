@@ -3,6 +3,7 @@ import ModernTimeline from './ModernTimeline'
 import DateNavigator from './DateNavigator'
 import EventDetailPanel from './EventDetailPanel'
 import AddToCBCForm from './AddToCBCForm'
+import moment from 'moment-timezone'
 
 function OBSTimelineView() {
   const [events, setEvents] = useState([])
@@ -16,6 +17,29 @@ function OBSTimelineView() {
   const [datePickerHeight, setDatePickerHeight] = useState(0)
   const [zoomHours, setZoomHours] = useState(24) // 1, 3, 8, or 24 hours
   const [scrollPosition, setScrollPosition] = useState(0) // Current scroll position in hours
+  const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
+  
+  // Update current time every second for real-time clock display
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(moment.tz('America/New_York'))
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [])
+  
+  // Format time for display (EST and ITA)
+  const formatTime = () => {
+    const et = currentTime.clone().tz('America/New_York')
+    const ita = currentTime.clone().tz('Europe/Rome')
+    
+    return {
+      et: et.format('HH:mm:ss'),
+      ita: ita.format('HH:mm:ss')
+    }
+  }
+  
+  const times = formatTime()
 
   // Fetch available dates on mount
   useEffect(() => {
@@ -112,15 +136,16 @@ function OBSTimelineView() {
     <div className="flex-1 flex flex-col">
       <div ref={datePickerRef} className="p-4 border-b bg-gray-50 sticky z-40" style={{ top: `${navbarHeight}px` }}>
         {availableDates.length > 0 && (
-          <div className="flex items-center gap-4 flex-wrap">
-            <DateNavigator 
-              dates={availableDates}
-              selectedDate={selectedDate}
-              onDateChange={handleDateChange}
-            />
-            
-            {/* Zoom Controls */}
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 flex-wrap">
+              <DateNavigator 
+                dates={availableDates}
+                selectedDate={selectedDate}
+                onDateChange={handleDateChange}
+              />
+              
+              {/* Zoom Controls */}
+              <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-gray-700">Zoom:</span>
               <div className="flex gap-1">
                 {[1, 3, 8, 24].map(hours => (
@@ -161,6 +186,17 @@ function OBSTimelineView() {
                   </button>
                 </>
               )}
+            </div>
+            </div>
+            
+            {/* Dual Clock Display - Top Right */}
+            <div className="flex items-center" style={{ gap: '25px' }}>
+              <div className="text-3xl font-bold text-gray-800">
+                {times.et} <span className="font-bold">EST</span>
+              </div>
+              <div className="text-3xl font-bold text-gray-800">
+                {times.ita} ITA
+              </div>
             </div>
           </div>
         )}
@@ -204,7 +240,9 @@ function OBSTimelineView() {
                   position: 'sticky',
                   top: `${navbarHeight + datePickerHeight}px`,
                   maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
-                  alignSelf: 'flex-start'
+                  alignSelf: 'flex-start',
+                  zIndex: 50,
+                  backgroundColor: 'white'
                 }}
               >
                 <AddToCBCForm 
@@ -221,7 +259,9 @@ function OBSTimelineView() {
                   position: 'sticky',
                   top: `${navbarHeight + datePickerHeight}px`,
                   maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
-                  alignSelf: 'flex-start'
+                  alignSelf: 'flex-start',
+                  zIndex: 50,
+                  backgroundColor: 'white'
                 }}
               >
                 <EventDetailPanel 
