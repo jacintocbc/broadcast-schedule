@@ -85,20 +85,42 @@ function CBCTimelineView() {
   }, [blocks])
 
   // Filter blocks by selected date
-  const filteredBlocks = selectedDate 
-    ? blocks.filter(block => moment(block.start_time).format('YYYY-MM-DD') === selectedDate)
-    : []
+  const filteredBlocks = useMemo(() => {
+    return selectedDate 
+      ? blocks.filter(block => moment(block.start_time).format('YYYY-MM-DD') === selectedDate)
+      : []
+  }, [blocks, selectedDate])
+
+  // Create a hash of block relationships to force re-render when relationships change
+  const blocksHash = useMemo(() => {
+    return blocks.map(block => {
+      // Include booth id, name, and network_id in the hash since all are displayed
+      const boothsHash = JSON.stringify((block.booths || []).map(b => ({ 
+        id: b.id, 
+        name: b.name, 
+        network_id: b.network_id 
+      })))
+      const networksHash = JSON.stringify((block.networks || []).map(n => ({ id: n.id, name: n.name })))
+      return `${block.id}-${boothsHash}-${networksHash}`
+    }).join('|')
+  }, [blocks])
 
   // Transform blocks to events format for ModernTimeline and ensure all encoders are shown
   const events = useMemo(() => {
     // Transform blocks to events format
+    // Create a deep copy of block data to ensure React detects changes
     const blockEvents = filteredBlocks.map(block => ({
       id: block.id,
       title: block.name,
       group: block.encoder?.name || 'No Encoder',
       start_time: block.start_time,
       end_time: block.end_time,
-      block: block // Store full block data
+      block: {
+        ...block,
+        booths: block.booths ? [...block.booths] : [],
+        networks: block.networks ? [...block.networks] : [],
+        commentators: block.commentators ? [...block.commentators] : []
+      } // Store full block data with fresh array references
     }))
 
     // Create events array starting with actual block events
@@ -126,7 +148,7 @@ function CBCTimelineView() {
     }
 
     return eventsList
-  }, [filteredBlocks, encoders, selectedDate])
+  }, [filteredBlocks, encoders, selectedDate, blocksHash])
 
   const loadBlocks = async () => {
     try {
@@ -134,6 +156,14 @@ function CBCTimelineView() {
       setError(null)
       const data = await getBlocks()
       setBlocks(data)
+      
+      // Update selectedBlock if it exists to ensure it has the latest data
+      if (selectedBlock) {
+        const updatedBlock = data.find(b => b.id === selectedBlock.id)
+        if (updatedBlock) {
+          setSelectedBlock(updatedBlock)
+        }
+      }
     } catch (err) {
       setError(err.message)
       console.error('Error loading blocks:', err)

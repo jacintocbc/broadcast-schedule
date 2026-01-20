@@ -410,9 +410,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   const broadcastStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time).tz('America/New_York') : null
                   const broadcastEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time).tz('America/New_York') : null
                   
+                  // Create a key that includes booth relationships for blocks to force re-render
+                  const blockKey = isBlock && block.booths 
+                    ? `${event.id}-${eventIdx}-${JSON.stringify(block.booths.map(b => ({ id: b.id, network_id: b.network_id, name: b.name })))}`
+                    : `${event.id}-${eventIdx}`
+                  
                   return (
                     <div
-                      key={`${event.id}-${eventIdx}`}
+                      key={blockKey}
                       onClick={() => handleItemClick(event)}
                       className="absolute top-2 bottom-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer group"
                       style={{
