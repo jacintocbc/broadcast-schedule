@@ -20,6 +20,13 @@ function Navigation() {
   }, [])
 
   const isActive = (path) => location.pathname === path
+  
+  // Hide navigation on booth detail page
+  const isBoothDetailPage = location.pathname.match(/^\/live-booths\/[^/]+$/)
+
+  if (isBoothDetailPage) {
+    return null
+  }
 
   return (
     <header className="bg-gray-800 text-white p-4 shadow-lg fixed top-0 left-0 right-0 z-50">
@@ -63,6 +70,7 @@ function Navigation() {
 }
 
 function AppContent() {
+  const location = useLocation()
   const [navbarHeight, setNavbarHeight] = useState(73)
   
   useEffect(() => {
@@ -72,8 +80,12 @@ function AppContent() {
     }
   }, [])
 
+  // Don't add padding-top on booth detail page (no nav menu)
+  const isBoothDetailPage = location.pathname.match(/^\/live-booths\/[^/]+$/)
+  const paddingTop = isBoothDetailPage ? 0 : navbarHeight
+
   return (
-    <div className="flex-1" style={{ paddingTop: `${navbarHeight}px` }}>
+    <div className="flex-1" style={{ paddingTop: `${paddingTop}px` }}>
       <Routes>
         <Route path="/" element={<Navigate to="/cbc-timeline" replace />} />
         <Route path="/cbc-timeline" element={<CBCTimelineView />} />
