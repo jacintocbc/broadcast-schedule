@@ -196,13 +196,13 @@ function LiveBoothsView() {
     return boothData.blocks[0].name || ''
   }
 
-  // Format time for display (EST and ITA)
+  // Format time for display (EST and CET)
   const formatTime = () => {
     const et = currentTime.clone().tz('America/New_York')
-    const ita = currentTime.clone().tz('Europe/Rome')
+    const cet = currentTime.clone().tz('Europe/Rome')
     return {
       et: et.format('HH:mm:ss'),
-      cet: ita.format('HH:mm:ss')
+      cet: cet.format('HH:mm:ss')
     }
   }
 
@@ -228,7 +228,7 @@ function LiveBoothsView() {
             </div>
             <span className="text-3xl font-bold text-white mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
             <div className="text-3xl font-bold text-white font-mono">
-              {times.cet} ITA
+              {times.cet} CET
             </div>
           </div>
         </div>

@@ -153,13 +153,13 @@ function BoothDetailView() {
       })
   }, [primaryBlock, boothId])
 
-  // Format time for display (EST and ITA)
+  // Format time for display (EST and CET)
   const formatTime = () => {
     const et = currentTime.clone().tz('America/New_York')
-    const ita = currentTime.clone().tz('Europe/Rome')
+    const cet = currentTime.clone().tz('Europe/Rome')
     return {
       et: et.format('HH:mm:ss'),
-      cet: ita.format('HH:mm:ss')
+      cet: cet.format('HH:mm:ss')
     }
   }
 
@@ -227,7 +227,7 @@ function BoothDetailView() {
             </div>
             <span className="text-3xl font-bold text-white" style={{ fontSize: '1.4em', margin: '0 1rem', transform: 'translateY(-2px)' }}>/</span>
             <div className="text-3xl font-bold text-white" style={{ fontSize: '1.4em' }}>
-              <span className="font-mono">{times.cet}</span> ITA
+              <span className="font-mono">{times.cet}</span> CET
             </div>
           </div>
         </div>

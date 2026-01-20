@@ -285,7 +285,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               {selectedDate ? moment.tz(selectedDate, 'America/New_York').format('dddd, MMMM D') : 'Select Date'}
             </div>
             <div className="text-xs text-gray-500 mt-1">
-              EST / Rome
+              EST / Milan
             </div>
           </div>
           <div className={`flex-1 flex relative ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
@@ -657,14 +657,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           <div className="flex-1 flex items-center px-2">
                             <div className="truncate text-xs font-medium">{event.title}</div>
                           </div>
-                          {/* Time label overlay - show both EST and Rome time, constrained to bottom, full width */}
+                          {/* Time label overlay - show both EST and Milan time, constrained to bottom, full width */}
                           <div className="bg-black bg-opacity-30 text-white text-[9px] px-1 py-0.5 rounded-b-lg flex-shrink-0 w-full">
                             <div className="flex justify-between items-center gap-1">
                               <span className="truncate">
                                 EST: {startEST.format('HH:mm')}-{endEST.format('HH:mm')}
                               </span>
                               <span className="text-gray-300 truncate">
-                                Rome: {startRome.format('HH:mm')}-{endRome.format('HH:mm')}
+                                Milan: {startRome.format('HH:mm')}-{endRome.format('HH:mm')}
                               </span>
                             </div>
                           </div>

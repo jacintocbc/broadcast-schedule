@@ -30,14 +30,14 @@ function CBCTimelineView() {
     return () => clearInterval(interval)
   }, [])
   
-  // Format time for display (EST and ITA)
+  // Format time for display (EST and CET)
   const formatTime = () => {
     const et = currentTime.clone().tz('America/New_York')
-    const ita = currentTime.clone().tz('Europe/Rome')
+    const cet = currentTime.clone().tz('Europe/Rome')
     
     return {
       et: et.format('HH:mm:ss'),
-      ita: ita.format('HH:mm:ss')
+      cet: cet.format('HH:mm:ss')
     }
   }
   
@@ -313,7 +313,7 @@ function CBCTimelineView() {
               </div>
               <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
               <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.ita} ITA
+                {times.cet} CET
               </div>
             </div>
           </div>
