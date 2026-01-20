@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getResources, createResource, updateResource, deleteResource } from '../utils/api';
+import { realtimeManager } from '../utils/realtimeManager';
 
 function ResourceManager({ resourceType, displayName }) {
   const [items, setItems] = useState([]);
@@ -11,6 +12,15 @@ function ResourceManager({ resourceType, displayName }) {
 
   useEffect(() => {
     loadItems();
+    
+    // Subscribe to real-time changes for this resource type
+    const unsubscribe = realtimeManager.subscribe(resourceType, () => {
+      loadItems()
+    })
+    
+    return () => {
+      unsubscribe()
+    }
   }, [resourceType]);
 
   const loadItems = async () => {

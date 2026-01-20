@@ -10,6 +10,7 @@ import {
   addBlockRelationship,
   removeBlockRelationship
 } from '../utils/api'
+import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES } from '../utils/blockTypes'
 
 function BlockEditor({ block, onClose, onUpdate }) {
@@ -118,6 +119,62 @@ function BlockEditor({ block, onClose, onUpdate }) {
       console.error('Error loading reference data:', err)
     }
   }
+
+  // Real-time subscriptions for reference data
+  useEffect(() => {
+    const unsubscribers = [
+      realtimeManager.subscribe('encoders', () => {
+        getResources('encoders').then(setEncoders).catch(console.error)
+      }),
+      realtimeManager.subscribe('producers', () => {
+        getResources('producers').then(setProducers).catch(console.error)
+      }),
+      realtimeManager.subscribe('suites', () => {
+        getResources('suites').then(setSuites).catch(console.error)
+      }),
+      realtimeManager.subscribe('commentators', () => {
+        getResources('commentators').then(setCommentators).catch(console.error)
+      }),
+      realtimeManager.subscribe('booths', () => {
+        getResources('booths').then(setBooths).catch(console.error)
+      }),
+      realtimeManager.subscribe('networks', () => {
+        getResources('networks').then(setNetworks).catch(console.error)
+      }),
+      realtimeManager.subscribe('blocks', () => {
+        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+      }),
+      realtimeManager.subscribe('block_booths', () => {
+        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+      }),
+    ]
+    
+    return () => {
+      unsubscribers.forEach(unsub => unsub())
+    }
+  }, [])
+
+  // Real-time subscriptions for block relationships (when block is selected)
+  useEffect(() => {
+    if (!block) return
+    
+    const handleRelationshipChange = (payload) => {
+      if (payload.new?.block_id === block.id || payload.old?.block_id === block.id) {
+        loadRelationships()
+      }
+    }
+    
+    // Subscribe to relationship changes for this specific block
+    const unsubscribers = [
+      realtimeManager.subscribe('block_booths', handleRelationshipChange),
+      realtimeManager.subscribe('block_commentators', handleRelationshipChange),
+      realtimeManager.subscribe('block_networks', handleRelationshipChange),
+    ]
+    
+    return () => {
+      unsubscribers.forEach(unsub => unsub())
+    }
+  }, [block])
 
   // Check if a booth is available during the block's time range
   // When editing, exclude the current block from availability checks

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import moment from 'moment';
 import { getBoothBlocks, getResources } from '../utils/api';
+import { realtimeManager } from '../utils/realtimeManager';
 
 function BoothPage() {
   const [booths, setBooths] = useState([]);
@@ -11,11 +12,42 @@ function BoothPage() {
 
   useEffect(() => {
     loadBooths();
+    
+    // Subscribe to booths changes
+    const unsubscribeBooths = realtimeManager.subscribe('booths', () => {
+      loadBooths();
+    });
+    
+    return () => {
+      unsubscribeBooths();
+    };
   }, []);
 
   useEffect(() => {
     if (selectedBoothId) {
       loadBoothBlocks();
+    }
+    
+    // Subscribe to blocks and relationships for this booth
+    if (selectedBoothId) {
+      const unsubscribers = [
+        realtimeManager.subscribe('blocks', () => {
+          loadBoothBlocks();
+        }),
+        realtimeManager.subscribe('block_booths', () => {
+          loadBoothBlocks();
+        }),
+        realtimeManager.subscribe('block_commentators', () => {
+          loadBoothBlocks();
+        }),
+        realtimeManager.subscribe('block_networks', () => {
+          loadBoothBlocks();
+        }),
+      ];
+      
+      return () => {
+        unsubscribers.forEach(unsub => unsub());
+      };
     }
   }, [selectedBoothId]);
 

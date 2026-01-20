@@ -3,6 +3,7 @@ import ModernTimeline from './ModernTimeline'
 import DateNavigator from './DateNavigator'
 import BlockEditor from './BlockEditor'
 import { getBlocks, getResources } from '../utils/api'
+import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor } from '../utils/blockTypes'
 import moment from 'moment'
 
@@ -23,6 +24,40 @@ function CBCTimelineView() {
   useEffect(() => {
     loadBlocks()
     loadEncoders()
+  }, [])
+
+  // Real-time subscriptions
+  useEffect(() => {
+    // Subscribe to blocks changes
+    const unsubscribeBlocks = realtimeManager.subscribe('blocks', () => {
+      loadBlocks()
+    })
+    
+    // Subscribe to block relationships
+    const unsubscribeBooths = realtimeManager.subscribe('block_booths', () => {
+      loadBlocks()
+    })
+    
+    const unsubscribeCommentators = realtimeManager.subscribe('block_commentators', () => {
+      loadBlocks()
+    })
+    
+    const unsubscribeNetworks = realtimeManager.subscribe('block_networks', () => {
+      loadBlocks()
+    })
+    
+    // Subscribe to encoders (resources)
+    const unsubscribeEncoders = realtimeManager.subscribe('encoders', () => {
+      loadEncoders()
+    })
+    
+    return () => {
+      unsubscribeBlocks()
+      unsubscribeBooths()
+      unsubscribeCommentators()
+      unsubscribeNetworks()
+      unsubscribeEncoders()
+    }
   }, [])
 
   const loadEncoders = async () => {

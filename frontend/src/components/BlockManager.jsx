@@ -10,6 +10,7 @@ import {
   addBlockRelationship,
   removeBlockRelationship
 } from '../utils/api';
+import { realtimeManager } from '../utils/realtimeManager';
 
 function BlockManager() {
   const [blocks, setBlocks] = useState([]);
@@ -44,6 +45,49 @@ function BlockManager() {
   useEffect(() => {
     loadBlocks();
     loadReferenceData();
+  }, []);
+
+  // Real-time subscriptions
+  useEffect(() => {
+    const unsubscribers = [
+      // Subscribe to blocks
+      realtimeManager.subscribe('blocks', () => {
+        loadBlocks();
+      }),
+      // Subscribe to block relationships
+      realtimeManager.subscribe('block_booths', () => {
+        loadBlocks();
+      }),
+      realtimeManager.subscribe('block_commentators', () => {
+        loadBlocks();
+      }),
+      realtimeManager.subscribe('block_networks', () => {
+        loadBlocks();
+      }),
+      // Subscribe to resources
+      realtimeManager.subscribe('encoders', () => {
+        getResources('encoders').then(setEncoders).catch(console.error);
+      }),
+      realtimeManager.subscribe('producers', () => {
+        getResources('producers').then(setProducers).catch(console.error);
+      }),
+      realtimeManager.subscribe('suites', () => {
+        getResources('suites').then(setSuites).catch(console.error);
+      }),
+      realtimeManager.subscribe('commentators', () => {
+        getResources('commentators').then(setCommentators).catch(console.error);
+      }),
+      realtimeManager.subscribe('booths', () => {
+        getResources('booths').then(setBooths).catch(console.error);
+      }),
+      realtimeManager.subscribe('networks', () => {
+        getResources('networks').then(setNetworks).catch(console.error);
+      }),
+    ];
+    
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
   }, []);
 
   const loadReferenceData = async () => {

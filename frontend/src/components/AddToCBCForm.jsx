@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
 import { createBlock, addBlockRelationship, getBlocks, getResources } from '../utils/api'
+import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES, inferBlockType } from '../utils/blockTypes'
 
 function AddToCBCForm({ event, onClose, onSuccess }) {
@@ -113,6 +114,40 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
       console.error('Error loading reference data:', err)
     }
   }
+
+  // Real-time subscriptions for reference data
+  useEffect(() => {
+    const unsubscribers = [
+      realtimeManager.subscribe('encoders', () => {
+        getResources('encoders').then(setEncoders).catch(console.error)
+      }),
+      realtimeManager.subscribe('producers', () => {
+        getResources('producers').then(setProducers).catch(console.error)
+      }),
+      realtimeManager.subscribe('suites', () => {
+        getResources('suites').then(setSuites).catch(console.error)
+      }),
+      realtimeManager.subscribe('commentators', () => {
+        getResources('commentators').then(setCommentators).catch(console.error)
+      }),
+      realtimeManager.subscribe('booths', () => {
+        getResources('booths').then(setBooths).catch(console.error)
+      }),
+      realtimeManager.subscribe('networks', () => {
+        getResources('networks').then(setNetworks).catch(console.error)
+      }),
+      realtimeManager.subscribe('blocks', () => {
+        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+      }),
+      realtimeManager.subscribe('block_booths', () => {
+        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+      }),
+    ]
+    
+    return () => {
+      unsubscribers.forEach(unsub => unsub())
+    }
+  }, [])
 
   // Check which booths are unavailable (already assigned to blocks that overlap with this block's time)
   const unavailableBooths = useMemo(() => {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getBlocks, getResources } from '../utils/api'
+import { realtimeManager } from '../utils/realtimeManager'
 import moment from 'moment-timezone'
 
 function BoothDetailView() {
@@ -24,12 +25,21 @@ function BoothDetailView() {
   // Load data
   useEffect(() => {
     loadData()
-    // Refresh data every 30 seconds
-    const refreshInterval = setInterval(() => {
-      loadData()
-    }, 30000)
+  }, [boothId])
 
-    return () => clearInterval(refreshInterval)
+  // Real-time subscriptions - replaces polling
+  useEffect(() => {
+    const unsubscribers = [
+      realtimeManager.subscribe('blocks', () => loadData()),
+      realtimeManager.subscribe('block_booths', () => loadData()),
+      realtimeManager.subscribe('block_commentators', () => loadData()),
+      realtimeManager.subscribe('block_networks', () => loadData()),
+      realtimeManager.subscribe('booths', () => loadData()),
+    ]
+    
+    return () => {
+      unsubscribers.forEach(unsub => unsub())
+    }
   }, [boothId])
 
   const loadData = async () => {

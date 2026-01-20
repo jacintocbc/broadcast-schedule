@@ -716,26 +716,55 @@ app.get('/api/blocks', async (req, res) => {
           .eq('block_id', blockId)
       ]);
 
+      // Check for errors in relationship queries
+      if (commentatorsRes.error) {
+        console.error(`Error fetching commentators for block ${blockId}:`, commentatorsRes.error);
+      }
+      if (boothsRes.error) {
+        console.error(`Error fetching booths for block ${blockId}:`, boothsRes.error);
+      }
+      if (networksRes.error) {
+        console.error(`Error fetching networks for block ${blockId}:`, networksRes.error);
+      }
+
       const blockData = {
         ...block,
-        commentators: commentatorsRes.data?.map(c => ({
-          id: c.commentator.id,
-          name: c.commentator.name,
-          role: c.role
-        })) || [],
-        booths: boothsRes.data?.map(b => ({
-          id: b.booth.id,
-          name: b.booth.name,
-          network_id: b.network_id,
-          network: b.network ? {
-            id: b.network.id,
-            name: b.network.name
-          } : null
-        })) || [],
-        networks: networksRes.data?.map(n => ({
-          id: n.network.id,
-          name: n.network.name
-        })) || []
+        commentators: (commentatorsRes.data || []).map(c => {
+          if (!c.commentator) {
+            console.warn(`Missing commentator data for block ${blockId}:`, c);
+            return null;
+          }
+          return {
+            id: c.commentator.id,
+            name: c.commentator.name,
+            role: c.role
+          };
+        }).filter(Boolean) || [],
+        booths: (boothsRes.data || []).map(b => {
+          if (!b.booth) {
+            console.warn(`Missing booth data for block ${blockId}:`, b);
+            return null;
+          }
+          return {
+            id: b.booth.id,
+            name: b.booth.name,
+            network_id: b.network_id,
+            network: b.network ? {
+              id: b.network.id,
+              name: b.network.name
+            } : null
+          };
+        }).filter(Boolean) || [],
+        networks: (networksRes.data || []).map(n => {
+          if (!n.network) {
+            console.warn(`Missing network data for block ${blockId}:`, n);
+            return null;
+          }
+          return {
+            id: n.network.id,
+            name: n.network.name
+          };
+        }).filter(Boolean) || []
       };
 
       res.json(blockData);
@@ -755,42 +784,82 @@ app.get('/api/blocks', async (req, res) => {
 
       const blocksWithRelations = await Promise.all(
         (blocks || []).map(async (block) => {
-          const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
-            supabase
-              .from('block_commentators')
-              .select('*, commentator:commentators(*)')
-              .eq('block_id', block.id),
-            supabase
-              .from('block_booths')
-              .select('*, booth:booths(*), network:networks(*)')
-              .eq('block_id', block.id),
-            supabase
-              .from('block_networks')
-              .select('*, network:networks(*)')
-              .eq('block_id', block.id)
-          ]);
+          try {
+            const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
+              supabase
+                .from('block_commentators')
+                .select('*, commentator:commentators(*)')
+                .eq('block_id', block.id),
+              supabase
+                .from('block_booths')
+                .select('*, booth:booths(*), network:networks(*)')
+                .eq('block_id', block.id),
+              supabase
+                .from('block_networks')
+                .select('*, network:networks(*)')
+                .eq('block_id', block.id)
+            ]);
 
-          return {
-            ...block,
-            commentators: commentatorsRes.data?.map(c => ({
-              id: c.commentator.id,
-              name: c.commentator.name,
-              role: c.role
-            })) || [],
-            booths: boothsRes.data?.map(b => ({
-              id: b.booth.id,
-              name: b.booth.name,
-              network_id: b.network_id,
-              network: b.network ? {
-                id: b.network.id,
-                name: b.network.name
-              } : null
-            })) || [],
-            networks: networksRes.data?.map(n => ({
-              id: n.network.id,
-              name: n.network.name
-            })) || []
-          };
+            // Check for errors in relationship queries
+            if (commentatorsRes.error) {
+              console.error(`Error fetching commentators for block ${block.id}:`, commentatorsRes.error);
+            }
+            if (boothsRes.error) {
+              console.error(`Error fetching booths for block ${block.id}:`, boothsRes.error);
+            }
+            if (networksRes.error) {
+              console.error(`Error fetching networks for block ${block.id}:`, networksRes.error);
+            }
+
+            return {
+              ...block,
+              commentators: (commentatorsRes.data || []).map(c => {
+                if (!c.commentator) {
+                  console.warn(`Missing commentator data for block ${block.id}:`, c);
+                  return null;
+                }
+                return {
+                  id: c.commentator.id,
+                  name: c.commentator.name,
+                  role: c.role
+                };
+              }).filter(Boolean) || [],
+              booths: (boothsRes.data || []).map(b => {
+                if (!b.booth) {
+                  console.warn(`Missing booth data for block ${block.id}:`, b);
+                  return null;
+                }
+                return {
+                  id: b.booth.id,
+                  name: b.booth.name,
+                  network_id: b.network_id,
+                  network: b.network ? {
+                    id: b.network.id,
+                    name: b.network.name
+                  } : null
+                };
+              }).filter(Boolean) || [],
+              networks: (networksRes.data || []).map(n => {
+                if (!n.network) {
+                  console.warn(`Missing network data for block ${block.id}:`, n);
+                  return null;
+                }
+                return {
+                  id: n.network.id,
+                  name: n.network.name
+                };
+              }).filter(Boolean) || []
+            };
+          } catch (blockError) {
+            console.error(`Error processing block ${block.id}:`, blockError);
+            // Return block with empty relationships if there's an error
+            return {
+              ...block,
+              commentators: [],
+              booths: [],
+              networks: []
+            };
+          }
         })
       );
 
@@ -798,7 +867,11 @@ app.get('/api/blocks', async (req, res) => {
     }
   } catch (error) {
     console.error('Error in /api/blocks:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
