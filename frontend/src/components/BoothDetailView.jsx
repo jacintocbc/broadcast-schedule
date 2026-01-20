@@ -264,152 +264,144 @@ function BoothDetailView() {
   }
 
   return (
-    <div className="h-full bg-gray-900 text-white overflow-y-auto">
+    <div className="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="bg-black p-4 shadow-lg sticky top-0 z-10">
+      <div className="bg-black p-8 shadow-lg flex-shrink-0">
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold" style={{ fontSize: '1.4em' }}>Booth {booth.name}</h1>
+          <h1 className="font-bold" style={{ fontSize: '4.2rem' }}>Booth {booth.name}</h1>
           <div className="flex items-center">
-            <div className="text-3xl font-bold text-white" style={{ fontSize: '1.4em' }}>
-              <span className="font-mono">{times.et}</span> <span className="font-bold">EST</span>
+            <div className="font-bold text-white font-mono" style={{ fontSize: '4.2rem' }}>
+              {times.et} <span className="font-bold">EST</span>
             </div>
-            <span className="text-3xl font-bold text-white" style={{ fontSize: '1.4em', margin: '0 1rem', transform: 'translateY(-2px)' }}>/</span>
-            <div className="text-3xl font-bold text-white" style={{ fontSize: '1.4em' }}>
-              <span className="font-mono">{times.cet}</span> CET
+            <span className="font-bold text-white mx-8" style={{ fontSize: '4.2rem', transform: 'translateY(-2px)' }}>/</span>
+            <div className="font-bold text-white font-mono" style={{ fontSize: '4.2rem' }}>
+              {times.cet} CET
             </div>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="m-4 p-3 bg-red-900 border border-red-700 text-red-200 rounded" style={{ fontSize: '1.4em' }}>
+        <div className="mx-6 my-4 p-4 bg-red-900 border border-red-700 text-red-200 rounded text-2xl">
           {error}
         </div>
       )}
 
-      {/* Event Details Section */}
-      <div className="bg-gray-700 p-6 m-4 rounded-lg">
-        <div className="flex justify-between items-start">
-          <div>
-            <h2 className="text-2xl font-bold mb-2" style={{ fontSize: '1.4em' }}>{primaryBlock.name}</h2>
-            {countryMatch && (
-              <div className="text-xl font-semibold mb-2 flex items-center gap-2" style={{ fontSize: '1.4em' }}>
-                <img 
-                  src={countryMatch.flagUrl1} 
-                  alt={countryMatch.code1}
-                  className="inline-block"
-                  style={{ width: '1.5em', height: '1.125em', objectFit: 'cover', verticalAlign: 'middle' }}
-                />
-                <span>{countryMatch.code1}</span>
-                <span>vs.</span>
-                <img 
-                  src={countryMatch.flagUrl2} 
-                  alt={countryMatch.code2}
-                  className="inline-block"
-                  style={{ width: '1.5em', height: '1.125em', objectFit: 'cover', verticalAlign: 'middle' }}
-                />
-                <span>{countryMatch.code2}</span>
-              </div>
-            )}
-            <div className="text-lg text-gray-300 mb-2" style={{ fontSize: '1.4em' }}>
-              {formatEventTime()}
-            </div>
-          </div>
-          <div className="bg-gray-600 p-4 rounded" style={{ fontSize: '1.4em' }}>
-            {primaryBlock.producer && (
-              <div className="mb-2">
-                <span className="font-semibold">Producer: </span>
-                {primaryBlock.producer.name}
-              </div>
-            )}
-            {primaryBlock.suite && (
-              <div>
-                <span className="font-semibold">Suite: </span>
-                {primaryBlock.suite.name}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Personnel Section */}
-      <div className="bg-gray-800 p-6 m-4 rounded-lg">
-        <div className="grid grid-cols-3 gap-6">
-          {/* PxP */}
-          <div className="text-center">
-            <div className="text-lg font-semibold mb-2" style={{ fontSize: '1.4em' }}>PxP</div>
-            <div className="text-xl mb-4" style={{ fontSize: '1.4em' }}>
-              {commentators.pxp ? commentators.pxp.name : 'TBD'}
-            </div>
-            <div className="flex justify-center">
-              <div className="rounded-full border-white bg-red-600 flex items-center justify-center" style={{ width: '8.4rem', height: '8.4rem', borderWidth: '0.56rem' }}>
-                <span className="text-white font-bold" style={{ fontSize: '1.4em' }}>LIVE</span>
-              </div>
-            </div>
-          </div>
-
-          {/* COLOR */}
-          <div className="text-center">
-            <div className="text-lg font-semibold mb-2" style={{ fontSize: '1.4em' }}>COLOR</div>
-            <div className="text-xl mb-4" style={{ fontSize: '1.4em' }}>
-              {commentators.color ? commentators.color.name : 'TBD'}
-            </div>
-            <div className="flex justify-center">
-              <div className="rounded-full border-white bg-red-600 flex items-center justify-center" style={{ width: '8.4rem', height: '8.4rem', borderWidth: '0.56rem' }}>
-                <span className="text-white font-bold" style={{ fontSize: '1.4em' }}>LIVE</span>
-              </div>
-            </div>
-          </div>
-
-          {/* SPARE - only show if there's a commentator */}
-          {commentators.spare && (
-            <div className="text-center">
-              <div className="text-lg font-semibold mb-2" style={{ fontSize: '1.4em' }}>SPARE</div>
-              <div className="text-xl mb-4" style={{ fontSize: '1.4em' }}>{commentators.spare.name}</div>
-              <div className="flex justify-center">
-                <div className="rounded-full border-white bg-red-600 flex items-center justify-center" style={{ width: '8.4rem', height: '8.4rem', borderWidth: '0.56rem' }}>
-                  <span className="text-white font-bold" style={{ fontSize: '1.4em' }}>LIVE</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Output Status Section */}
-      <div className="bg-black p-4 m-4 rounded-lg">
-        <div className="flex items-center gap-6">
-          <span className="text-lg font-semibold" style={{ fontSize: '1.4em' }}>OUTPUT</span>
-          <div className="flex items-center gap-4">
-            {networks.map((network) => {
-              const networkName = network.displayName || network.name
-              const isActive = true // All networks shown are active (live block)
-              
-              return (
-                <div key={network.id} className="flex items-center gap-2">
-                  <span className="text-white" style={{ fontSize: '1.4em', lineHeight: '1.05rem', display: 'inline-block' }}>{networkName}</span>
-                  <div
-                    className={`rounded-full flex-shrink-0 ${
-                      isActive ? 'bg-green-500' : 'bg-gray-500'
-                    }`}
-                    style={{ width: '1.05rem', height: '1.05rem' }}
+      {/* Main Content - Flex to fill remaining space */}
+      <div className="flex-1 flex flex-col justify-between p-6 gap-6 overflow-y-auto">
+        {/* Event Details Section */}
+        <div className="bg-gray-700 p-6 rounded-lg flex-shrink-0">
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h2 className="font-bold mb-4" style={{ fontSize: '3.312rem' }}>{primaryBlock.name}</h2>
+              {countryMatch && (
+                <div className="font-semibold mb-3 flex items-center gap-4" style={{ fontSize: '2.25rem' }}>
+                  <img 
+                    src={countryMatch.flagUrl1} 
+                    alt={countryMatch.code1}
+                    className="inline-block"
+                    style={{ width: '3em', height: '2.25em', objectFit: 'cover', verticalAlign: 'middle' }}
                   />
+                  <span>{countryMatch.code1}</span>
+                  <span>vs.</span>
+                  <img 
+                    src={countryMatch.flagUrl2} 
+                    alt={countryMatch.code2}
+                    className="inline-block"
+                    style={{ width: '3em', height: '2.25em', objectFit: 'cover', verticalAlign: 'middle' }}
+                  />
+                  <span>{countryMatch.code2}</span>
                 </div>
-              )
-            })}
+              )}
+              <div className="text-gray-300" style={{ fontSize: '2.52rem' }}>
+                {formatEventTime()}
+              </div>
+            </div>
+            <div className="bg-gray-600 p-6 rounded-lg ml-8">
+              {primaryBlock.producer && (
+                <div className="mb-3" style={{ fontSize: '2.52rem' }}>
+                  <span className="font-semibold">Producer: </span>
+                  {primaryBlock.producer.name}
+                </div>
+              )}
+              {primaryBlock.suite && (
+                <div style={{ fontSize: '2.52rem' }}>
+                  <span className="font-semibold">Suite: </span>
+                  {primaryBlock.suite.name}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Back Button */}
-      <div className="m-4">
-        <button
-          onClick={() => navigate('/live-booths')}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          style={{ fontSize: '1.4em' }}
-        >
-          Back to Live Booths
-        </button>
+        {/* Personnel Section */}
+        <div className="bg-gray-800 p-6 rounded-lg flex-1 flex items-center">
+          <div className="grid grid-cols-3 gap-14 w-full">
+            {/* PxP */}
+            <div className="text-center">
+              <div className="font-semibold mb-1" style={{ fontSize: '3.15rem' }}>PxP</div>
+              <div className="mb-3" style={{ fontSize: '3.15rem' }}>
+                {commentators.pxp ? commentators.pxp.name : 'TBD'}
+              </div>
+              <div className="flex justify-center">
+                <div className="rounded-full border-white bg-red-600 flex items-center justify-center" style={{ width: '9.8rem', height: '9.8rem', borderWidth: '0.75rem' }}>
+                  <span className="text-white font-bold" style={{ fontSize: '2.5rem' }}>LIVE</span>
+                </div>
+              </div>
+            </div>
+
+            {/* COLOR */}
+            <div className="text-center">
+              <div className="font-semibold mb-1" style={{ fontSize: '3.15rem' }}>COLOR</div>
+              <div className="mb-3" style={{ fontSize: '3.15rem' }}>
+                {commentators.color ? commentators.color.name : 'TBD'}
+              </div>
+              <div className="flex justify-center">
+                <div className="rounded-full border-white bg-red-600 flex items-center justify-center" style={{ width: '9.8rem', height: '9.8rem', borderWidth: '0.75rem' }}>
+                  <span className="text-white font-bold" style={{ fontSize: '2.5rem' }}>LIVE</span>
+                </div>
+              </div>
+            </div>
+
+            {/* SPARE - only show if there's a commentator */}
+            {commentators.spare && (
+              <div className="text-center">
+                <div className="font-semibold mb-1" style={{ fontSize: '3.15rem' }}>SPARE</div>
+                <div className="mb-3" style={{ fontSize: '3.15rem' }}>{commentators.spare.name}</div>
+                <div className="flex justify-center">
+                  <div className="rounded-full border-white bg-red-600 flex items-center justify-center" style={{ width: '9.8rem', height: '9.8rem', borderWidth: '0.75rem' }}>
+                    <span className="text-white font-bold" style={{ fontSize: '2.5rem' }}>LIVE</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Output Status Section */}
+        <div className="bg-black p-5 rounded-lg flex-shrink-0">
+          <div className="flex items-center gap-10">
+            <span className="font-semibold" style={{ fontSize: '3.6rem' }}>OUTPUT</span>
+            <div className="flex items-center gap-7">
+              {networks.map((network) => {
+                const networkName = network.displayName || network.name
+                const isActive = true // All networks shown are active (live block)
+                
+                return (
+                  <div key={network.id} className="flex items-center gap-4">
+                    <span className="text-white" style={{ fontSize: '2.4rem' }}>{networkName}</span>
+                    <div
+                      className={`rounded-full flex-shrink-0 ${
+                        isActive ? 'bg-green-500' : 'bg-gray-500'
+                      }`}
+                      style={{ width: '1.8rem', height: '1.8rem' }}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
