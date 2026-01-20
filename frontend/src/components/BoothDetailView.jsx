@@ -175,6 +175,54 @@ function BoothDetailView() {
     return `[${start.format('HHmm')} - ${end.format('HHmm')} ET]`
   }
 
+  // Parse country codes from event name (e.g., "CUR11 CAN-SWE Mixed Doubles" -> ["CAN", "SWE"])
+  const parseCountryCodes = (eventName) => {
+    if (!eventName) return null
+    
+    // Look for patterns like "CAN-SWE", "CAN vs SWE", "CAN/SWE", etc.
+    const patterns = [
+      /([A-Z]{3})[-–—]([A-Z]{3})/,  // CAN-SWE, CAN–SWE, CAN—SWE
+      /([A-Z]{3})\s+vs\.?\s+([A-Z]{3})/i,  // CAN vs SWE, CAN vs. SWE
+      /([A-Z]{3})\s*\/\s*([A-Z]{3})/,  // CAN/SWE
+    ]
+    
+    for (const pattern of patterns) {
+      const match = eventName.match(pattern)
+      if (match && match[1] && match[2]) {
+        return [match[1].toUpperCase(), match[2].toUpperCase()]
+      }
+    }
+    
+    return null
+  }
+
+  // Get flag filename for country code (flags are stored as 3-letter codes with .jpg extension)
+  const getFlagFilename = (countryCode) => {
+    // Flags are stored with 3-letter codes (e.g., CAN.jpg, SWE.jpg)
+    // If it's already a 3-letter code, use it directly
+    if (countryCode.length === 3) {
+      return countryCode.toUpperCase()
+    }
+    
+    // If it's a 2-letter code, we'd need to map it, but for now assume 3-letter codes
+    // This function can be extended if needed
+    return countryCode.toUpperCase()
+  }
+
+  // Get country codes and flags for display
+  const countryMatch = useMemo(() => {
+    if (!primaryBlock) return null
+    const codes = parseCountryCodes(primaryBlock.name)
+    if (!codes || codes.length !== 2) return null
+    
+    return {
+      code1: codes[0],
+      code2: codes[1],
+      flagUrl1: `/flags/${getFlagFilename(codes[0])}.jpg`,
+      flagUrl2: `/flags/${getFlagFilename(codes[1])}.jpg`
+    }
+  }, [primaryBlock])
+
   if (loading && blocks.length === 0) {
     return (
       <div className="h-full flex items-center justify-center bg-gray-900 text-white">
@@ -244,6 +292,25 @@ function BoothDetailView() {
         <div className="flex justify-between items-start">
           <div>
             <h2 className="text-2xl font-bold mb-2" style={{ fontSize: '1.4em' }}>{primaryBlock.name}</h2>
+            {countryMatch && (
+              <div className="text-xl font-semibold mb-2 flex items-center gap-2" style={{ fontSize: '1.4em' }}>
+                <img 
+                  src={countryMatch.flagUrl1} 
+                  alt={countryMatch.code1}
+                  className="inline-block"
+                  style={{ width: '1.5em', height: '1.125em', objectFit: 'cover', verticalAlign: 'middle' }}
+                />
+                <span>{countryMatch.code1}</span>
+                <span>vs.</span>
+                <img 
+                  src={countryMatch.flagUrl2} 
+                  alt={countryMatch.code2}
+                  className="inline-block"
+                  style={{ width: '1.5em', height: '1.125em', objectFit: 'cover', verticalAlign: 'middle' }}
+                />
+                <span>{countryMatch.code2}</span>
+              </div>
+            )}
             <div className="text-lg text-gray-300 mb-2" style={{ fontSize: '1.4em' }}>
               {formatEventTime()}
             </div>
