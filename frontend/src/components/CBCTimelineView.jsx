@@ -33,32 +33,26 @@ function CBCTimelineView() {
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
     
     if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('❌ Real-time features disabled: Supabase environment variables not set')
-      console.error('   Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel environment variables')
+      console.error('Real-time features disabled: Supabase environment variables not set')
+      console.error('Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel environment variables')
       return
     }
     
-    console.log('🔌 Setting up real-time subscriptions...')
-    
     // Subscribe to blocks changes
-    const unsubscribeBlocks = realtimeManager.subscribe('blocks', (payload) => {
-      console.log('🔄 Blocks changed:', payload.eventType, payload.new || payload.old)
+    const unsubscribeBlocks = realtimeManager.subscribe('blocks', () => {
       loadBlocks()
     })
     
     // Subscribe to block relationships - these are the key ones for booth updates
-    const unsubscribeBooths = realtimeManager.subscribe('block_booths', (payload) => {
-      console.log('🔄 Block booths changed:', payload.eventType, payload.new || payload.old)
+    const unsubscribeBooths = realtimeManager.subscribe('block_booths', () => {
       loadBlocks()
     })
     
-    const unsubscribeCommentators = realtimeManager.subscribe('block_commentators', (payload) => {
-      console.log('🔄 Block commentators changed:', payload.eventType)
+    const unsubscribeCommentators = realtimeManager.subscribe('block_commentators', () => {
       loadBlocks()
     })
     
-    const unsubscribeNetworks = realtimeManager.subscribe('block_networks', (payload) => {
-      console.log('🔄 Block networks changed:', payload.eventType)
+    const unsubscribeNetworks = realtimeManager.subscribe('block_networks', () => {
       loadBlocks()
     })
     
@@ -123,16 +117,9 @@ function CBCTimelineView() {
 
   // Transform blocks to events format for ModernTimeline and ensure all encoders are shown
   const events = useMemo(() => {
-    console.log('🔄 Recalculating events, filteredBlocks:', filteredBlocks.length, 'blocksHash:', blocksHash.substring(0, 50))
-    
     // Transform blocks to events format
     // Create a deep copy of block data to ensure React detects changes
     const blockEvents = filteredBlocks.map(block => {
-      // Log booth info for debugging
-      if (block.booths && block.booths.length > 0) {
-        console.log(`📦 Block ${block.id} booths:`, block.booths.map(b => `${b.name} (network: ${b.network_id})`))
-      }
-      
       return {
         id: block.id,
         title: block.name,
@@ -180,12 +167,6 @@ function CBCTimelineView() {
       setError(null)
       // Don't set loading to true for real-time updates to avoid UI flicker
       const data = await getBlocks()
-      console.log('📦 Loaded blocks:', data.length, 'blocks')
-      // Log booth info for debugging
-      if (data.length > 0) {
-        const firstBlock = data[0]
-        console.log('📦 First block booths:', firstBlock.booths?.map(b => `${b.name} (network: ${b.network_id})`))
-      }
       setBlocks(data)
       
       // Update selectedBlock if it exists to ensure it has the latest data
