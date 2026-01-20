@@ -8,12 +8,58 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
   const [availableHeight, setAvailableHeight] = useState(null)
+  const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
+  
   // Calculate selectedDayStart outside useMemo so it's available in render
   const selectedDayStart = useMemo(() => {
     return selectedDate 
       ? moment.tz(selectedDate, 'America/New_York').startOf('day')
       : moment.tz('America/New_York').startOf('day')
   }, [selectedDate])
+  
+  // Update current time every minute
+  useEffect(() => {
+    const updateCurrentTime = () => {
+      setCurrentTime(moment.tz('America/New_York'))
+    }
+    
+    // Update immediately
+    updateCurrentTime()
+    
+    // Update every minute
+    const interval = setInterval(updateCurrentTime, 60000)
+    
+    return () => clearInterval(interval)
+  }, [])
+  
+  // Calculate current time line position
+  const currentTimePosition = useMemo(() => {
+    // Check if current time is within the selected day
+    const currentDayStart = currentTime.clone().startOf('day')
+    const isToday = currentDayStart.isSame(selectedDayStart, 'day')
+    
+    if (!isToday) {
+      return null // Don't show line if current time is not in the selected day
+    }
+    
+    // Calculate position relative to visible range
+    const visibleStartMinutes = zoomHours === 24 ? 0 : scrollPosition * 60
+    const visibleEndMinutes = zoomHours === 24 ? 24 * 60 : (scrollPosition + zoomHours) * 60
+    const visibleRangeMinutes = visibleEndMinutes - visibleStartMinutes
+    
+    // Calculate current time position in minutes from day start
+    const currentMinutesFromDayStart = currentTime.diff(selectedDayStart, 'minutes')
+    
+    // Check if current time is within visible range
+    if (currentMinutesFromDayStart < visibleStartMinutes || currentMinutesFromDayStart > visibleEndMinutes) {
+      return null // Don't show line if current time is outside visible range
+    }
+    
+    // Calculate position as percentage
+    const positionPercent = ((currentMinutesFromDayStart - visibleStartMinutes) / visibleRangeMinutes) * 100
+    
+    return positionPercent
+  }, [currentTime, selectedDayStart, zoomHours, scrollPosition])
 
   const { hours, groups, itemsByGroup } = useMemo(() => {
     if (!events || events.length === 0) {
@@ -233,7 +279,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
     <div ref={containerRef} className="h-full w-full flex flex-col bg-white">
       {/* Header with hours - Fixed */}
       <div ref={headerRef} className="flex-shrink-0 bg-white border-b-2 border-gray-200 shadow-sm sticky z-30" style={{ top: `${navbarHeight + datePickerHeight - 1}px` }}>
-        <div className="flex">
+        <div className="flex relative">
           <div className="w-32 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700">
             <div className="text-sm">
               {selectedDate ? moment.tz(selectedDate, 'America/New_York').format('dddd, MMMM D') : 'Select Date'}
@@ -242,7 +288,27 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               EST / Rome
             </div>
           </div>
-          <div className={`flex-1 flex ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
+          <div className={`flex-1 flex relative ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
+            {/* Current time indicator line in header */}
+            {currentTimePosition !== null && (
+              <div
+                className="absolute top-0 bottom-0 z-20 pointer-events-none"
+                style={{
+                  left: `${currentTimePosition}%`,
+                  width: '2px',
+                  backgroundColor: '#ef4444',
+                  boxShadow: '0 0 4px rgba(239, 68, 68, 0.5)'
+                }}
+              >
+                {/* Time label at top */}
+                <div
+                  className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-full bg-red-500 text-white text-xs font-semibold px-2 py-0.5 rounded-b whitespace-nowrap"
+                  style={{ marginTop: '-1px' }}
+                >
+                  {currentTime.format('HH:mm')}
+                </div>
+              </div>
+            )}
             <div className="flex w-full">
               {hours.map((hour, idx) => {
                 // Convert EST hour to Rome time for display
@@ -375,10 +441,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   const isBlock = event.block
                   const block = event.block || {}
                   
+                  // Check if this block/event is currently live (current time is within start and end)
+                  const isLive = currentTime.isSameOrAfter(event.startEST) && currentTime.isBefore(event.endEST)
+                  
                   // Use yellow for 0-duration events, blue for normal events, type-based color for blocks
                   let backgroundColor
                   let borderColor
                   let textColor = 'text-white' // Default to white text
+                  let borderStyle = 'solid' // Default to solid border
                   
                   if (event.isZeroDuration) {
                     backgroundColor = '#eab308'
@@ -388,6 +458,11 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     backgroundColor = getBlockTypeColor(block.type)
                     // Use a darker version of the background color for the border
                     borderColor = darkenColor(backgroundColor, 30)
+                    
+                    // Use dashed border for live blocks
+                    if (isLive) {
+                      borderStyle = 'dashed'
+                    }
                     
                     // Use dark text for light backgrounds (white and light pastel colors)
                     // Light colors have high RGB values (above ~200 for each channel)
@@ -399,6 +474,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   } else {
                     backgroundColor = '#3b82f6'
                     borderColor = '#2563eb'
+                    // Use dashed border for live events
+                    if (isLive) {
+                      borderStyle = 'dashed'
+                    }
                   }
                   
                   // Format times for display - explicitly parse as UTC first, then convert to EST
@@ -425,7 +504,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                         width,
                         minWidth: isBlock ? '200px' : '120px',
                         backgroundColor,
-                        border: `2px solid ${borderColor}`,
+                        border: `2px ${borderStyle} ${borderColor}`,
                         zIndex: 10,
                         height: isBlock ? 'auto' : undefined,
                         minHeight: isBlock ? 'auto' : undefined
