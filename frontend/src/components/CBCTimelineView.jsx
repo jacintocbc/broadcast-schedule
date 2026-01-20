@@ -28,25 +28,37 @@ function CBCTimelineView() {
 
   // Real-time subscriptions
   useEffect(() => {
+    // Check if Supabase is configured
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('❌ Real-time features disabled: Supabase environment variables not set')
+      console.error('   Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel environment variables')
+      return
+    }
+    
+    console.log('🔌 Setting up real-time subscriptions...')
+    
     // Subscribe to blocks changes
     const unsubscribeBlocks = realtimeManager.subscribe('blocks', (payload) => {
-      console.log('🔄 Blocks changed:', payload)
+      console.log('🔄 Blocks changed:', payload.eventType, payload.new || payload.old)
       loadBlocks()
     })
     
     // Subscribe to block relationships - these are the key ones for booth updates
     const unsubscribeBooths = realtimeManager.subscribe('block_booths', (payload) => {
-      console.log('🔄 Block booths changed:', payload)
+      console.log('🔄 Block booths changed:', payload.eventType, payload.new || payload.old)
       loadBlocks()
     })
     
     const unsubscribeCommentators = realtimeManager.subscribe('block_commentators', (payload) => {
-      console.log('🔄 Block commentators changed:', payload)
+      console.log('🔄 Block commentators changed:', payload.eventType)
       loadBlocks()
     })
     
     const unsubscribeNetworks = realtimeManager.subscribe('block_networks', (payload) => {
-      console.log('🔄 Block networks changed:', payload)
+      console.log('🔄 Block networks changed:', payload.eventType)
       loadBlocks()
     })
     

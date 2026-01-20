@@ -36,9 +36,18 @@ class RealtimeManager {
           filter: options.filter || undefined
         },
         (payload) => {
+          console.log(`📨 Received real-time event for ${table}:`, {
+            eventType: payload.eventType,
+            table: payload.table,
+            schema: payload.schema,
+            new: payload.new ? Object.keys(payload.new) : null,
+            old: payload.old ? Object.keys(payload.old) : null
+          })
+          
           // Notify all subscribers
           const callbacks = this.subscribers.get(key)
           if (callbacks) {
+            console.log(`📢 Notifying ${callbacks.length} callback(s) for ${table}`)
             callbacks.forEach(cb => {
               try {
                 cb(payload)
@@ -46,6 +55,8 @@ class RealtimeManager {
                 console.error(`Error in real-time callback for ${table}:`, error)
               }
             })
+          } else {
+            console.warn(`⚠️ No callbacks registered for ${table} (key: ${key})`)
           }
         }
       )
@@ -54,6 +65,12 @@ class RealtimeManager {
           console.log(`✅ Subscribed to ${table} changes`)
         } else if (status === 'CHANNEL_ERROR') {
           console.error(`❌ Error subscribing to ${table}`)
+        } else if (status === 'TIMED_OUT') {
+          console.error(`⏱️ Subscription to ${table} timed out`)
+        } else if (status === 'CLOSED') {
+          console.warn(`🔌 Subscription to ${table} closed`)
+        } else {
+          console.log(`ℹ️ Subscription to ${table} status: ${status}`)
         }
       })
     
