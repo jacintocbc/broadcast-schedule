@@ -53,6 +53,7 @@ function LiveBoothsView() {
         getResources('booths'),
         getResources('commentators')
       ])
+      
       setBlocks(blocksData || [])
       setBooths(boothsData || [])
       setCommentators(commentatorsData || [])
@@ -65,11 +66,11 @@ function LiveBoothsView() {
   }
 
   // Filter for live blocks (current time is between start_time and end_time)
-  // Exclude VIS booths
+  // Don't exclude blocks entirely if they have VIS booths - we'll filter VIS out in the grouping
   const liveBlocks = useMemo(() => {
     const now = currentTime.utc()
     
-    return blocks.filter(block => {
+    const filtered = blocks.filter(block => {
       if (!block.start_time || !block.end_time) return false
       
       const start = moment.utc(block.start_time)
@@ -80,14 +81,17 @@ function LiveBoothsView() {
       
       if (!isLive) return false
       
-      // Exclude blocks with VIS booths
+      // Only exclude blocks that ONLY have VIS booths (no other booths)
       if (block.booths && block.booths.length > 0) {
-        const hasVisBooth = block.booths.some(booth => booth.name === 'VIS')
-        if (hasVisBooth) return false
+        const nonVisBooths = block.booths.filter(booth => booth.name !== 'VIS')
+        // If there are no non-VIS booths, exclude this block
+        if (nonVisBooths.length === 0) return false
       }
       
       return true
     })
+    
+    return filtered
   }, [blocks, currentTime])
 
   // Group live blocks by booth
@@ -117,10 +121,19 @@ function LiveBoothsView() {
             // Collect commentators from this block
             if (block.commentators && block.commentators.length > 0) {
               block.commentators.forEach(commentator => {
-                // Avoid duplicates
-                const exists = boothData.commentators.some(c => c.id === commentator.id)
+                // Avoid duplicates by checking both id and role (same commentator can have different roles)
+                const exists = boothData.commentators.some(c => 
+                  c.id === commentator.id && c.role === commentator.role
+                )
                 if (!exists) {
-                  boothData.commentators.push(commentator)
+                  // Handle both direct name and nested commentator.name structure
+                  const commentatorName = commentator.name || commentator.commentator?.name || 'Unknown'
+                  const commentatorId = commentator.id || commentator.commentator?.id
+                  boothData.commentators.push({
+                    id: commentatorId,
+                    name: commentatorName,
+                    role: commentator.role
+                  })
                 }
               })
             }
