@@ -523,6 +523,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                                     // Use flexible matching to get display label
                                     const match = matchNetworkName(network.name)
                                     if (match) {
+                                      // Get booth name - handle both direct name and nested booth object
                                       const boothName = booth.name || (booth.booth ? booth.booth.name : '')
                                       
                                       if (boothName) {
@@ -539,6 +540,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                                   // Fallback: use network name from booth.network object
                                   const match = matchNetworkName(booth.network.name)
                                   if (match) {
+                                    // Get booth name - handle both direct name and nested booth object
                                     const boothName = booth.name || (booth.booth ? booth.booth.name : '')
                                     
                                     if (boothName) {

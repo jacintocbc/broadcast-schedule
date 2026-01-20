@@ -29,20 +29,24 @@ function CBCTimelineView() {
   // Real-time subscriptions
   useEffect(() => {
     // Subscribe to blocks changes
-    const unsubscribeBlocks = realtimeManager.subscribe('blocks', () => {
+    const unsubscribeBlocks = realtimeManager.subscribe('blocks', (payload) => {
+      console.log('🔄 Blocks changed:', payload)
       loadBlocks()
     })
     
-    // Subscribe to block relationships
-    const unsubscribeBooths = realtimeManager.subscribe('block_booths', () => {
+    // Subscribe to block relationships - these are the key ones for booth updates
+    const unsubscribeBooths = realtimeManager.subscribe('block_booths', (payload) => {
+      console.log('🔄 Block booths changed:', payload)
       loadBlocks()
     })
     
-    const unsubscribeCommentators = realtimeManager.subscribe('block_commentators', () => {
+    const unsubscribeCommentators = realtimeManager.subscribe('block_commentators', (payload) => {
+      console.log('🔄 Block commentators changed:', payload)
       loadBlocks()
     })
     
-    const unsubscribeNetworks = realtimeManager.subscribe('block_networks', () => {
+    const unsubscribeNetworks = realtimeManager.subscribe('block_networks', (payload) => {
+      console.log('🔄 Block networks changed:', payload)
       loadBlocks()
     })
     
@@ -107,21 +111,30 @@ function CBCTimelineView() {
 
   // Transform blocks to events format for ModernTimeline and ensure all encoders are shown
   const events = useMemo(() => {
+    console.log('🔄 Recalculating events, filteredBlocks:', filteredBlocks.length, 'blocksHash:', blocksHash.substring(0, 50))
+    
     // Transform blocks to events format
     // Create a deep copy of block data to ensure React detects changes
-    const blockEvents = filteredBlocks.map(block => ({
-      id: block.id,
-      title: block.name,
-      group: block.encoder?.name || 'No Encoder',
-      start_time: block.start_time,
-      end_time: block.end_time,
-      block: {
-        ...block,
-        booths: block.booths ? [...block.booths] : [],
-        networks: block.networks ? [...block.networks] : [],
-        commentators: block.commentators ? [...block.commentators] : []
-      } // Store full block data with fresh array references
-    }))
+    const blockEvents = filteredBlocks.map(block => {
+      // Log booth info for debugging
+      if (block.booths && block.booths.length > 0) {
+        console.log(`📦 Block ${block.id} booths:`, block.booths.map(b => `${b.name} (network: ${b.network_id})`))
+      }
+      
+      return {
+        id: block.id,
+        title: block.name,
+        group: block.encoder?.name || 'No Encoder',
+        start_time: block.start_time,
+        end_time: block.end_time,
+        block: {
+          ...block,
+          booths: block.booths ? block.booths.map(b => ({ ...b })) : [],
+          networks: block.networks ? block.networks.map(n => ({ ...n })) : [],
+          commentators: block.commentators ? block.commentators.map(c => ({ ...c })) : []
+        } // Store full block data with fresh object references
+      }
+    })
 
     // Create events array starting with actual block events
     const eventsList = [...blockEvents]
@@ -152,9 +165,15 @@ function CBCTimelineView() {
 
   const loadBlocks = async () => {
     try {
-      setLoading(true)
       setError(null)
+      // Don't set loading to true for real-time updates to avoid UI flicker
       const data = await getBlocks()
+      console.log('📦 Loaded blocks:', data.length, 'blocks')
+      // Log booth info for debugging
+      if (data.length > 0) {
+        const firstBlock = data[0]
+        console.log('📦 First block booths:', firstBlock.booths?.map(b => `${b.name} (network: ${b.network_id})`))
+      }
       setBlocks(data)
       
       // Update selectedBlock if it exists to ensure it has the latest data
