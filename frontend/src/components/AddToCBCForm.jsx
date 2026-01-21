@@ -220,6 +220,60 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     }
   }, [formData.start_time, formData.end_time, allBlocks, booths])
 
+  // Check if a commentator is available during the block's time range
+  const isCommentatorAvailable = useMemo(() => {
+    return (commentatorId) => {
+      if (!formData.start_time || !formData.end_time || !commentatorId) return true
+      
+      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
+      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      
+      // Check if any existing block uses this commentator during an overlapping time period
+      return !allBlocks.some(block => {
+        // Skip if block has no time range
+        if (!block.start_time || !block.end_time) return false
+        
+        // Check if this block uses the commentator
+        const hasCommentator = block.commentators && block.commentators.some(c => c.id === commentatorId)
+        if (!hasCommentator) return false
+        
+        // Check for time overlap
+        const existingStart = moment.utc(block.start_time)
+        const existingEnd = moment.utc(block.end_time)
+        
+        // Two time ranges overlap if: start1 < end2 && start2 < end1
+        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
+      })
+    }
+  }, [formData.start_time, formData.end_time, allBlocks])
+
+  // Check if an encoder is available during the block's time range
+  const isEncoderAvailable = useMemo(() => {
+    return (encoderId) => {
+      if (!formData.start_time || !formData.end_time || !encoderId) return true
+      
+      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
+      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      
+      // Check if any existing block uses this encoder during an overlapping time period
+      return !allBlocks.some(block => {
+        // Skip if block has no time range
+        if (!block.start_time || !block.end_time) return false
+        
+        // Check if this block uses the encoder
+        const hasEncoder = block.encoder_id === encoderId
+        if (!hasEncoder) return false
+        
+        // Check for time overlap
+        const existingStart = moment.utc(block.start_time)
+        const existingEnd = moment.utc(block.end_time)
+        
+        // Two time ranges overlap if: start1 < end2 && start2 < end1
+        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
+      })
+    }
+  }, [formData.start_time, formData.end_time, allBlocks])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
@@ -505,9 +559,19 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="">None</option>
-                  {encoders.map(e => (
-                    <option key={e.id} value={e.id}>{e.name}</option>
-                  ))}
+                  {encoders.map(e => {
+                    const available = isEncoderAvailable(e.id)
+                    return (
+                      <option 
+                        key={e.id} 
+                        value={e.id}
+                        disabled={!available}
+                        style={{ color: available ? 'inherit' : '#9ca3af' }}
+                      >
+                        {e.name}{!available ? ' (Unavailable)' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
               
@@ -608,9 +672,19 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                       >
                         <option value="">None</option>
-                        {commentators.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
+                        {commentators.map(c => {
+                          const available = isCommentatorAvailable(c.id)
+                          return (
+                            <option 
+                              key={c.id} 
+                              value={c.id}
+                              disabled={!available}
+                              style={{ color: available ? 'inherit' : '#9ca3af' }}
+                            >
+                              {c.name}{!available ? ' (Unavailable)' : ''}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                     <div>
@@ -621,9 +695,19 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                       >
                         <option value="">None</option>
-                        {commentators.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
+                        {commentators.map(c => {
+                          const available = isCommentatorAvailable(c.id)
+                          return (
+                            <option 
+                              key={c.id} 
+                              value={c.id}
+                              disabled={!available}
+                              style={{ color: available ? 'inherit' : '#9ca3af' }}
+                            >
+                              {c.name}{!available ? ' (Unavailable)' : ''}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                     <div>
@@ -634,9 +718,19 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                       >
                         <option value="">None</option>
-                        {commentators.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
+                        {commentators.map(c => {
+                          const available = isCommentatorAvailable(c.id)
+                          return (
+                            <option 
+                              key={c.id} 
+                              value={c.id}
+                              disabled={!available}
+                              style={{ color: available ? 'inherit' : '#9ca3af' }}
+                            >
+                              {c.name}{!available ? ' (Unavailable)' : ''}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                   </div>
