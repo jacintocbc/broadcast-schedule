@@ -112,10 +112,20 @@ function CBCTimelineView() {
   useEffect(() => {
     const dates = [...new Set(blocks.map(block => moment(block.start_time).format('YYYY-MM-DD')))].sort()
     setAvailableDates(dates)
-    if (dates.length > 0 && !selectedDate) {
+    
+    // If no dates available, clear selected date
+    if (dates.length === 0) {
+      setSelectedDate(null)
+    } 
+    // If no date is selected, select the first available date
+    else if (!selectedDate) {
       setSelectedDate(dates[0])
     }
-  }, [blocks])
+    // If the currently selected date is no longer available, switch to the first available date
+    else if (selectedDate && !dates.includes(selectedDate)) {
+      setSelectedDate(dates[0])
+    }
+  }, [blocks]) // Only depend on blocks, not selectedDate to avoid loops
 
   // Filter blocks by selected date
   const filteredBlocks = useMemo(() => {
