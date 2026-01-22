@@ -116,14 +116,49 @@ function CBCTimelineView() {
     // If no dates available, clear selected date
     if (dates.length === 0) {
       setSelectedDate(null)
-    } 
-    // If no date is selected, select the first available date
-    else if (!selectedDate) {
-      setSelectedDate(dates[0])
+      localStorage.removeItem('cbcTimelineSelectedDate')
+      return
     }
-    // If the currently selected date is no longer available, switch to the first available date
+    
+    // Helper function to find today's date or closest next available date
+    const findDefaultDate = () => {
+      const today = moment().format('YYYY-MM-DD')
+      
+      // If today is available, use it
+      if (dates.includes(today)) {
+        return today
+      }
+      
+      // Otherwise, find the first date that's today or in the future
+      const todayMoment = moment(today)
+      const nextDate = dates.find(date => moment(date).isSameOrAfter(todayMoment))
+      
+      // If no future date found, use the last available date (most recent)
+      return nextDate || dates[dates.length - 1]
+    }
+    
+    // Check if we have a selected date
+    if (!selectedDate) {
+      // Try to load from localStorage first
+      const savedDate = localStorage.getItem('cbcTimelineSelectedDate')
+      if (savedDate && dates.includes(savedDate)) {
+        setSelectedDate(savedDate)
+      } else {
+        // Use today or closest next available date
+        const defaultDate = findDefaultDate()
+        setSelectedDate(defaultDate)
+        localStorage.setItem('cbcTimelineSelectedDate', defaultDate)
+      }
+    }
+    // If the currently selected date is no longer available, switch to today or closest next
     else if (selectedDate && !dates.includes(selectedDate)) {
-      setSelectedDate(dates[0])
+      const defaultDate = findDefaultDate()
+      setSelectedDate(defaultDate)
+      localStorage.setItem('cbcTimelineSelectedDate', defaultDate)
+    }
+    // If selected date is valid, ensure it's saved to localStorage
+    else if (selectedDate && dates.includes(selectedDate)) {
+      localStorage.setItem('cbcTimelineSelectedDate', selectedDate)
     }
   }, [blocks]) // Only depend on blocks, not selectedDate to avoid loops
 
@@ -219,6 +254,12 @@ function CBCTimelineView() {
 
   const handleDateChange = (date) => {
     setSelectedDate(date)
+    // Save to localStorage when user manually changes date
+    if (date) {
+      localStorage.setItem('cbcTimelineSelectedDate', date)
+    } else {
+      localStorage.removeItem('cbcTimelineSelectedDate')
+    }
   }
 
   const handleBlockSelect = (event) => {

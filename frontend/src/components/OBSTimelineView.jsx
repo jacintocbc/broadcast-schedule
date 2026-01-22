@@ -46,14 +46,54 @@ function OBSTimelineView() {
     fetchAvailableDates()
   }, [])
 
+  // When available dates are loaded, restore saved date or use today/closest next
+  useEffect(() => {
+    if (availableDates.length > 0) {
+      // Helper function to find today's date or closest next available date
+      const findDefaultDate = () => {
+        const today = moment().format('YYYY-MM-DD')
+        
+        // If today is available, use it
+        if (availableDates.includes(today)) {
+          return today
+        }
+        
+        // Otherwise, find the first date that's today or in the future
+        const todayMoment = moment(today)
+        const nextDate = availableDates.find(date => moment(date).isSameOrAfter(todayMoment))
+        
+        // If no future date found, use the last available date (most recent)
+        return nextDate || availableDates[availableDates.length - 1]
+      }
+      
+      if (!selectedDate) {
+        // Try to load from localStorage first
+        const savedDate = localStorage.getItem('obsTimelineSelectedDate')
+        if (savedDate && availableDates.includes(savedDate)) {
+          setSelectedDate(savedDate)
+        } else {
+          // Use today or closest next available date
+          const defaultDate = findDefaultDate()
+          setSelectedDate(defaultDate)
+          localStorage.setItem('obsTimelineSelectedDate', defaultDate)
+        }
+      } else if (selectedDate && !availableDates.includes(selectedDate)) {
+        // If selected date is no longer available, switch to today or closest next
+        const defaultDate = findDefaultDate()
+        setSelectedDate(defaultDate)
+        localStorage.setItem('obsTimelineSelectedDate', defaultDate)
+      }
+    }
+  }, [availableDates]) // Only depend on availableDates, not selectedDate
+
   // Fetch events when date changes
   useEffect(() => {
     if (selectedDate) {
       fetchEvents(selectedDate)
-    } else if (availableDates.length > 0) {
-      setSelectedDate(availableDates[0])
+      // Save to localStorage when date changes
+      localStorage.setItem('obsTimelineSelectedDate', selectedDate)
     }
-  }, [selectedDate, availableDates])
+  }, [selectedDate])
 
   const fetchAvailableDates = async () => {
     try {
@@ -63,9 +103,7 @@ function OBSTimelineView() {
       }
       const data = await response.json()
       setAvailableDates(data)
-      if (data.length > 0 && !selectedDate) {
-        setSelectedDate(data[0])
-      }
+      // Don't set selectedDate here - let the useEffect handle it with localStorage
     } catch (err) {
       console.error('Error fetching dates:', err)
     }
@@ -92,6 +130,12 @@ function OBSTimelineView() {
 
   const handleDateChange = (date) => {
     setSelectedDate(date)
+    // Save to localStorage when user manually changes date
+    if (date) {
+      localStorage.setItem('obsTimelineSelectedDate', date)
+    } else {
+      localStorage.removeItem('obsTimelineSelectedDate')
+    }
   }
 
   const handleDoubleClick = (event) => {
