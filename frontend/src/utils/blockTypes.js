@@ -46,6 +46,11 @@ export function inferBlockType(eventName) {
   
   // Check for specific patterns in order of specificity
   
+  // Beauty Camera - check if title starts with "BC" (case-insensitive)
+  if (name.startsWith('BC')) {
+    return 'BEAUTY CAMERA'
+  }
+  
   // Ceremony
   if (name.includes('CEREMONY') || name.includes('OPENING') || name.includes('CLOSING')) {
     return 'CEREMONY'
@@ -61,7 +66,7 @@ export function inferBlockType(eventName) {
     return 'TRAINING SESSION'
   }
   
-  // Beauty Camera
+  // Beauty Camera (other patterns)
   if (name.includes('BEAUTY') || name.includes('BEAUTY CAMERA')) {
     return 'BEAUTY CAMERA'
   }
