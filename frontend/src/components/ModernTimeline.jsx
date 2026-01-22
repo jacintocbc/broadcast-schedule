@@ -154,17 +154,28 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           const visibleEndMinutes = zoomHours === 24 ? 24 * 60 : (scrollPosition + zoomHours) * 60
           const visibleRangeMinutes = visibleEndMinutes - visibleStartMinutes
           
-          // Calculate position relative to visible range
-          const startPercent = ((startMinutesFromDayStart - visibleStartMinutes) / visibleRangeMinutes) * 100
-          const endPercent = ((endMinutesFromDayStart - visibleStartMinutes) / visibleRangeMinutes) * 100
-          
           // Calculate duration and width
           const durationMinutes = end.diff(start, 'minutes')
-          // For 0-duration events, use minimum width based on zoom level
-          const minDurationMinutes = durationMinutes === 0 
-            ? Math.max(5, (zoomHours * 60) / 20) // Scale minimum width with zoom
-            : durationMinutes
-          const widthPercent = (minDurationMinutes / visibleRangeMinutes) * 100
+          const isZeroDuration = durationMinutes === 0
+          const isOBSEvent = !event.block
+          
+          // For 0-duration OBS events (yellow objects), make them span the full 24 hours
+          let startPercent, widthPercent
+          if (isZeroDuration && isOBSEvent) {
+            // OBS event: position at start of day (0%) and span full visible range (100%)
+            startPercent = 0
+            widthPercent = 100
+          } else {
+            // Calculate position relative to visible range
+            startPercent = ((startMinutesFromDayStart - visibleStartMinutes) / visibleRangeMinutes) * 100
+            
+            // For 0-duration blocks, use minimum width based on zoom level
+            let effectiveDurationMinutes = durationMinutes
+            if (isZeroDuration) {
+              effectiveDurationMinutes = Math.max(5, (zoomHours * 60) / 20)
+            }
+            widthPercent = (effectiveDurationMinutes / visibleRangeMinutes) * 100
+          }
           
           // Store Rome times for display
           return {
