@@ -20,6 +20,8 @@ function CBCTimelineView() {
   const [zoomHours, setZoomHours] = useState(24) // 1, 3, 8, or 24 hours
   const [scrollPosition, setScrollPosition] = useState(0) // Current scroll position in hours
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
+  const hasInitializedDate = useRef(false) // Track if we've initialized the date from localStorage
+  const previousDatesStr = useRef('') // Track previous dates string to detect actual changes
   
   // Update current time every second for real-time clock display
   useEffect(() => {
@@ -108,59 +110,86 @@ function CBCTimelineView() {
     }
   }
 
-  // Update available dates when blocks change
-  useEffect(() => {
+  // Update available dates when blocks change - memoize to prevent unnecessary re-renders
+  const availableDatesMemo = useMemo(() => {
     const dates = [...new Set(blocks.map(block => moment(block.start_time).format('YYYY-MM-DD')))].sort()
-    setAvailableDates(dates)
-    
-    // If no dates available, clear selected date
-    if (dates.length === 0) {
-      setSelectedDate(null)
-      localStorage.removeItem('cbcTimelineSelectedDate')
-      return
+    return dates.join(',') // Return as string for comparison
+  }, [blocks])
+
+  useEffect(() => {
+    const datesArray = availableDatesMemo.split(',').filter(Boolean)
+    // Only update if dates actually changed
+    const currentDatesStr = availableDates.join(',')
+    if (currentDatesStr !== availableDatesMemo) {
+      setAvailableDates(datesArray)
     }
-    
-    // Helper function to find today's date or closest next available date
-    const findDefaultDate = () => {
-      const today = moment().format('YYYY-MM-DD')
+  }, [availableDatesMemo])
+
+  // When available dates are loaded, restore saved date or use today/closest next
+  useEffect(() => {
+    // Only run if dates actually changed (compare stringified versions)
+    const currentDatesStr = availableDates.join(',')
+    if (currentDatesStr === previousDatesStr.current) {
+      return // Dates haven't changed, don't run
+    }
+    previousDatesStr.current = currentDatesStr
+
+    if (availableDates.length > 0 && !hasInitializedDate.current) {
+      // Only initialize once when dates first become available
+      hasInitializedDate.current = true
       
-      // If today is available, use it
-      if (dates.includes(today)) {
-        return today
+      // Helper function to find today's date or closest next available date
+      const findDefaultDate = () => {
+        const today = moment().format('YYYY-MM-DD')
+        
+        // If today is available, use it
+        if (availableDates.includes(today)) {
+          return today
+        }
+        
+        // Otherwise, find the first date that's today or in the future
+        const todayMoment = moment(today)
+        const nextDate = availableDates.find(date => moment(date).isSameOrAfter(todayMoment))
+        
+        // If no future date found, use the last available date (most recent)
+        return nextDate || availableDates[availableDates.length - 1]
       }
       
-      // Otherwise, find the first date that's today or in the future
-      const todayMoment = moment(today)
-      const nextDate = dates.find(date => moment(date).isSameOrAfter(todayMoment))
-      
-      // If no future date found, use the last available date (most recent)
-      return nextDate || dates[dates.length - 1]
-    }
-    
-    // Check if we have a selected date
-    if (!selectedDate) {
       // Try to load from localStorage first
       const savedDate = localStorage.getItem('cbcTimelineSelectedDate')
-      if (savedDate && dates.includes(savedDate)) {
+      if (savedDate && availableDates.includes(savedDate)) {
+        // Restore the saved date - don't overwrite localStorage, just set state
         setSelectedDate(savedDate)
       } else {
-        // Use today or closest next available date
+        // No valid saved date, use today or closest next available date
         const defaultDate = findDefaultDate()
         setSelectedDate(defaultDate)
         localStorage.setItem('cbcTimelineSelectedDate', defaultDate)
       }
+    } else if (availableDates.length > 0 && selectedDate && !availableDates.includes(selectedDate)) {
+      // If selected date is no longer available, switch to today or closest next
+      // But only if we've already initialized (to avoid running during initial load)
+      if (hasInitializedDate.current) {
+        const findDefaultDate = () => {
+          const today = moment().format('YYYY-MM-DD')
+          if (availableDates.includes(today)) {
+            return today
+          }
+          const todayMoment = moment(today)
+          const nextDate = availableDates.find(date => moment(date).isSameOrAfter(todayMoment))
+          return nextDate || availableDates[availableDates.length - 1]
+        }
+        const defaultDate = findDefaultDate()
+        setSelectedDate(defaultDate)
+        localStorage.setItem('cbcTimelineSelectedDate', defaultDate)
+      }
+    } else if (availableDates.length === 0) {
+      // If no dates available, clear selected date
+      setSelectedDate(null)
+      localStorage.removeItem('cbcTimelineSelectedDate')
+      hasInitializedDate.current = false // Reset so we can initialize again when dates become available
     }
-    // If the currently selected date is no longer available, switch to today or closest next
-    else if (selectedDate && !dates.includes(selectedDate)) {
-      const defaultDate = findDefaultDate()
-      setSelectedDate(defaultDate)
-      localStorage.setItem('cbcTimelineSelectedDate', defaultDate)
-    }
-    // If selected date is valid, ensure it's saved to localStorage
-    else if (selectedDate && dates.includes(selectedDate)) {
-      localStorage.setItem('cbcTimelineSelectedDate', selectedDate)
-    }
-  }, [blocks]) // Only depend on blocks, not selectedDate to avoid loops
+  }, [availableDates]) // Only depend on availableDates, not selectedDate to avoid loops
 
   // Filter blocks by selected date
   const filteredBlocks = useMemo(() => {
