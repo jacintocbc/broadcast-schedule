@@ -360,7 +360,20 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           {groups.map((group, groupIdx) => {
             // Check if this group has any blocks (CBC timeline) vs events (OBS timeline)
             const hasBlocks = itemsByGroup[group]?.some(item => item.block) || false
-            const rowMinHeight = hasBlocks ? '200px' : '80px'
+            
+            // Check if all blocks in this row have minimal content
+            const blocksInGroup = itemsByGroup[group]?.filter(item => item.block && !item.isEmpty) || []
+            const allBlocksMinimal = blocksInGroup.length > 0 && blocksInGroup.every(item => {
+              const block = item.block
+              const hasBroadcastTimes = block.broadcast_start_time && block.broadcast_end_time
+              const hasNetworksBooths = block.booths && block.booths.length > 0
+              return !hasBroadcastTimes && !hasNetworksBooths
+            })
+            
+            // Adjust row height based on content - minimal blocks get smaller rows
+            const rowMinHeight = hasBlocks 
+              ? (allBlocksMinimal ? '100px' : '200px')
+              : '80px'
             
             // Check if this is a TX encoder row (CBC timeline)
             const isTXEncoder = /^TX\s*\d+$/i.test(group)
@@ -500,6 +513,12 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   const broadcastStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time).tz('America/New_York') : null
                   const broadcastEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time).tz('America/New_York') : null
                   
+                  // Check if block has minimal content (no broadcast times, no networks/booths)
+                  // Only applies to blocks, not regular events
+                  const hasBroadcastTimes = isBlock && broadcastStart && broadcastEnd
+                  const hasNetworksBooths = isBlock && block.booths && block.booths.length > 0
+                  const hasMinimalContent = isBlock && !hasBroadcastTimes && !hasNetworksBooths
+                  
                   // Create a key that includes booth relationships for blocks to force re-render
                   const blockKey = isBlock && block.booths 
                     ? `${event.id}-${eventIdx}-${JSON.stringify(block.booths.map(b => ({ id: b.id, network_id: b.network_id, name: b.name })))}`
@@ -509,7 +528,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     <div
                       key={blockKey}
                       onClick={() => handleItemClick(event)}
-                      className="absolute top-2 bottom-2 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer group"
+                      className={`absolute rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer group ${hasMinimalContent ? 'top-1 bottom-1' : 'top-2 bottom-2'}`}
                       style={{
                         left,
                         width,
@@ -517,16 +536,16 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                         backgroundColor,
                         border: `2px ${borderStyle} ${borderColor}`,
                         zIndex: 10,
-                        height: isBlock ? 'auto' : undefined,
-                        minHeight: isBlock ? 'auto' : undefined
+                        height: hasMinimalContent ? undefined : (isBlock ? 'auto' : undefined),
+                        minHeight: hasMinimalContent ? undefined : (isBlock ? 'auto' : undefined)
                       }}
                       title={event.title}
                     >
                       {isBlock ? (
                         // Block display with metadata - matching the provided format
                         <div 
-                          className={`flex flex-col p-2 text-[14.6px] leading-tight ${textColor} relative`}
-                          style={{ minHeight: '100%' }}
+                          className={`flex flex-col text-[14.6px] leading-tight ${textColor} relative ${hasMinimalContent ? 'p-1' : 'p-2'}`}
+                          style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
                           {/* Canadian Content Maple Leaf - top right corner */}
                           {block.canadian_content && (
