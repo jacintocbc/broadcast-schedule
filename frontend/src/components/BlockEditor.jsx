@@ -176,6 +176,51 @@ function BlockEditor({ block, onClose, onUpdate }) {
     }
   }, [block])
 
+  // Sort booths: VT booths first, then VIS/VOBS, then VM booths at the end
+  const sortedBooths = useMemo(() => {
+    const vtBooths = []
+    const visVobsBooths = []
+    const vmBooths = []
+    const otherBooths = []
+    
+    booths.forEach(booth => {
+      const name = booth.name || ''
+      if (name.startsWith('VT ')) {
+        vtBooths.push(booth)
+      } else if (name === 'VIS' || name === 'VOBS') {
+        visVobsBooths.push(booth)
+      } else if (name.startsWith('VM ')) {
+        vmBooths.push(booth)
+      } else {
+        otherBooths.push(booth)
+      }
+    })
+    
+    // Sort VT booths numerically
+    vtBooths.sort((a, b) => {
+      const aNum = parseInt(a.name.match(/\d+/)?.[0] || '999', 10)
+      const bNum = parseInt(b.name.match(/\d+/)?.[0] || '999', 10)
+      return aNum - bNum
+    })
+    
+    // Sort VIS/VOBS: VIS first, then VOBS
+    visVobsBooths.sort((a, b) => {
+      if (a.name === 'VIS') return -1
+      if (b.name === 'VIS') return 1
+      return 0
+    })
+    
+    // Sort VM booths numerically
+    vmBooths.sort((a, b) => {
+      const aNum = parseInt(a.name.match(/\d+/)?.[0] || '999', 10)
+      const bNum = parseInt(b.name.match(/\d+/)?.[0] || '999', 10)
+      return aNum - bNum
+    })
+    
+    // Combine: VIS/VOBS, VT, VM, others
+    return [...visVobsBooths, ...vtBooths, ...vmBooths, ...otherBooths]
+  }, [booths])
+
   // Check if a booth is available during the block's time range
   // When editing, exclude the current block from availability checks
   // VIS and VOBS can always be used (can be assigned to multiple blocks at the same time)
@@ -761,7 +806,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => {
+                    {sortedBooths.map(b => {
                       const available = isBoothAvailable(b.id)
                       return (
                         <option 
@@ -952,7 +997,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => {
+                    {sortedBooths.map(b => {
                       const available = isBoothAvailable(b.id)
                       return (
                         <option 
@@ -1068,7 +1113,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="">None</option>
-                    {booths.map(b => (
+                    {sortedBooths.map(b => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
                   </select>
