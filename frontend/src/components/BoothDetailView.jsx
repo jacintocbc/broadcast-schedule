@@ -65,9 +65,9 @@ function BoothDetailView() {
     return booths.find(b => b.id === boothId)
   }, [booths, boothId])
 
-  // Find live blocks for this booth (excluding VIS)
-  const liveBlocks = useMemo(() => {
-    if (!booth || booth.name === 'VIS') return []
+      // Find live blocks for this booth (excluding VIS and VOBS)
+      const liveBlocks = useMemo(() => {
+        if (!booth || booth.name === 'VIS' || booth.name === 'VOBS') return []
     
     const now = currentTime.utc()
     

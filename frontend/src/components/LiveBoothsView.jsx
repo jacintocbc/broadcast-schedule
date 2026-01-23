@@ -65,56 +65,56 @@ function LiveBoothsView() {
     }
   }
 
-  // Filter for live blocks (current time is between start_time and end_time)
-  // Don't exclude blocks entirely if they have VIS booths - we'll filter VIS out in the grouping
-  const liveBlocks = useMemo(() => {
-    const now = currentTime.utc()
-    
-    const filtered = blocks.filter(block => {
-      if (!block.start_time || !block.end_time) return false
-      
-      const start = moment.utc(block.start_time)
-      const end = moment.utc(block.end_time)
-      
-      // Check if current time is within block time range
-      const isLive = now.isAfter(start) && now.isBefore(end)
-      
-      if (!isLive) return false
-      
-      // Only exclude blocks that ONLY have VIS booths (no other booths)
-      if (block.booths && block.booths.length > 0) {
-        const nonVisBooths = block.booths.filter(booth => booth.name !== 'VIS')
-        // If there are no non-VIS booths, exclude this block
-        if (nonVisBooths.length === 0) return false
-      }
-      
-      return true
-    })
-    
-    return filtered
-  }, [blocks, currentTime])
+      // Filter for live blocks (current time is between start_time and end_time)
+      // Don't exclude blocks entirely if they have VIS or VOBS booths - we'll filter them out in the grouping
+      const liveBlocks = useMemo(() => {
+        const now = currentTime.utc()
 
-  // Group live blocks by booth
-  // Each booth can have multiple blocks (different networks), but we'll show the primary one
-  const boothsWithBlocks = useMemo(() => {
-    const boothMap = new Map()
-    
-    // Initialize all booths (excluding VIS) - show all booths even if no live blocks
-    booths.forEach(booth => {
-      if (booth.name !== 'VIS') {
-        boothMap.set(booth.id, {
-          booth: booth,
-          blocks: [],
-          commentators: []
+        const filtered = blocks.filter(block => {
+          if (!block.start_time || !block.end_time) return false
+
+          const start = moment.utc(block.start_time)
+          const end = moment.utc(block.end_time)
+
+          // Check if current time is within block time range
+          const isLive = now.isAfter(start) && now.isBefore(end)
+
+          if (!isLive) return false
+
+          // Only exclude blocks that ONLY have VIS or VOBS booths (no other booths)
+          if (block.booths && block.booths.length > 0) {
+            const nonVisVobsBooths = block.booths.filter(booth => booth.name !== 'VIS' && booth.name !== 'VOBS')
+            // If there are no non-VIS/VOBS booths, exclude this block
+            if (nonVisVobsBooths.length === 0) return false
+          }
+
+          return true
         })
-      }
-    })
-    
-    // Add blocks to their booths
-    liveBlocks.forEach(block => {
-      if (block.booths && block.booths.length > 0) {
-        block.booths.forEach(booth => {
-          if (booth.name !== 'VIS' && boothMap.has(booth.id)) {
+
+        return filtered
+      }, [blocks, currentTime])
+
+      // Group live blocks by booth
+      // Each booth can have multiple blocks (different networks), but we'll show the primary one
+      const boothsWithBlocks = useMemo(() => {
+        const boothMap = new Map()
+
+        // Initialize all booths (excluding VIS and VOBS) - show all booths even if no live blocks
+        booths.forEach(booth => {
+          if (booth.name !== 'VIS' && booth.name !== 'VOBS') {
+            boothMap.set(booth.id, {
+              booth: booth,
+              blocks: [],
+              commentators: []
+            })
+          }
+        })
+
+        // Add blocks to their booths
+        liveBlocks.forEach(block => {
+          if (block.booths && block.booths.length > 0) {
+            block.booths.forEach(booth => {
+              if (booth.name !== 'VIS' && booth.name !== 'VOBS' && boothMap.has(booth.id)) {
             const boothData = boothMap.get(booth.id)
             boothData.blocks.push(block)
             

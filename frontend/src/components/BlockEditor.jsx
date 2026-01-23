@@ -178,7 +178,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
 
   // Check if a booth is available during the block's time range
   // When editing, exclude the current block from availability checks
-  // VIS can always be used (can be assigned to multiple blocks at the same time)
+  // VIS and VOBS can always be used (can be assigned to multiple blocks at the same time)
   const isBoothAvailable = useMemo(() => {
     return (boothId) => {
       if (!formData.start_time || !formData.end_time || !boothId) return true
@@ -186,8 +186,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
       // Find the booth to check its name
       const booth = booths.find(b => b.id === boothId)
       
-      // VIS can always be used (no availability check needed)
-      if (booth && booth.name === 'VIS') {
+      // VIS and VOBS can always be used (no availability check needed)
+      if (booth && (booth.name === 'VIS' || booth.name === 'VOBS')) {
         return true
       }
       
