@@ -667,17 +667,24 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                             </div>
                           )}
                           
-                          {/* Broadcast times in parentheses (first line) - Milan time */}
-                          {broadcastStart && broadcastEnd && (
-                            <div className="text-[13.3px] opacity-90 mb-0.5">
-                              ({broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')})
+                          {/* Time display: If broadcast times exist, show actual times in brackets first, then broadcast times below. Otherwise, show actual times without brackets */}
+                          {hasBroadcastTimes ? (
+                            <>
+                              {/* Actual event times in parentheses (first line) - Milan time */}
+                              <div className="text-[13.3px] opacity-90 mb-0.5">
+                                ({startMilan.format('HH:mm')} - {endMilan.format('HH:mm')})
+                              </div>
+                              {/* Broadcast times without parentheses (second line) - Milan time */}
+                              <div className="text-[13.3px] opacity-90 mb-1">
+                                {broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')}
+                              </div>
+                            </>
+                          ) : (
+                            /* Actual event times without parentheses (only line) - Milan time */
+                            <div className="text-[13.3px] opacity-90 mb-1">
+                              {startMilan.format('HH:mm')} - {endMilan.format('HH:mm')}
                             </div>
                           )}
-                          
-                          {/* Actual event times (second line) - Milan time */}
-                          <div className="text-[13.3px] opacity-90 mb-1">
-                            {startMilan.format('HH:mm')} - {endMilan.format('HH:mm')}
-                          </div>
                           
                           {/* DX Channel from OBS or Encoder/Suite identifier (third line) */}
                           {block.obs_group ? (
