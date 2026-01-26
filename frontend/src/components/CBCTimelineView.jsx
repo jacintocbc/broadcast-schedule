@@ -385,22 +385,12 @@ function CBCTimelineView() {
               )}
             </div>
             </div>
-            
-            {/* Dual Clock Display - Top Right */}
-            <div className="flex items-center">
-              <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.cet} CET
-              </div>
-              <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
-              <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.et} <span className="font-bold">ET</span>
-              </div>
-            </div>
           </div>
         )}
         
         {/* Legend - Show for CBC timeline */}
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center justify-between">
+          <div className="flex flex-wrap gap-2 items-center">
           {BLOCK_TYPES.map(type => {
             const bgColor = BLOCK_TYPE_COLORS[type] || DEFAULT_BLOCK_COLOR
             const borderColor = darkenColor(bgColor, 30)
@@ -422,6 +412,18 @@ function CBCTimelineView() {
               </div>
             )
           })}
+          </div>
+          
+          {/* Dual Clock Display - Right side of legend row */}
+          <div className="flex items-center">
+            <div className="text-3xl font-bold text-gray-800 font-mono">
+              {times.cet} CET
+            </div>
+            <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
+            <div className="text-3xl font-bold text-gray-800 font-mono">
+              {times.et} <span className="font-bold">ET</span>
+            </div>
+          </div>
         </div>
       </div>
       
