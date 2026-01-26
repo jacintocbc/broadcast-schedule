@@ -236,30 +236,39 @@ function BlockEditor({ block, onClose, onUpdate }) {
         return true
       }
       
-      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
-      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      // Use broadcast times if available, otherwise use start/end times
+      const blockStart = formData.broadcast_start_time
+        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
+        : moment.tz(formData.start_time, 'America/New_York').utc()
+      const blockEnd = formData.broadcast_end_time
+        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
+        : moment.tz(formData.end_time, 'America/New_York').utc()
       
       // Check if any existing block (other than the current one) uses this booth during an overlapping time period
       return !allBlocks.some(existingBlock => {
         // Skip the current block being edited
         if (block && existingBlock.id === block.id) return false
         
-        // Skip if block has no time range
-        if (!existingBlock.start_time || !existingBlock.end_time) return false
+        // Use broadcast times if available, otherwise use start/end times
+        const existingStart = (existingBlock.broadcast_start_time
+          ? moment.utc(existingBlock.broadcast_start_time)
+          : existingBlock.start_time ? moment.utc(existingBlock.start_time) : null)
+        const existingEnd = (existingBlock.broadcast_end_time
+          ? moment.utc(existingBlock.broadcast_end_time)
+          : existingBlock.end_time ? moment.utc(existingBlock.end_time) : null)
+        
+        if (!existingStart || !existingEnd) return false
         
         // Check if this block uses the booth
         const hasBooth = existingBlock.booths && existingBlock.booths.some(b => b.id === boothId)
         if (!hasBooth) return false
         
         // Check for time overlap
-        const existingStart = moment.utc(existingBlock.start_time)
-        const existingEnd = moment.utc(existingBlock.end_time)
-        
         // Two time ranges overlap if: start1 < end2 && start2 < end1
         return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
       })
     }
-  }, [formData.start_time, formData.end_time, allBlocks, block, booths])
+  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks, block, booths])
 
   // Check if a commentator is available during the block's time range
   // When editing, exclude the current block from availability checks
@@ -267,30 +276,39 @@ function BlockEditor({ block, onClose, onUpdate }) {
     return (commentatorId) => {
       if (!formData.start_time || !formData.end_time || !commentatorId) return true
       
-      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
-      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      // Use broadcast times if available, otherwise use start/end times
+      const blockStart = formData.broadcast_start_time
+        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
+        : moment.tz(formData.start_time, 'America/New_York').utc()
+      const blockEnd = formData.broadcast_end_time
+        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
+        : moment.tz(formData.end_time, 'America/New_York').utc()
       
       // Check if any existing block (other than the current one) uses this commentator during an overlapping time period
       return !allBlocks.some(existingBlock => {
         // Skip the current block being edited
         if (block && existingBlock.id === block.id) return false
         
-        // Skip if block has no time range
-        if (!existingBlock.start_time || !existingBlock.end_time) return false
+        // Use broadcast times if available, otherwise use start/end times
+        const existingStart = (existingBlock.broadcast_start_time
+          ? moment.utc(existingBlock.broadcast_start_time)
+          : existingBlock.start_time ? moment.utc(existingBlock.start_time) : null)
+        const existingEnd = (existingBlock.broadcast_end_time
+          ? moment.utc(existingBlock.broadcast_end_time)
+          : existingBlock.end_time ? moment.utc(existingBlock.end_time) : null)
+        
+        if (!existingStart || !existingEnd) return false
         
         // Check if this block uses the commentator
         const hasCommentator = existingBlock.commentators && existingBlock.commentators.some(c => c.id === commentatorId)
         if (!hasCommentator) return false
         
         // Check for time overlap
-        const existingStart = moment.utc(existingBlock.start_time)
-        const existingEnd = moment.utc(existingBlock.end_time)
-        
         // Two time ranges overlap if: start1 < end2 && start2 < end1
         return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
       })
     }
-  }, [formData.start_time, formData.end_time, allBlocks, block])
+  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks, block])
 
   // Check if an encoder is available during the block's time range
   // When editing, exclude the current block from availability checks
@@ -298,30 +316,39 @@ function BlockEditor({ block, onClose, onUpdate }) {
     return (encoderId) => {
       if (!formData.start_time || !formData.end_time || !encoderId) return true
       
-      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
-      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      // Use broadcast times if available, otherwise use start/end times
+      const blockStart = formData.broadcast_start_time
+        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
+        : moment.tz(formData.start_time, 'America/New_York').utc()
+      const blockEnd = formData.broadcast_end_time
+        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
+        : moment.tz(formData.end_time, 'America/New_York').utc()
       
       // Check if any existing block (other than the current one) uses this encoder during an overlapping time period
       return !allBlocks.some(existingBlock => {
         // Skip the current block being edited
         if (block && existingBlock.id === block.id) return false
         
-        // Skip if block has no time range
-        if (!existingBlock.start_time || !existingBlock.end_time) return false
+        // Use broadcast times if available, otherwise use start/end times
+        const existingStart = (existingBlock.broadcast_start_time
+          ? moment.utc(existingBlock.broadcast_start_time)
+          : existingBlock.start_time ? moment.utc(existingBlock.start_time) : null)
+        const existingEnd = (existingBlock.broadcast_end_time
+          ? moment.utc(existingBlock.broadcast_end_time)
+          : existingBlock.end_time ? moment.utc(existingBlock.end_time) : null)
+        
+        if (!existingStart || !existingEnd) return false
         
         // Check if this block uses the encoder
         const hasEncoder = existingBlock.encoder_id === encoderId
         if (!hasEncoder) return false
         
         // Check for time overlap
-        const existingStart = moment.utc(existingBlock.start_time)
-        const existingEnd = moment.utc(existingBlock.end_time)
-        
         // Two time ranges overlap if: start1 < end2 && start2 < end1
         return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
       })
     }
-  }, [formData.start_time, formData.end_time, allBlocks, block])
+  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks, block])
 
   const loadRelationships = async () => {
     if (!block) return
