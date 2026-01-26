@@ -236,11 +236,11 @@ function OBSTimelineView() {
             {/* Dual Clock Display - Top Right */}
             <div className="flex items-center">
               <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.et} <span className="font-bold">EST</span>
+                {times.cet} CET
               </div>
               <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
               <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.cet} CET
+                {times.et} <span className="font-bold">EST</span>
               </div>
             </div>
           </div>
