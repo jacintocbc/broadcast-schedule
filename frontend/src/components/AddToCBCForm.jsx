@@ -64,22 +64,45 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
 
   useEffect(() => {
     if (event) {
-      // Convert UTC times from event to EST for display in datetime-local inputs
+      // Convert UTC times from event to Milan time for display in datetime-local inputs
       const formatTimeForInput = (utcTime) => {
         if (!utcTime) return ''
-        // Parse as UTC and convert to EST
-        return moment.utc(utcTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
+        // Parse as UTC and convert to Milan time
+        return moment.utc(utcTime).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm')
       }
       
       // Infer type from event name
       const inferredType = inferBlockType(event.title || '')
       
+      // Check if this is a 24-hour beauty camera event (starts with "BC" and has 0 duration)
+      const isBeautyCamera = (event.title || '').trim().toUpperCase().startsWith('BC')
+      const isZeroDuration = event.start_time && event.end_time && 
+        moment.utc(event.start_time).isSame(moment.utc(event.end_time))
+      
+      let startTime = formatTimeForInput(event.start_time)
+      let endTime = formatTimeForInput(event.end_time)
+      
+      // If it's a 24-hour beauty camera, set default times: same day at 1:30 AM Milan to next day 1:30 AM Milan
+      if (isBeautyCamera && isZeroDuration) {
+        // Get the date from the event's start_time (or use today)
+        const eventDate = event.start_time 
+          ? moment.utc(event.start_time).tz('Europe/Rome').format('YYYY-MM-DD')
+          : moment.tz('Europe/Rome').format('YYYY-MM-DD')
+        
+        // Start: same day at 1:30 AM Milan time (form inputs are now in Milan time)
+        startTime = `${eventDate}T01:30`
+        
+        // End: next day at 1:30 AM Milan time
+        const nextDay = moment.tz(`${eventDate} 01:30`, 'Europe/Rome').add(1, 'day').format('YYYY-MM-DD')
+        endTime = `${nextDay}T01:30`
+      }
+      
       // Pre-fill form with event data
       setFormData({
         name: event.title || '',
         obs_id: event.id || '',
-        start_time: formatTimeForInput(event.start_time),
-        end_time: formatTimeForInput(event.end_time),
+        start_time: startTime,
+        end_time: endTime,
         broadcast_start_time: '',
         broadcast_end_time: '',
         encoder_id: '',
@@ -155,9 +178,9 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
       return new Set()
     }
 
-    // Convert form times (EST) to UTC for comparison
-    const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
-    const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+    // Convert form times (Milan) to UTC for comparison
+    const blockStart = moment.tz(formData.start_time, 'Europe/Rome').utc()
+    const blockEnd = moment.tz(formData.end_time, 'Europe/Rome').utc()
 
     const unavailable = new Set()
 
@@ -243,8 +266,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         return true
       }
       
-      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
-      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      const blockStart = moment.tz(formData.start_time, 'Europe/Rome').utc()
+      const blockEnd = moment.tz(formData.end_time, 'Europe/Rome').utc()
       
       // Check if any existing block uses this booth during an overlapping time period
       return !allBlocks.some(block => {
@@ -270,8 +293,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     return (commentatorId) => {
       if (!formData.start_time || !formData.end_time || !commentatorId) return true
       
-      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
-      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      const blockStart = moment.tz(formData.start_time, 'Europe/Rome').utc()
+      const blockEnd = moment.tz(formData.end_time, 'Europe/Rome').utc()
       
       // Check if any existing block uses this commentator during an overlapping time period
       return !allBlocks.some(block => {
@@ -297,8 +320,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     return (encoderId) => {
       if (!formData.start_time || !formData.end_time || !encoderId) return true
       
-      const blockStart = moment.tz(formData.start_time, 'America/New_York').utc()
-      const blockEnd = moment.tz(formData.end_time, 'America/New_York').utc()
+      const blockStart = moment.tz(formData.start_time, 'Europe/Rome').utc()
+      const blockEnd = moment.tz(formData.end_time, 'Europe/Rome').utc()
       
       // Check if any existing block uses this encoder during an overlapping time period
       return !allBlocks.some(block => {
@@ -329,20 +352,20 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         throw new Error('Name, start time, and end time are required')
       }
 
-      // Convert datetime-local values (interpreted as EST) to UTC ISO strings
-      const convertESTToUTC = (estDateTimeLocal) => {
-        if (!estDateTimeLocal) return null
-        // Parse the datetime-local value as EST and convert to UTC
-        return moment.tz(estDateTimeLocal, 'America/New_York').utc().toISOString()
+      // Convert datetime-local values (interpreted as Milan time) to UTC ISO strings
+      const convertMilanToUTC = (milanDateTimeLocal) => {
+        if (!milanDateTimeLocal) return null
+        // Parse the datetime-local value as Milan time and convert to UTC
+        return moment.tz(milanDateTimeLocal, 'Europe/Rome').utc().toISOString()
       }
 
       const blockData = {
         name: formData.name,
         obs_id: formData.obs_id || null,
-        start_time: convertESTToUTC(formData.start_time),
-        end_time: convertESTToUTC(formData.end_time),
-        broadcast_start_time: convertESTToUTC(formData.broadcast_start_time),
-        broadcast_end_time: convertESTToUTC(formData.broadcast_end_time),
+        start_time: convertMilanToUTC(formData.start_time),
+        end_time: convertMilanToUTC(formData.end_time),
+        broadcast_start_time: convertMilanToUTC(formData.broadcast_start_time),
+        broadcast_end_time: convertMilanToUTC(formData.broadcast_end_time),
         encoder_id: formData.encoder_id || null,
         producer_id: formData.producer_id || null,
         suite_id: formData.suite_id || null,
@@ -532,7 +555,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   onClick={(e) => {
                     if (!formData.broadcast_start_time && formData.start_time) {
-                      const startMoment = moment.tz(formData.start_time, 'America/New_York')
+                      const startMoment = moment.tz(formData.start_time, 'Europe/Rome')
                       const suggested = startMoment.clone().subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_start_time: suggested }))
                     }
@@ -552,7 +575,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   onClick={(e) => {
                     if (!formData.broadcast_end_time && formData.end_time) {
-                      const endMoment = moment.tz(formData.end_time, 'America/New_York')
+                      const endMoment = moment.tz(formData.end_time, 'Europe/Rome')
                       const suggested = endMoment.clone().add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_end_time: suggested }))
                     }
