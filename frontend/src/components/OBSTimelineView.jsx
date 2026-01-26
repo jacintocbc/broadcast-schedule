@@ -240,7 +240,7 @@ function OBSTimelineView() {
               </div>
               <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
               <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.et} <span className="font-bold">EST</span>
+                {times.et} <span className="font-bold">ET</span>
               </div>
             </div>
           </div>

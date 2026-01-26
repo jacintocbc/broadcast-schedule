@@ -424,10 +424,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           </div>
         </div>
         
-        {/* Row 3: EST times */}
+        {/* Row 3: ET times */}
         <div className="flex relative">
           <div className="w-24 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700 flex items-center justify-center">
-            <div className="text-xs text-gray-600">EST</div>
+            <div className="text-xs text-gray-600">ET</div>
           </div>
           <div className={`flex-1 flex relative ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
             <div className="flex w-full">
@@ -807,7 +807,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                                 Milan: {startMilan.format('HH:mm')}-{endMilan.format('HH:mm')}
                               </span>
                               <span className="text-gray-300 truncate">
-                                EST: {startEST.format('HH:mm')}-{endEST.format('HH:mm')}
+                                ET: {startEST.format('HH:mm')}-{endEST.format('HH:mm')}
                               </span>
                             </div>
                           </div>

@@ -271,7 +271,7 @@ function BoothDetailView() {
           <h1 className="font-bold" style={{ fontSize: '4.2rem' }}>Booth {booth.name}</h1>
           <div className="flex items-center">
             <div className="font-bold text-white font-mono" style={{ fontSize: '4.2rem' }}>
-              {times.et} <span className="font-bold">EST</span>
+              {times.et} <span className="font-bold">ET</span>
             </div>
             <span className="font-bold text-white mx-8" style={{ fontSize: '4.2rem', transform: 'translateY(-2px)' }}>/</span>
             <div className="font-bold text-white font-mono" style={{ fontSize: '4.2rem' }}>
