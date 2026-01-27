@@ -17,7 +17,7 @@ function CBCTimelineView() {
   const [error, setError] = useState(null)
   const datePickerRef = useRef(null)
   const [datePickerHeight, setDatePickerHeight] = useState(0)
-  const [zoomHours, setZoomHours] = useState(24) // 1, 3, 8, or 24 hours
+  const [zoomHours, setZoomHours] = useState(24) // 24, 36, or 48 hours
   const [scrollPosition, setScrollPosition] = useState(0) // Current scroll position in hours
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
   const hasInitializedDate = useRef(false) // Track if we've initialized the date from localStorage
@@ -191,12 +191,68 @@ function CBCTimelineView() {
     }
   }, [availableDates]) // Only depend on availableDates, not selectedDate to avoid loops
 
-  // Filter blocks by selected date
+  // Filter blocks by selected date (and next day if zoom is 48h)
   const filteredBlocks = useMemo(() => {
-    return selectedDate 
-      ? blocks.filter(block => moment(block.start_time).format('YYYY-MM-DD') === selectedDate)
-      : []
-  }, [blocks, selectedDate])
+    if (!selectedDate) {
+      console.log('[CBC FILTER] No selectedDate, returning []')
+      return []
+    }
+    
+    const selectedDateMoment = moment.tz(selectedDate, 'Europe/Rome')
+    
+    // If zoom is 36h or 48h, include blocks that overlap with the multi-hour window (02:00 selected day + zoomHours)
+    if (zoomHours === 48 || zoomHours === 36) {
+      const timelineStart = selectedDateMoment.clone().hour(2).minute(0).second(0).millisecond(0)
+      const timelineEnd = timelineStart.clone().add(zoomHours, 'hours')
+      
+      const failedReasons = { noStart: 0, noEnd: 0, noOverlap: 0 }
+      let firstExcludedSample = null
+      const filtered = blocks.filter(block => {
+        if (!block.start_time) {
+          failedReasons.noStart++
+          if (!firstExcludedSample) firstExcludedSample = { reason: 'noStart', id: block.id, start_time: block.start_time, end_time: block.end_time }
+          return false
+        }
+        if (!block.end_time) {
+          failedReasons.noEnd++
+          if (!firstExcludedSample) firstExcludedSample = { reason: 'noEnd', id: block.id, start_time: block.start_time, end_time: block.end_time }
+          return false
+        }
+        const blockStart = moment.utc(block.start_time).tz('Europe/Rome')
+        const blockEnd = moment.utc(block.end_time).tz('Europe/Rome')
+        const overlaps = blockStart.isBefore(timelineEnd) && blockEnd.isAfter(timelineStart)
+        if (!overlaps) {
+          failedReasons.noOverlap++
+          if (!firstExcludedSample) firstExcludedSample = { reason: 'noOverlap', id: block.id, blockStart: blockStart.format('YYYY-MM-DD HH:mm'), blockEnd: blockEnd.format('YYYY-MM-DD HH:mm'), timelineStart: timelineStart.format('YYYY-MM-DD HH:mm'), timelineEnd: timelineEnd.format('YYYY-MM-DD HH:mm') }
+        }
+        return overlaps
+      })
+      console.log('[CBC FILTER]', zoomHours + 'h:', {
+        selectedDate,
+        zoomHours,
+        timelineStart: timelineStart.format('YYYY-MM-DD HH:mm'),
+        timelineEnd: timelineEnd.format('YYYY-MM-DD HH:mm'),
+        blocksCount: blocks.length,
+        filteredCount: filtered.length,
+        failedReasons,
+        firstIncluded: filtered[0] ? { id: filtered[0].id, start: filtered[0].start_time, end: filtered[0].end_time } : null,
+        firstExcludedSample
+      })
+      return filtered
+    }
+    
+    // For 24h, check overlap with the selected day
+    const selectedDayStart = selectedDateMoment.clone().startOf('day')
+    const selectedDayEnd = selectedDateMoment.clone().endOf('day')
+    const filtered = blocks.filter(block => {
+      if (!block.start_time || !block.end_time) return false
+      const blockStart = moment.utc(block.start_time).tz('Europe/Rome')
+      const blockEnd = moment.utc(block.end_time).tz('Europe/Rome')
+      return blockStart.isBefore(selectedDayEnd) && blockEnd.isAfter(selectedDayStart)
+    })
+    console.log('[CBC FILTER]', zoomHours + 'h:', { selectedDate, zoomHours, blocksCount: blocks.length, filteredCount: filtered.length, dayStart: selectedDayStart.format('YYYY-MM-DD HH:mm'), dayEnd: selectedDayEnd.format('YYYY-MM-DD HH:mm') })
+    return filtered
+  }, [blocks, selectedDate, zoomHours])
 
   // Create a hash of block relationships to force re-render when relationships change
   const blocksHash = useMemo(() => {
@@ -264,11 +320,16 @@ function CBCTimelineView() {
       setError(null)
       // Don't set loading to true for real-time updates to avoid UI flicker
       const data = await getBlocks()
-      setBlocks(data)
-      
+      const blockList = Array.isArray(data) ? data : (data?.blocks ?? data?.data ?? [])
+      setBlocks(blockList)
+      console.log('[CBC LOAD] Fetched blocks:', {
+        rawType: Array.isArray(data) ? 'array' : typeof data,
+        count: blockList.length,
+        sample: blockList[0] ? { id: blockList[0].id, name: blockList[0].name, start_time: blockList[0].start_time, end_time: blockList[0].end_time } : null
+      })
       // Update selectedBlock if it exists to ensure it has the latest data
       if (selectedBlock) {
-        const updatedBlock = data.find(b => b.id === selectedBlock.id)
+        const updatedBlock = blockList.find(b => b.id === selectedBlock.id)
         if (updatedBlock) {
           setSelectedBlock(updatedBlock)
         }
@@ -345,7 +406,7 @@ function CBCTimelineView() {
               <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-gray-700">Zoom:</span>
               <div className="flex gap-1">
-                {[1, 3, 8, 24].map(hours => (
+                {[24, 36, 48].map(hours => (
                   <button
                     key={hours}
                     onClick={() => {

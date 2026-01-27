@@ -15,7 +15,7 @@ function OBSTimelineView() {
   const [error, setError] = useState(null)
   const datePickerRef = useRef(null)
   const [datePickerHeight, setDatePickerHeight] = useState(0)
-  const [zoomHours, setZoomHours] = useState(24) // 1, 3, 8, or 24 hours
+  const [zoomHours, setZoomHours] = useState(24) // 24, 36, or 48 hours
   const [scrollPosition, setScrollPosition] = useState(0) // Current scroll position in hours
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
   
@@ -86,11 +86,9 @@ function OBSTimelineView() {
     }
   }, [availableDates]) // Only depend on availableDates, not selectedDate
 
-  // Fetch events when date changes
+  // Save to localStorage when date changes
   useEffect(() => {
     if (selectedDate) {
-      fetchEvents(selectedDate)
-      // Save to localStorage when date changes
       localStorage.setItem('obsTimelineSelectedDate', selectedDate)
     }
   }, [selectedDate])
@@ -109,23 +107,168 @@ function OBSTimelineView() {
     }
   }
 
-  const fetchEvents = async (date) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const url = date ? `/api/events?date=${date}` : '/api/events'
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error('Failed to fetch events')
+  // Store all events, filter based on selected date and zoom
+  const [allEvents, setAllEvents] = useState([])
+  
+  // Fetch all events once on mount
+  useEffect(() => {
+    const fetchAllEvents = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const response = await fetch('/api/events')
+        if (!response.ok) {
+          throw new Error('Failed to fetch events')
+        }
+        const data = await response.json()
+        // Diagnostic: ensure we got an array (API returns array directly)
+        const eventList = Array.isArray(data) ? data : (data?.events ?? [])
+        setAllEvents(eventList)
+        console.log('[OBS LOAD] Fetched events:', {
+          rawType: Array.isArray(data) ? 'array' : typeof data,
+          count: eventList.length,
+          sample: eventList[0] ? {
+            id: eventList[0].id,
+            start_time: eventList[0].start_time,
+            end_time: eventList[0].end_time,
+            group: eventList[0].group,
+            title: eventList[0].title
+          } : null
+        })
+      } catch (err) {
+        setError(err.message)
+        console.error('Error fetching all events:', err)
+      } finally {
+        setLoading(false)
       }
-      const data = await response.json()
-      setEvents(data)
-    } catch (err) {
-      setError(err.message)
-      console.error('Error fetching events:', err)
-    } finally {
-      setLoading(false)
     }
+    fetchAllEvents()
+  }, [])
+  
+  // Filter events based on selected date and zoom
+  useEffect(() => {
+    if (!selectedDate) {
+      console.log('[OBS FILTER] No selectedDate, clearing events')
+      setEvents([])
+      return
+    }
+    
+    if (allEvents.length === 0) {
+      console.log('[OBS FILTER] allEvents empty, skipping filter')
+      return
+    }
+    
+    const selectedDateMoment = moment.tz(selectedDate, 'Europe/Rome')
+    
+    // For 36h/48h zoom, filter by multi-hour timeline window (02:00 selected day + zoomHours)
+    if (zoomHours === 48 || zoomHours === 36) {
+      const timelineStart = selectedDateMoment.clone().hour(2).minute(0).second(0).millisecond(0)
+      const timelineEnd = timelineStart.clone().add(zoomHours, 'hours')
+      const viewNextDateStr = selectedDateMoment.clone().add(1, 'day').format('YYYY-MM-DD')
+      
+      const failedReasons = { noStart: 0, noEnd: 0, noOverlap: 0, bcExcluded: 0 }
+      let firstExcludedSample = null
+      const filtered = allEvents.filter(event => {
+        if (!event.start_time) {
+          failedReasons.noStart++
+          if (!firstExcludedSample) firstExcludedSample = { reason: 'noStart', id: event.id, start_time: event.start_time, end_time: event.end_time }
+          return false
+        }
+        const eventStart = moment.utc(event.start_time).tz('Europe/Rome')
+        const title = (event.title || '').trim().toUpperCase()
+        const isBCByTitle = title.startsWith('BC')
+        const hasNoEnd = !event.end_time
+        const endSameAsStart = event.end_time && moment.utc(event.end_time).tz('Europe/Rome').isSame(eventStart)
+        const isZeroDuration = hasNoEnd || endSameAsStart
+        // Only 0-duration BC items get beauty-camera treatment. BC with times → normal overlap below.
+        const isBeautyCamera = isBCByTitle && isZeroDuration
+        if (isBeautyCamera) {
+          // When event.date exists (e.g. "05/02/2026" DD/MM/YYYY), use it as the canonical day for "in view"
+          const canonicalFromDate = event.date && (() => {
+            const m = moment(event.date, ['DD/MM/YYYY', 'YYYY-MM-DD'], true)
+            return m.isValid() ? m.format('YYYY-MM-DD') : null
+          })()
+          const eventStartDateStr = eventStart.format('YYYY-MM-DD')
+          const displayDateStr = eventStart.clone().add(1, 'day').format('YYYY-MM-DD')
+          const inView = canonicalFromDate
+            ? (canonicalFromDate === selectedDate || canonicalFromDate === viewNextDateStr)
+            : (displayDateStr === selectedDate || displayDateStr === viewNextDateStr ||
+               eventStartDateStr === selectedDate || eventStartDateStr === viewNextDateStr)
+          if (!inView) failedReasons.bcExcluded++
+          return inView
+        }
+        if (!event.end_time) {
+          failedReasons.noEnd++
+          if (!firstExcludedSample) firstExcludedSample = { reason: 'noEnd', id: event.id, start_time: event.start_time, end_time: event.end_time }
+          return false
+        }
+        const eventEnd = moment.utc(event.end_time).tz('Europe/Rome')
+        const overlaps = eventStart.isBefore(timelineEnd) && eventEnd.isAfter(timelineStart)
+        if (!overlaps) {
+          failedReasons.noOverlap++
+          if (!firstExcludedSample) firstExcludedSample = { reason: 'noOverlap', id: event.id, eventStart: eventStart.format('YYYY-MM-DD HH:mm'), eventEnd: eventEnd.format('YYYY-MM-DD HH:mm'), timelineStart: timelineStart.format('YYYY-MM-DD HH:mm'), timelineEnd: timelineEnd.format('YYYY-MM-DD HH:mm') }
+        }
+        return overlaps
+      })
+      
+      console.log('[OBS FILTER]', zoomHours + 'h:', {
+        selectedDate,
+        zoomHours,
+        timelineStart: timelineStart.format('YYYY-MM-DD HH:mm'),
+        timelineEnd: timelineEnd.format('YYYY-MM-DD HH:mm'),
+        allEventsCount: allEvents.length,
+        filteredCount: filtered.length,
+        failedReasons,
+        firstIncluded: filtered[0] ? { id: filtered[0].id, start: filtered[0].start_time, end: filtered[0].end_time } : null,
+        firstExcludedSample
+      })
+      setEvents(filtered)
+    } else {
+      // For 24h, filter by selected day. Beauty cameras: display date = Milan start + 1 day; include when that matches selectedDate.
+      const dayStart = selectedDateMoment.clone().startOf('day')
+      const dayEnd = selectedDateMoment.clone().endOf('day')
+      
+      const filtered = allEvents.filter(event => {
+        if (!event.start_time) return false
+        const eventStart = moment.utc(event.start_time).tz('Europe/Rome')
+        const title = (event.title || '').trim().toUpperCase()
+        const isBCByTitle = title.startsWith('BC')
+        const hasNoEnd = !event.end_time
+        const endSameAsStart = event.end_time && moment.utc(event.end_time).tz('Europe/Rome').isSame(eventStart)
+        const isZeroDuration = hasNoEnd || endSameAsStart
+        // Only 0-duration BC items get beauty-camera treatment. BC with times → normal overlap below.
+        const isBeautyCamera = isBCByTitle && isZeroDuration
+        if (isBeautyCamera) {
+          const sel = selectedDate ? moment(selectedDate).format('YYYY-MM-DD') : ''
+          // When event.date exists (e.g. "05/02/2026" DD/MM/YYYY), it is the canonical day — use it even if start/end times are another date
+          const canonicalFromDate = event.date && (() => {
+            const m = moment(event.date, ['DD/MM/YYYY', 'YYYY-MM-DD'], true)
+            return m.isValid() ? m.format('YYYY-MM-DD') : null
+          })()
+          if (canonicalFromDate) {
+            return canonicalFromDate === sel
+          }
+          // Else use Milan start/display: only when selectedDate is start day or next day, and start not more than 1 day before
+          const eventStartDateStr = eventStart.format('YYYY-MM-DD')
+          const displayDateStr = eventStart.clone().add(1, 'day').format('YYYY-MM-DD')
+          const minStart = sel ? moment(sel).subtract(1, 'day').format('YYYY-MM-DD') : ''
+          const belongsToSelectedDay = displayDateStr === sel || eventStartDateStr === sel
+          const notTooOld = !minStart || eventStartDateStr >= minStart
+          return belongsToSelectedDay && notTooOld
+        }
+        if (!event.end_time) return false
+        const eventEnd = moment.utc(event.end_time).tz('Europe/Rome')
+        return eventStart.isBefore(dayEnd) && eventEnd.isAfter(dayStart)
+      })
+      
+      console.log('[OBS FILTER]', zoomHours + 'h:', { selectedDate, zoomHours, allEventsCount: allEvents.length, filteredCount: filtered.length, dayStart: dayStart.format('YYYY-MM-DD HH:mm'), dayEnd: dayEnd.format('YYYY-MM-DD HH:mm') })
+      setEvents(filtered)
+    }
+  }, [selectedDate, zoomHours, allEvents])
+  
+  const fetchEvents = async (date) => {
+    // This function is no longer needed but kept for compatibility
+    // Events are now filtered in the useEffect above
   }
 
   const handleDateChange = (date) => {
@@ -192,7 +335,7 @@ function OBSTimelineView() {
               <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-gray-700">Zoom:</span>
               <div className="flex gap-1">
-                {[1, 3, 8, 24].map(hours => (
+                {[24, 36, 48].map(hours => (
                   <button
                     key={hours}
                     onClick={() => {

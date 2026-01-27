@@ -35,57 +35,46 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
   
   // Calculate current time line position
   const currentTimePosition = useMemo(() => {
-    // Check if current time is within the selected day
-    const currentDayStart = currentTime.clone().startOf('day')
-    const isToday = currentDayStart.isSame(selectedDayStart, 'day')
-    
-    if (!isToday) {
-      return null // Don't show line if current time is not in the selected day
-    }
-    
-    // Timeline spans from 02:00 (2 AM) to 02:00 (2 AM next day)
+    // Timeline spans from 02:00 (2 AM) for zoomHours duration
     const timelineStartHour = 2
     const timelineStartMinutes = timelineStartHour * 60 // 02:00 = 120 minutes from day start
-    const timelineEndMinutes = (24 + 2) * 60 // 02:00 next day = 1560 minutes from day start
-    const visibleRangeMinutes = timelineEndMinutes - timelineStartMinutes // 1440 minutes (24 hours)
+    const effectiveZoomHours = zoomHours >= 24 ? zoomHours : 24 // Use zoomHours if >= 24, otherwise default to 24
+    const timelineEndMinutes = (effectiveZoomHours + 2) * 60 // End time = start + zoomHours
+    const visibleRangeMinutes = timelineEndMinutes - timelineStartMinutes // Total visible range in minutes
     
-    // Calculate current time position in minutes from day start
+    // Calculate current time position in minutes from selected day start
     const currentMinutesFromDayStart = currentTime.diff(selectedDayStart, 'minutes')
     
-    // Check if current time is within timeline range (02:00 to 02:00 next day)
-    // Handle case where current time might be after midnight but before 02:00 next day
-    const isInRange = (currentMinutesFromDayStart >= timelineStartMinutes && currentMinutesFromDayStart <= timelineEndMinutes) ||
-                      (currentMinutesFromDayStart >= 0 && currentMinutesFromDayStart <= 120) // 00:00 to 02:00
+    // Check if current time is within timeline range (02:00 to 02:00 + zoomHours)
+    // For multi-day views, we need to check if current time is within the visible range
+    const isInRange = currentMinutesFromDayStart >= timelineStartMinutes && 
+                      currentMinutesFromDayStart <= timelineEndMinutes
     
     if (!isInRange) {
       return null // Don't show line if current time is outside timeline range
     }
     
     // Calculate position relative to timeline start (02:00)
-    let currentMinutesFromTimelineStart
-    if (currentMinutesFromDayStart >= timelineStartMinutes) {
-      // Current time is between 02:00 and 24:00
-      currentMinutesFromTimelineStart = currentMinutesFromDayStart - timelineStartMinutes
-    } else {
-      // Current time is between 00:00 and 02:00 (next day)
-      currentMinutesFromTimelineStart = (24 * 60 - timelineStartMinutes) + currentMinutesFromDayStart
-    }
+    const currentMinutesFromTimelineStart = currentMinutesFromDayStart - timelineStartMinutes
     
     // Calculate position as percentage
     const positionPercent = (currentMinutesFromTimelineStart / visibleRangeMinutes) * 100
     
     return positionPercent
-  }, [currentTime, selectedDayStart])
+  }, [currentTime, selectedDayStart, zoomHours])
 
   const { hours, groups, itemsByGroup } = useMemo(() => {
     if (!events || events.length === 0) {
+      console.log('[Timeline RENDER] No events:', { eventsLength: events?.length ?? 0, selectedDate, zoomHours })
       return { hours: [], groups: [], itemsByGroup: {} }
     }
 
-    // Generate hours: start at 02:00 (2 AM) and end at 02:00 (2 AM next day) - 24 hour span
-    // This spans from 02:00, 03:00, ..., 23:00, 00:00, 01:00, 02:00 (24 hours total, wrapping around)
+    // Generate hours: start at 02:00 (2 AM) and span zoomHours
+    // For 24h: 02:00 to 02:00 next day (24 hour markers)
+    // For 36h: 02:00 day 1 to 14:00 day 2 (36 hour markers)
+    // For 48h: 02:00 day 1 to 02:00 day 3 (48 hour markers)
     const startHour = 2 // Start at 2 AM
-    const totalHours = 24 // 02:00 to 02:00 next day (24 hour markers)
+    const totalHours = zoomHours >= 24 ? zoomHours : 24 // Use zoomHours if >= 24, otherwise default to 24
     const hours = Array.from({ length: totalHours }, (_, i) => {
       const hour = selectedDayStart.clone().add(startHour + i, 'hours')
       // If hour goes past midnight, it will automatically roll to next day
@@ -144,8 +133,12 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
         .map((event, index) => {
           // Parse times - backend stores ISO strings in UTC (e.g., "2026-02-01T11:00:00.000Z")
           // Explicitly parse as UTC to ensure correct conversion
+          if (!event.start_time || !event.end_time) {
+            console.warn('[Timeline RENDER] Event missing start_time or end_time:', { id: event.id, group: event.group, start_time: event.start_time, end_time: event.end_time })
+          }
           const startUTC = moment.utc(event.start_time)
-          const endUTC = moment.utc(event.end_time)
+          // OBS beauty cameras often have same or missing end_time; treat missing as same as start for 0-duration detection
+          const endUTC = event.end_time ? moment.utc(event.end_time) : startUTC.clone()
           
           // Convert to Milan time for positioning on timeline (primary timezone)
           const start = startUTC.tz('Europe/Rome')
@@ -167,11 +160,12 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           const endMinutesFromDayStart = end.diff(selectedDayStart, 'minutes')
           
           // Convert to percentage of visible time range
-          // Timeline spans from 02:00 (2 AM) to 02:00 (2 AM next day) - 24 hours = 1440 minutes
+          // Timeline spans from 02:00 (2 AM) for zoomHours duration
           const timelineStartHour = 2
           const timelineStartMinutes = timelineStartHour * 60 // 02:00 = 120 minutes from day start
-          const timelineEndMinutes = (24 + 2) * 60 // 02:00 next day = 1560 minutes from day start (24 hours + 2 hours)
-          const visibleRangeMinutes = timelineEndMinutes - timelineStartMinutes // 1440 minutes (24 hours)
+          const effectiveZoomHours = zoomHours >= 24 ? zoomHours : 24 // Use zoomHours if >= 24, otherwise default to 24
+          const timelineEndMinutes = (effectiveZoomHours + 2) * 60 // End time = start + zoomHours
+          const visibleRangeMinutes = timelineEndMinutes - timelineStartMinutes // Total visible range in minutes
           
           // Calculate position relative to timeline start (02:00)
           // Handle events that span midnight
@@ -214,13 +208,63 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           const durationMinutes = end.diff(start, 'minutes')
           const isZeroDuration = durationMinutes === 0
           const isOBSEvent = !event.block
+          const title = (event.title || '').trim().toUpperCase()
+          const isBCByTitle = title.startsWith('BC')
+          // Only 0-duration BC items are beauty cameras. BC items with times → normal (blue) events.
+          const isBeautyCamera = isBCByTitle && isZeroDuration && isOBSEvent
           
-          // For 0-duration OBS events (yellow objects), make them span the full timeline range
+          // Beauty cameras (0-duration BC, OBS): display date = Milan start + 1 day → show as 24hr block 02:00 that date until 02:00 next day.
+          const BEAUTY_CAMERA_HOURS = 24
           let startPercent, widthPercent
-          if (isZeroDuration && isOBSEvent) {
-            // OBS event: position at start of timeline (0%) and span full visible range (100%)
-            startPercent = 0
-            widthPercent = 100
+          let displayStartMilan = start
+          let displayEndMilan = end
+          if (isBeautyCamera) {
+            const selectedDateStr = selectedDate || selectedDayStart.format('YYYY-MM-DD')
+            const viewNextDateStr = moment.tz(selectedDateStr, 'Europe/Rome').add(1, 'day').format('YYYY-MM-DD')
+            const eventStartDateStr = start.format('YYYY-MM-DD')
+            const displayDateStr = start.clone().add(1, 'day').format('YYYY-MM-DD')
+            const daySplitPct = zoomHours === 48 ? 50 : zoomHours === 36 ? (100 * 24 / 36) : null
+            // When event.date exists (e.g. "05/02/2026" DD/MM/YYYY), use it as the canonical day — accommodates Date=Feb 5 vs start/end=Feb 4
+            const canonicalFromDate = event.date && (() => {
+              const m = moment(event.date, ['DD/MM/YYYY', 'YYYY-MM-DD'], true)
+              return m.isValid() ? m.format('YYYY-MM-DD') : null
+            })()
+            // Which date we show this BC for: prefer event.date when present; in 24h use selectedDate; in 36h/48h use date in view
+            let eventDateStr
+            if (daySplitPct == null) {
+              // 24h: block is always 02:00 selectedDate → 02:00 selectedDate+1 (filter already ensured this BC belongs to selectedDate)
+              eventDateStr = selectedDateStr
+            } else if (canonicalFromDate && (canonicalFromDate === selectedDateStr || canonicalFromDate === viewNextDateStr)) {
+              eventDateStr = canonicalFromDate
+            } else {
+              // 36h/48h: use the date that's in the visible range so BCs appear on the correct day/segment
+              if (eventStartDateStr === selectedDateStr || eventStartDateStr === viewNextDateStr) {
+                eventDateStr = eventStartDateStr
+              } else {
+                eventDateStr = displayDateStr
+              }
+            }
+            const eventDateNextStr = moment.tz(eventDateStr, 'Europe/Rome').add(1, 'day').format('YYYY-MM-DD')
+            // 24hr block: 02:00 eventDateStr → 02:00 eventDateNextStr
+            displayStartMilan = moment.tz(eventDateStr + ' 02:00', 'Europe/Rome')
+            displayEndMilan = moment.tz(eventDateNextStr + ' 02:00', 'Europe/Rome')
+            if (daySplitPct != null) {
+              // 36h/48h: place in the segment for that date; width = full 24h segment for that day
+              if (eventDateStr === selectedDateStr) {
+                startPercent = 0
+                widthPercent = daySplitPct // full first day segment (24h)
+              } else if (eventDateStr === viewNextDateStr) {
+                startPercent = daySplitPct
+                widthPercent = 100 - daySplitPct // full second day segment
+              } else {
+                startPercent = 0
+                widthPercent = daySplitPct ?? 100
+              }
+            } else {
+              // 24h: full-day block (02:00–02:00 next day = 100% of timeline)
+              startPercent = 0
+              widthPercent = 100
+            }
           } else {
             // Calculate position relative to timeline start (20:00)
             // Clamp to timeline range (0-100%)
@@ -235,27 +279,45 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
             widthPercent = Math.max(0.5, endPercent - startPercent) // Minimum 0.5% width
           }
           
-          // Store Milan times for display (primary) and EST (secondary)
-          // Also store timeline-relative positions for filtering
+          // Store Milan times for display (primary) and EST (secondary). Beauty cameras show 02:00–02:00 that day.
+          const outStartMilan = isBeautyCamera ? displayStartMilan : start
+          const outEndMilan = isBeautyCamera ? displayEndMilan : end
           return {
             ...event,
             startPercent,
             widthPercent,
-            startHour,
-            startMinute,
-            endHour,
-            endMinute,
+            startHour: outStartMilan.hour(),
+            startMinute: outStartMilan.minute(),
+            endHour: outEndMilan.hour(),
+            endMinute: outEndMilan.minute(),
             durationMinutes,
             isZeroDuration: durationMinutes === 0,
-            startMilan: start,
-            endMilan: end,
-            startEST: startEST,
-            endEST: endEST,
-            startMinutesFromDayStart, // Keep for filtering calculations
-            endMinutesFromDayStart // Keep for filtering calculations
+            isBeautyCamera: !!isBeautyCamera,
+            startMilan: outStartMilan,
+            endMilan: outEndMilan,
+            startEST: outStartMilan.clone().tz('America/New_York'),
+            endEST: outEndMilan.clone().tz('America/New_York'),
+            startMinutesFromDayStart,
+            endMinutesFromDayStart
           }
         })
         .sort((a, b) => a.startPercent - b.startPercent)
+    })
+
+    // Diagnostic: log what we're passing to the layout
+    const timelineStartMinutes = 2 * 60
+    const effectiveZoomHours = zoomHours >= 24 ? zoomHours : 24
+    const visibleRangeMinutes = effectiveZoomHours * 60
+    const firstGroup = groups[0]
+    const firstItem = firstGroup && itemsByGroup[firstGroup]?.[0]
+    console.log('[Timeline RENDER] Layout:', {
+      eventsCount: events.length,
+      groupsCount: groups.length,
+      selectedDate,
+      zoomHours,
+      visibleRangeMinutes,
+      selectedDayStart: selectedDayStart.format('YYYY-MM-DD HH:mm'),
+      firstItem: firstItem ? { id: firstItem.id, group: firstItem.group, startPercent: firstItem.startPercent, widthPercent: firstItem.widthPercent, startMilan: firstItem.startMilan?.format?.('YYYY-MM-DD HH:mm'), endMilan: firstItem.endMilan?.format?.('YYYY-MM-DD HH:mm'), isOffScreen: (firstItem.startPercent > 100 || firstItem.startPercent + firstItem.widthPercent < 0) } : null
     })
 
     return { hours, groups, itemsByGroup }
@@ -347,54 +409,101 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
     )
   }
 
+  // 48h: day boundary at 50%; 36h: day boundary at 24/36 ≈ 66.67%
+  const daySplitPercent = zoomHours === 48 ? 50 : zoomHours === 36 ? (100 * 24 / 36) : null
+  const isMultiDay = daySplitPercent != null
+
   return (
     <div ref={containerRef} className="h-full w-full flex flex-col bg-white">
-      {/* Header with hours - Fixed */}
-      <div ref={headerRef} className="flex-shrink-0 bg-white border-b-2 border-gray-200 shadow-sm sticky z-30 relative" style={{ top: `${navbarHeight + datePickerHeight - 1}px` }}>
-        {/* Current time indicator line - spans all rows */}
-        {currentTimePosition !== null && (
+      {/* Single scroll container: header + grid share the same width, so day dividers stay aligned when sidebar opens (scrollbar doesn't shift only the grid) */}
+      <div
+        ref={scrollableRef}
+        className={`flex-1 overflow-y-auto bg-white ${zoomHours < 24 ? 'overflow-x-auto' : ''} min-h-0 relative`}
+        style={{ minHeight: 0 }}
+        key={`scrollable-${groups.length}-${selectedDate}-${zoomHours}-${scrollPosition}`}
+      >
+        {/* Single day-boundary line: one element for all rows so it never misaligns (position = 96px + (content width) * daySplit) */}
+        {isMultiDay && (
           <div
-            className="absolute top-0 bottom-0 z-20 pointer-events-none"
+            className="absolute top-0 bottom-0 w-0.5 bg-gray-400 z-20 pointer-events-none"
             style={{
-              left: `calc(96px + ${currentTimePosition}%)`, // 96px = width of left column (w-24 = 6rem = 96px)
-              width: '2px',
-              backgroundColor: '#ef4444',
-              boxShadow: '0 0 4px rgba(239, 68, 68, 0.5)'
+              left: `calc(96px + (100% - 96px) * ${daySplitPercent / 100})`,
+              transform: 'translateX(-50%)'
             }}
-          >
-            {/* Time label at top */}
-            <div
-              className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-full bg-red-500 text-white text-xs font-semibold px-2 py-0.5 rounded-b whitespace-nowrap"
-              style={{ marginTop: '-1px' }}
-            >
-              {currentTime.format('HH:mm')}
-            </div>
-          </div>
+          />
         )}
-        
-        {/* Row 1: Date spanning all columns */}
+        {/* Header with hours - inside scroll so it shares width with grid; sticky so it stays visible when scrolling */}
+        <div ref={headerRef} className="flex-shrink-0 sticky top-0 z-30 bg-white border-b-2 border-gray-200 shadow-sm relative" style={{ top: 0 }}>
+          {/* Current time indicator line - spans all rows */}
+          {currentTimePosition !== null && (
+            <div
+              className="absolute top-0 bottom-0 z-20 pointer-events-none"
+              style={{
+                left: `calc(96px + ${currentTimePosition}%)`, // 96px = width of left column (w-24 = 6rem = 96px)
+                width: '2px',
+                backgroundColor: '#ef4444',
+                boxShadow: '0 0 4px rgba(239, 68, 68, 0.5)'
+              }}
+            >
+              {/* Time label at top */}
+              <div
+                className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-full bg-red-500 text-white text-xs font-semibold px-2 py-0.5 rounded-b whitespace-nowrap"
+                style={{ marginTop: '-1px' }}
+              >
+                {currentTime.format('HH:mm')}
+              </div>
+            </div>
+          )}
+          
+          {/* Row 1: Date spanning all columns */}
         <div className="flex relative border-b border-gray-200">
           <div className="w-24 flex-shrink-0 border-r border-gray-300 bg-gray-50">
             {/* Empty - date removed from left column */}
           </div>
           <div className={`flex-1 flex relative ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
-            <div className="flex w-full items-center justify-center" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
-              {selectedDate ? (() => {
-                const dateMoment = moment.tz(selectedDate, 'Europe/Rome')
-                const day0Date = moment.tz('2026-02-06', 'Europe/Rome') // February 6 is DAY 0
-                const dayDiff = dateMoment.diff(day0Date, 'days')
-                // Format day label with leading zeros: DAY 00, DAY -02, DAY +02, etc.
-                // Format day label with leading zeros: DAY 00, DAY -02, DAY 02, etc.
-                const dayLabel = dayDiff === 0 ? 'DAY 00' : dayDiff > 0 ? `DAY ${String(dayDiff).padStart(2, '0')}` : `DAY -${String(Math.abs(dayDiff)).padStart(2, '0')}`
+            {selectedDate ? (() => {
+              const dateMoment = moment.tz(selectedDate, 'Europe/Rome')
+              const day0Date = moment.tz('2026-02-06', 'Europe/Rome') // February 6 is DAY 0
+              const dayDiff = dateMoment.diff(day0Date, 'days')
+              const dayLabel = dayDiff === 0 ? 'DAY 00' : dayDiff > 0 ? `DAY ${String(dayDiff).padStart(2, '0')}` : `DAY -${String(Math.abs(dayDiff)).padStart(2, '0')}`
+              
+              // For 36h/48h zoom, show two day labels with a divider
+              if (isMultiDay) {
+                const nextDateMoment = dateMoment.clone().add(1, 'day')
+                const nextDayDiff = nextDateMoment.diff(day0Date, 'days')
+                const nextDayLabel = nextDayDiff === 0 ? 'DAY 00' : nextDayDiff > 0 ? `DAY ${String(nextDayDiff).padStart(2, '0')}` : `DAY -${String(Math.abs(nextDayDiff)).padStart(2, '0')}`
+                
                 return (
+                  <>
+                    {/* Left part - DAY 00 */}
+                    <div className="flex items-center justify-center flex-shrink-0" style={{ width: `${daySplitPercent}%`, paddingTop: '5px', paddingBottom: '5px' }}>
+                      <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>
+                        {dateMoment.format('dddd, MMMM D, YYYY')} - {dayLabel}
+                      </div>
+                    </div>
+                    {/* Right part - DAY 01 */}
+                    <div className="flex-1 flex items-center justify-center" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
+                      <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>
+                        {nextDateMoment.format('dddd, MMMM D, YYYY')} - {nextDayLabel}
+                      </div>
+                    </div>
+                  </>
+                )
+              }
+              
+              // For other zoom levels, show single centered date
+              return (
+                <div className="flex w-full items-center justify-center" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
                   <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>
                     {dateMoment.format('dddd, MMMM D, YYYY')} - {dayLabel}
                   </div>
-                )
-              })() : (
+                </div>
+              )
+            })() : (
+              <div className="flex w-full items-center justify-center" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
                 <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>Select Date</div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
         
@@ -451,19 +560,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
             </div>
           </div>
         </div>
-      </div>
+        </div>
 
-      {/* Timeline rows - Scrollable */}
-      <div 
-        ref={scrollableRef}
-        className={`flex-1 overflow-y-auto bg-white ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}
-        style={{ 
-          minHeight: 0,
-          height: 0
-        }}
-        key={`scrollable-${groups.length}-${selectedDate}-${zoomHours}-${scrollPosition}`}
-      >
-        <div className="w-full">
+        {/* Timeline rows - same scroll container as header so widths match when sidebar/scrollbar changes */}
+        <div className="w-full relative">
           {groups.map((group, groupIdx) => {
             // Check if this group has any blocks (CBC timeline) vs events (OBS timeline)
             const hasBlocks = itemsByGroup[group]?.some(item => item.block) || false
@@ -546,19 +646,28 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                 {/* Events */}
                 {itemsByGroup[group]?.filter(event => {
                   if (event.isEmpty) return false
-                  // Filter events that are outside the timeline range (02:00 to 02:00)
+                  // Beauty cameras in 24h: always show when their date matches the view (they’re 02:00–04:00 that day)
+                  if (event.isBeautyCamera && zoomHours === 24 && selectedDate) {
+                    const beautyDate = event.startMilan && typeof event.startMilan.format === 'function'
+                      ? event.startMilan.format('YYYY-MM-DD')
+                      : (event.start_time ? moment.utc(event.start_time).tz('Europe/Rome').format('YYYY-MM-DD') : '')
+                    if (beautyDate === selectedDate) return true
+                  }
+                  // Use same timeline range as positioning: 02:00 for zoomHours duration (24h, 36h, or 48h)
                   const timelineStartHour = 2
                   const timelineStartMinutes = timelineStartHour * 60
-                  const timelineEndMinutes = (24 + 2) * 60
-                  const eventStartMinutes = event.startMilan.diff(selectedDayStart, 'minutes')
-                  const eventEndMinutes = event.endMilan.diff(selectedDayStart, 'minutes')
+                  const effectiveZoomHours = zoomHours >= 24 ? zoomHours : 24
+                  const timelineEndMinutes = (effectiveZoomHours + timelineStartHour) * 60
+                  const eventStartMinutes = event.startMilan && typeof event.startMilan.diff === 'function'
+                    ? event.startMilan.diff(selectedDayStart, 'minutes')
+                    : (event.start_time ? moment.utc(event.start_time).tz('Europe/Rome').diff(selectedDayStart, 'minutes') : 0)
+                  const eventEndMinutes = event.endMilan && typeof event.endMilan.diff === 'function'
+                    ? event.endMilan.diff(selectedDayStart, 'minutes')
+                    : (event.end_time ? moment.utc(event.end_time).tz('Europe/Rome').diff(selectedDayStart, 'minutes') : 0)
                   
-                  // Show event if it overlaps with timeline range (02:00 to 02:00)
-                  // Handle events that span midnight
-                  const eventStartsInRange = (eventStartMinutes >= timelineStartMinutes && eventStartMinutes <= timelineEndMinutes) ||
-                                            (eventStartMinutes >= 0 && eventStartMinutes <= 120)
-                  const eventEndsInRange = (eventEndMinutes >= timelineStartMinutes && eventEndMinutes <= timelineEndMinutes) ||
-                                          (eventEndMinutes >= 0 && eventEndMinutes <= 120)
+                  // Show event if it overlaps with timeline range (02:00 to 02:00 + zoomHours)
+                  const eventStartsInRange = eventStartMinutes >= timelineStartMinutes && eventStartMinutes < timelineEndMinutes
+                  const eventEndsInRange = eventEndMinutes > timelineStartMinutes && eventEndMinutes <= timelineEndMinutes
                   const eventSpansRange = eventStartMinutes < timelineStartMinutes && eventEndMinutes > timelineEndMinutes
                   
                   return eventStartsInRange || eventEndsInRange || eventSpansRange
@@ -617,11 +726,11 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     }
                   }
                   
-                  // Format times for display - explicitly parse as UTC first, then convert to Milan (primary)
-                  const startMilan = moment.utc(event.start_time).tz('Europe/Rome')
-                  const endMilan = moment.utc(event.end_time).tz('Europe/Rome')
-                  const startEST = moment.utc(event.start_time).tz('America/New_York')
-                  const endEST = moment.utc(event.end_time).tz('America/New_York')
+                  // Format times for display. Beauty cameras use stored 02:00–04:00; others use raw times.
+                  const startMilan = (event.isBeautyCamera && event.startMilan) ? event.startMilan : moment.utc(event.start_time).tz('Europe/Rome')
+                  const endMilan = (event.isBeautyCamera && event.endMilan) ? event.endMilan : moment.utc(event.end_time).tz('Europe/Rome')
+                  const startEST = (event.isBeautyCamera && event.startEST) ? event.startEST : moment.utc(event.start_time).tz('America/New_York')
+                  const endEST = (event.isBeautyCamera && event.endEST) ? event.endEST : moment.utc(event.end_time).tz('America/New_York')
                   
                   const broadcastStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time).tz('Europe/Rome') : null
                   const broadcastEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time).tz('Europe/Rome') : null
