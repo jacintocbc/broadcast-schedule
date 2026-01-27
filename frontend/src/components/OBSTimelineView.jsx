@@ -4,6 +4,7 @@ import DateNavigator from './DateNavigator'
 import EventDetailPanel from './EventDetailPanel'
 import AddToCBCForm from './AddToCBCForm'
 import moment from 'moment-timezone'
+import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor } from '../utils/blockTypes'
 
 function OBSTimelineView() {
   const [events, setEvents] = useState([])
@@ -124,17 +125,6 @@ function OBSTimelineView() {
         // Diagnostic: ensure we got an array (API returns array directly)
         const eventList = Array.isArray(data) ? data : (data?.events ?? [])
         setAllEvents(eventList)
-        console.log('[OBS LOAD] Fetched events:', {
-          rawType: Array.isArray(data) ? 'array' : typeof data,
-          count: eventList.length,
-          sample: eventList[0] ? {
-            id: eventList[0].id,
-            start_time: eventList[0].start_time,
-            end_time: eventList[0].end_time,
-            group: eventList[0].group,
-            title: eventList[0].title
-          } : null
-        })
       } catch (err) {
         setError(err.message)
         console.error('Error fetching all events:', err)
@@ -148,13 +138,11 @@ function OBSTimelineView() {
   // Filter events based on selected date and zoom
   useEffect(() => {
     if (!selectedDate) {
-      console.log('[OBS FILTER] No selectedDate, clearing events')
       setEvents([])
       return
     }
     
     if (allEvents.length === 0) {
-      console.log('[OBS FILTER] allEvents empty, skipping filter')
       return
     }
     
@@ -210,18 +198,6 @@ function OBSTimelineView() {
         }
         return overlaps
       })
-      
-      console.log('[OBS FILTER]', zoomHours + 'h:', {
-        selectedDate,
-        zoomHours,
-        timelineStart: timelineStart.format('YYYY-MM-DD HH:mm'),
-        timelineEnd: timelineEnd.format('YYYY-MM-DD HH:mm'),
-        allEventsCount: allEvents.length,
-        filteredCount: filtered.length,
-        failedReasons,
-        firstIncluded: filtered[0] ? { id: filtered[0].id, start: filtered[0].start_time, end: filtered[0].end_time } : null,
-        firstExcludedSample
-      })
       setEvents(filtered)
     } else {
       // For 24h, filter by selected day. Beauty cameras: display date = Milan start + 1 day; include when that matches selectedDate.
@@ -260,8 +236,6 @@ function OBSTimelineView() {
         const eventEnd = moment.utc(event.end_time).tz('Europe/Rome')
         return eventStart.isBefore(dayEnd) && eventEnd.isAfter(dayStart)
       })
-      
-      console.log('[OBS FILTER]', zoomHours + 'h:', { selectedDate, zoomHours, allEventsCount: allEvents.length, filteredCount: filtered.length, dayStart: dayStart.format('YYYY-MM-DD HH:mm'), dayEnd: dayEnd.format('YYYY-MM-DD HH:mm') })
       setEvents(filtered)
     }
   }, [selectedDate, zoomHours, allEvents])
@@ -323,70 +297,90 @@ function OBSTimelineView() {
     <div className="flex-1 flex flex-col">
       <div ref={datePickerRef} className="p-4 border-b bg-gray-50 sticky z-40" style={{ top: `${navbarHeight}px` }}>
         {availableDates.length > 0 && (
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-4 flex-wrap">
+          <>
+            <div className="flex items-center gap-4 flex-wrap mb-3">
               <DateNavigator 
                 dates={availableDates}
                 selectedDate={selectedDate}
                 onDateChange={handleDateChange}
               />
-              
-              {/* Zoom Controls */}
               <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-700">Zoom:</span>
-              <div className="flex gap-1">
-                {[24, 36, 48].map(hours => (
-                  <button
-                    key={hours}
-                    onClick={() => {
-                      setZoomHours(hours)
-                      setScrollPosition(0) // Reset scroll when changing zoom
-                    }}
-                    className={`px-3 py-1 text-sm rounded ${
-                      zoomHours === hours
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    {hours}h
-                  </button>
-                ))}
-              </div>
-              {zoomHours < 24 && (
-                <>
-                  <button
-                    onClick={() => setScrollPosition(Math.max(0, scrollPosition - zoomHours))}
-                    disabled={scrollPosition === 0}
-                    className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    ← Prev
-                  </button>
-                  <span className="text-sm text-gray-600">
-                    {String(Math.floor(scrollPosition)).padStart(2, '0')}:00 - {String(Math.floor(scrollPosition + zoomHours) % 24).padStart(2, '0')}:00
-                  </span>
-                  <button
-                    onClick={() => setScrollPosition(Math.min(24 - zoomHours, scrollPosition + zoomHours))}
-                    disabled={scrollPosition >= 24 - zoomHours}
-                    className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next →
-                  </button>
-                </>
-              )}
-            </div>
-            </div>
-            
-            {/* Dual Clock Display - Top Right */}
-            <div className="flex items-center">
-              <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.cet} CET
-              </div>
-              <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
-              <div className="text-3xl font-bold text-gray-800 font-mono">
-                {times.et} <span className="font-bold">ET</span>
+                <span className="text-sm font-medium text-gray-700">Zoom:</span>
+                <div className="flex gap-1">
+                  {[24, 36, 48].map(hours => (
+                    <button
+                      key={hours}
+                      onClick={() => {
+                        setZoomHours(hours)
+                        setScrollPosition(0) // Reset scroll when changing zoom
+                      }}
+                      className={`px-3 py-1 text-sm rounded ${
+                        zoomHours === hours
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {hours}h
+                    </button>
+                  ))}
+                </div>
+                {zoomHours < 24 && (
+                  <>
+                    <button
+                      onClick={() => setScrollPosition(Math.max(0, scrollPosition - zoomHours))}
+                      disabled={scrollPosition === 0}
+                      className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      ← Prev
+                    </button>
+                    <span className="text-sm text-gray-600">
+                      {String(Math.floor(scrollPosition)).padStart(2, '0')}:00 - {String(Math.floor(scrollPosition + zoomHours) % 24).padStart(2, '0')}:00
+                    </span>
+                    <button
+                      onClick={() => setScrollPosition(Math.min(24 - zoomHours, scrollPosition + zoomHours))}
+                      disabled={scrollPosition >= 24 - zoomHours}
+                      className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next →
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-          </div>
+            {/* Legend + Clock on same row: legend left, clock right */}
+            <div className="flex flex-wrap gap-2 items-center justify-between">
+              <div className="flex flex-wrap gap-2 items-center">
+                {BLOCK_TYPES.map(type => {
+                  const bgColor = BLOCK_TYPE_COLORS[type] || DEFAULT_BLOCK_COLOR
+                  const borderColor = darkenColor(bgColor, 30)
+                  const lightColors = ['#ffffff', '#fef08a', '#fed7aa', '#fbcfe8', '#e5e7eb', '#9ca3af', '#fce7f3', '#e9d5ff']
+                  const textColor = lightColors.includes(bgColor) ? 'text-gray-900' : 'text-white'
+                  return (
+                    <div
+                      key={type}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded border ${textColor}`}
+                      style={{
+                        backgroundColor: bgColor,
+                        borderColor: borderColor,
+                        borderWidth: '2px'
+                      }}
+                    >
+                      <span className="text-xs font-medium">{type}</span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="flex items-center">
+                <div className="text-3xl font-bold text-gray-800 font-mono">
+                  {times.cet} CET
+                </div>
+                <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
+                <div className="text-3xl font-bold text-gray-800 font-mono">
+                  {times.et} <span className="font-bold">ET</span>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
       

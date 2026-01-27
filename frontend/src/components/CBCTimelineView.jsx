@@ -194,7 +194,6 @@ function CBCTimelineView() {
   // Filter blocks by selected date (and next day if zoom is 48h)
   const filteredBlocks = useMemo(() => {
     if (!selectedDate) {
-      console.log('[CBC FILTER] No selectedDate, returning []')
       return []
     }
     
@@ -227,17 +226,6 @@ function CBCTimelineView() {
         }
         return overlaps
       })
-      console.log('[CBC FILTER]', zoomHours + 'h:', {
-        selectedDate,
-        zoomHours,
-        timelineStart: timelineStart.format('YYYY-MM-DD HH:mm'),
-        timelineEnd: timelineEnd.format('YYYY-MM-DD HH:mm'),
-        blocksCount: blocks.length,
-        filteredCount: filtered.length,
-        failedReasons,
-        firstIncluded: filtered[0] ? { id: filtered[0].id, start: filtered[0].start_time, end: filtered[0].end_time } : null,
-        firstExcludedSample
-      })
       return filtered
     }
     
@@ -250,7 +238,6 @@ function CBCTimelineView() {
       const blockEnd = moment.utc(block.end_time).tz('Europe/Rome')
       return blockStart.isBefore(selectedDayEnd) && blockEnd.isAfter(selectedDayStart)
     })
-    console.log('[CBC FILTER]', zoomHours + 'h:', { selectedDate, zoomHours, blocksCount: blocks.length, filteredCount: filtered.length, dayStart: selectedDayStart.format('YYYY-MM-DD HH:mm'), dayEnd: selectedDayEnd.format('YYYY-MM-DD HH:mm') })
     return filtered
   }, [blocks, selectedDate, zoomHours])
 
@@ -322,11 +309,6 @@ function CBCTimelineView() {
       const data = await getBlocks()
       const blockList = Array.isArray(data) ? data : (data?.blocks ?? data?.data ?? [])
       setBlocks(blockList)
-      console.log('[CBC LOAD] Fetched blocks:', {
-        rawType: Array.isArray(data) ? 'array' : typeof data,
-        count: blockList.length,
-        sample: blockList[0] ? { id: blockList[0].id, name: blockList[0].name, start_time: blockList[0].start_time, end_time: blockList[0].end_time } : null
-      })
       // Update selectedBlock if it exists to ensure it has the latest data
       if (selectedBlock) {
         const updatedBlock = blockList.find(b => b.id === selectedBlock.id)

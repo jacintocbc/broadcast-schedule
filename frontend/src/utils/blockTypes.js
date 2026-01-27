@@ -2,34 +2,36 @@
 
 export const BLOCK_TYPES = [
   'PRELIM',
-  'PRELIM NOT FOR STREAM',
   'FINAL/MEDAL',
-  'FINAL/MEDAL NOT FOR STREAM',
-  'NEW',
+  'NOT FOR BROADCAST',
   'CEREMONY',
   'OTHER',
   'TRAINING SESSION',
   'PRESS CONFERENCE',
   'BEAUTY CAMERA',
-  'OBS HIGHLIGHT SHOW',
-  'R-C STREAM ONLY'
+  'OBS HIGHLIGHT SHOW'
 ]
 
 // Color mapping for block types (hex colors matching the legend)
 export const BLOCK_TYPE_COLORS = {
   'PRELIM': '#fef08a', // light yellow
-  'PRELIM NOT FOR STREAM': '#bfdbfe', // light blue
   'FINAL/MEDAL': '#fed7aa', // light orange
-  'FINAL/MEDAL NOT FOR STREAM': '#bbf7d0', // light green
-  'NEW': '#ef4444', // bright red
+  'NOT FOR BROADCAST': '#dc2626', // red
   'CEREMONY': '#fbcfe8', // light pink
   'OTHER': '#ffffff', // white
   'TRAINING SESSION': '#e5e7eb', // light gray
   'PRESS CONFERENCE': '#9ca3af', // darker gray
   'BEAUTY CAMERA': '#fce7f3', // pale pink
-  'OBS HIGHLIGHT SHOW': '#e9d5ff', // light purple
-  'R-C STREAM ONLY': '#fde047' // golden yellow
+  'OBS HIGHLIGHT SHOW': '#e9d5ff' // light purple
 }
+
+// Legacy types (removed from legend) → use NOT FOR BROADCAST color for backward compatibility
+const LEGACY_TYPES_RED = new Set([
+  'PRELIM NOT FOR STREAM',
+  'FINAL/MEDAL NOT FOR STREAM',
+  'R-C STREAM ONLY',
+  'NEW'
+])
 
 // Default color if type is not set or invalid
 export const DEFAULT_BLOCK_COLOR = '#10b981' // Default green (existing color)
@@ -76,18 +78,14 @@ export function inferBlockType(eventName) {
     return 'OBS HIGHLIGHT SHOW'
   }
   
-  // R-C Stream Only
-  if (name.includes('R-C') || name.includes('RADIO-CANADA') || name.includes('STREAM ONLY')) {
-    return 'R-C STREAM ONLY'
+  // Not for broadcast / not for stream (check before Final/Medal and Prelim so we catch "not for stream" first when present)
+  if (name.includes('NOT FOR BROADCAST') || name.includes('NOT FOR STREAM') || name.includes('NO STREAM')) {
+    return 'NOT FOR BROADCAST'
   }
   
   // Final/Medal events
   if (name.includes('FINAL') || name.includes('MEDAL') || name.includes('GOLD') || 
       name.includes('SILVER') || name.includes('BRONZE') || name.includes('CHAMPIONSHIP')) {
-    // Check if it's "not for stream"
-    if (name.includes('NOT FOR STREAM') || name.includes('NO STREAM')) {
-      return 'FINAL/MEDAL NOT FOR STREAM'
-    }
     return 'FINAL/MEDAL'
   }
   
@@ -98,16 +96,12 @@ export function inferBlockType(eventName) {
       qualPattern.test(name) ||
       name.includes('HEAT') || name.includes('ROUND') || name.includes('QUARTERFINAL') ||
       name.includes('SEMIFINAL')) {
-    // Check if it's "not for stream"
-    if (name.includes('NOT FOR STREAM') || name.includes('NO STREAM')) {
-      return 'PRELIM NOT FOR STREAM'
-    }
     return 'PRELIM'
   }
   
-  // New events (recently added or updated)
-  if (name.includes('NEW') || name.includes('UPDATED') || name.includes('LATEST')) {
-    return 'NEW'
+  // R-C / Radio-Canada / stream-only → OTHER (type removed from legend)
+  if (name.includes('R-C') || name.includes('RADIO-CANADA')) {
+    return 'OTHER'
   }
   
   // Default to OTHER if no clear match
@@ -121,6 +115,7 @@ export function inferBlockType(eventName) {
  */
 export function getBlockTypeColor(type) {
   if (!type) return DEFAULT_BLOCK_COLOR
+  if (LEGACY_TYPES_RED.has(type)) return BLOCK_TYPE_COLORS['NOT FOR BROADCAST']
   return BLOCK_TYPE_COLORS[type] || DEFAULT_BLOCK_COLOR
 }
 

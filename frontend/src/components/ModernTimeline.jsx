@@ -65,7 +65,6 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
 
   const { hours, groups, itemsByGroup } = useMemo(() => {
     if (!events || events.length === 0) {
-      console.log('[Timeline RENDER] No events:', { eventsLength: events?.length ?? 0, selectedDate, zoomHours })
       return { hours: [], groups: [], itemsByGroup: {} }
     }
 
@@ -133,9 +132,6 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
         .map((event, index) => {
           // Parse times - backend stores ISO strings in UTC (e.g., "2026-02-01T11:00:00.000Z")
           // Explicitly parse as UTC to ensure correct conversion
-          if (!event.start_time || !event.end_time) {
-            console.warn('[Timeline RENDER] Event missing start_time or end_time:', { id: event.id, group: event.group, start_time: event.start_time, end_time: event.end_time })
-          }
           const startUTC = moment.utc(event.start_time)
           // OBS beauty cameras often have same or missing end_time; treat missing as same as start for 0-duration detection
           const endUTC = event.end_time ? moment.utc(event.end_time) : startUTC.clone()
@@ -302,22 +298,6 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           }
         })
         .sort((a, b) => a.startPercent - b.startPercent)
-    })
-
-    // Diagnostic: log what we're passing to the layout
-    const timelineStartMinutes = 2 * 60
-    const effectiveZoomHours = zoomHours >= 24 ? zoomHours : 24
-    const visibleRangeMinutes = effectiveZoomHours * 60
-    const firstGroup = groups[0]
-    const firstItem = firstGroup && itemsByGroup[firstGroup]?.[0]
-    console.log('[Timeline RENDER] Layout:', {
-      eventsCount: events.length,
-      groupsCount: groups.length,
-      selectedDate,
-      zoomHours,
-      visibleRangeMinutes,
-      selectedDayStart: selectedDayStart.format('YYYY-MM-DD HH:mm'),
-      firstItem: firstItem ? { id: firstItem.id, group: firstItem.group, startPercent: firstItem.startPercent, widthPercent: firstItem.widthPercent, startMilan: firstItem.startMilan?.format?.('YYYY-MM-DD HH:mm'), endMilan: firstItem.endMilan?.format?.('YYYY-MM-DD HH:mm'), isOffScreen: (firstItem.startPercent > 100 || firstItem.startPercent + firstItem.widthPercent < 0) } : null
     })
 
     return { hours, groups, itemsByGroup }
