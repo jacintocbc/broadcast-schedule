@@ -4,7 +4,7 @@ import DateNavigator from './DateNavigator'
 import BlockEditor from './BlockEditor'
 import { getBlocks, getResources } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
-import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor } from '../utils/blockTypes'
+import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 import moment from 'moment-timezone'
 
 function CBCTimelineView() {
@@ -437,10 +437,7 @@ function CBCTimelineView() {
           {BLOCK_TYPES.map(type => {
             const bgColor = BLOCK_TYPE_COLORS[type] || DEFAULT_BLOCK_COLOR
             const borderColor = darkenColor(bgColor, 30)
-            // Use dark text for light backgrounds, white text for dark backgrounds
-            const lightColors = ['#ffffff', '#fef08a', '#bbf7d0', '#fed7aa', '#bfdbfe', 
-                                '#fbcfe8', '#e5e7eb', '#9ca3af', '#fce7f3', '#e9d5ff', '#fde047']
-            const textColor = lightColors.includes(bgColor) ? 'text-gray-900' : 'text-white'
+            const textColor = LEGEND_LIGHT_BACKGROUNDS.includes(bgColor) ? 'text-gray-900' : 'text-white'
             return (
               <div
                 key={type}

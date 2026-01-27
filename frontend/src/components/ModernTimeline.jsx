@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect, useState } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
-import { getBlockTypeColor, darkenColor } from '../utils/blockTypes'
+import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
 function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0 }) {
   const containerRef = useRef(null)
@@ -670,40 +670,26 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   // Check if this block/event is currently live (current time is within start and end) - using Milan time
                   const isLive = currentTime.isSameOrAfter(event.startMilan) && currentTime.isBefore(event.endMilan)
                   
-                  // Use yellow for 0-duration events, blue for normal events, type-based color for blocks
+                  // Blocks: type from block.type. OBS events: infer type from title to match legend colors.
                   let backgroundColor
                   let borderColor
                   let textColor = 'text-white' // Default to white text
                   let borderStyle = 'solid' // Default to solid border
-                  
-                  if (event.isZeroDuration) {
-                    backgroundColor = '#eab308'
-                    borderColor = '#ca8a04'
-                  } else if (isBlock) {
-                    // Get color from block type, or use default green
+                  // Use same light-background list as legend so black text when background matches legend
+                  const useBlackText = (bg) => LEGEND_LIGHT_BACKGROUNDS.includes(bg)
+
+                  if (isBlock) {
                     backgroundColor = getBlockTypeColor(block.type)
-                    // Use a darker version of the background color for the border
                     borderColor = darkenColor(backgroundColor, 30)
-                    
-                    // Use dashed border for live blocks
-                    if (isLive) {
-                      borderStyle = 'dashed'
-                    }
-                    
-                    // Use dark text for light backgrounds (white and light pastel colors)
-                    // Light colors have high RGB values (above ~200 for each channel)
-                    const lightColors = ['#ffffff', '#fef08a', '#bbf7d0', '#fed7aa', '#bfdbfe', 
-                                        '#fbcfe8', '#e5e7eb', '#9ca3af', '#fce7f3', '#e9d5ff', '#fde047']
-                    if (lightColors.includes(backgroundColor)) {
-                      textColor = 'text-gray-900'
-                    }
+                    if (isLive) borderStyle = 'dashed'
+                    if (useBlackText(backgroundColor)) textColor = 'text-gray-900'
                   } else {
-                    backgroundColor = '#3b82f6'
-                    borderColor = '#2563eb'
-                    // Use dashed border for live events
-                    if (isLive) {
-                      borderStyle = 'dashed'
-                    }
+                    // OBS event: infer type from title → same colors as legend, black text on light backgrounds
+                    const obsType = inferOBSEventDisplayType(event.title)
+                    backgroundColor = getBlockTypeColor(obsType)
+                    borderColor = darkenColor(backgroundColor, 30)
+                    if (isLive) borderStyle = 'dashed'
+                    if (useBlackText(backgroundColor)) textColor = 'text-gray-900'
                   }
                   
                   // Format times for display. Beauty cameras use stored 02:00–04:00; others use raw times.
@@ -891,18 +877,18 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           })()}
                         </div>
                       ) : (
-                        // Regular event display
-                        <div className="h-full flex flex-col text-white">
+                        // Regular event display (OBS) — use textColor to match legend: black text on light backgrounds
+                        <div className={`h-full flex flex-col ${textColor}`}>
                           <div className="flex-1 flex items-center px-2">
                             <div className="truncate text-xs font-medium">{event.title}</div>
                           </div>
-                          {/* Time label overlay - show both Milan and EST time, constrained to bottom, full width */}
-                          <div className="bg-black bg-opacity-30 text-white text-[9px] px-1 py-0.5 rounded-b-lg flex-shrink-0 w-full">
+                          {/* Time label overlay — light bar, black text for readability on OBS blocks */}
+                          <div className="bg-gray-200 text-gray-900 text-[11px] font-semibold px-1 py-0.5 rounded-b-lg flex-shrink-0 w-full">
                             <div className="flex justify-between items-center gap-1">
                               <span className="truncate">
                                 Milan: {startMilan.format('HH:mm')}-{endMilan.format('HH:mm')}
                               </span>
-                              <span className="text-gray-300 truncate">
+                              <span className="truncate">
                                 ET: {startEST.format('HH:mm')}-{endEST.format('HH:mm')}
                               </span>
                             </div>

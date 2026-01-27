@@ -21,7 +21,7 @@ export const BLOCK_TYPE_COLORS = {
   'OTHER': '#ffffff', // white
   'TRAINING SESSION': '#e5e7eb', // light gray
   'PRESS CONFERENCE': '#9ca3af', // darker gray
-  'BEAUTY CAMERA': '#fce7f3', // pale pink
+  'BEAUTY CAMERA': '#bfdbfe', // light blue (distinct from ceremony pink)
   'OBS HIGHLIGHT SHOW': '#e9d5ff' // light purple
 }
 
@@ -35,6 +35,11 @@ const LEGACY_TYPES_RED = new Set([
 
 // Default color if type is not set or invalid
 export const DEFAULT_BLOCK_COLOR = '#10b981' // Default green (existing color)
+
+// Legend backgrounds that use black text (all except NOT FOR BROADCAST)
+export const LEGEND_LIGHT_BACKGROUNDS = Object.entries(BLOCK_TYPE_COLORS)
+  .filter(([type]) => type !== 'NOT FOR BROADCAST')
+  .map(([, hex]) => hex)
 
 /**
  * Infers the block type from an event name
@@ -106,6 +111,30 @@ export function inferBlockType(eventName) {
   
   // Default to OTHER if no clear match
   return 'OTHER'
+}
+
+/**
+ * Infers display type for OBS timeline events from title only.
+ * Used to match legend colors on the OBS timeline. Never returns NOT FOR BROADCAST.
+ * Rules: BC→Beauty Camera; Final/Finals (excl. semi-final) or Medal→Final/Medal;
+ * Conference/Press→Press Conference; Training→Training Session; Ceremony→Ceremony;
+ * OBS→OBS Highlight Show; most else→Prelim.
+ */
+export function inferOBSEventDisplayType(title) {
+  if (!title || typeof title !== 'string') return 'PRELIM'
+  const name = title.trim().toUpperCase()
+
+  if (name.startsWith('BC')) return 'BEAUTY CAMERA'
+  if (name.includes('CEREMONY')) return 'CEREMONY'
+  if (name.includes('CONFERENCE') || name.includes('PRESS')) return 'PRESS CONFERENCE'
+  if (name.includes('TRAINING')) return 'TRAINING SESSION'
+  if (name.includes('OBS')) return 'OBS HIGHLIGHT SHOW'
+  if (name.includes('MEDAL')) return 'FINAL/MEDAL'
+  // Final or Finals but NOT semi-final
+  if ((name.includes('FINAL') || name.includes('FINALS')) && !name.includes('SEMI') && !name.includes('SEMI-FINAL')) {
+    return 'FINAL/MEDAL'
+  }
+  return 'PRELIM'
 }
 
 /**

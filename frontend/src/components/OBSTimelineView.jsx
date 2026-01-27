@@ -4,7 +4,7 @@ import DateNavigator from './DateNavigator'
 import EventDetailPanel from './EventDetailPanel'
 import AddToCBCForm from './AddToCBCForm'
 import moment from 'moment-timezone'
-import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor } from '../utils/blockTypes'
+import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
 function OBSTimelineView() {
   const [events, setEvents] = useState([])
@@ -353,8 +353,7 @@ function OBSTimelineView() {
                 {BLOCK_TYPES.map(type => {
                   const bgColor = BLOCK_TYPE_COLORS[type] || DEFAULT_BLOCK_COLOR
                   const borderColor = darkenColor(bgColor, 30)
-                  const lightColors = ['#ffffff', '#fef08a', '#fed7aa', '#fbcfe8', '#e5e7eb', '#9ca3af', '#fce7f3', '#e9d5ff']
-                  const textColor = lightColors.includes(bgColor) ? 'text-gray-900' : 'text-white'
+                  const textColor = LEGEND_LIGHT_BACKGROUNDS.includes(bgColor) ? 'text-gray-900' : 'text-white'
                   return (
                     <div
                       key={type}
