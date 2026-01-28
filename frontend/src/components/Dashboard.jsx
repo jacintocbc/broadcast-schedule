@@ -33,6 +33,44 @@ function weatherCodeToLabel(code) {
   return 'Precipitation'
 }
 
+// Map event title to picto filename (public/picto). Order matters: more specific first.
+const PICTO_MAP = [
+  ['alpine', 'Alpine-Skiing-Picto.png'],
+  ['biathlon', 'Biathlon-Picto.png'],
+  ['bobsleigh', 'Bobsleigh-Picto.png'],
+  ['cross-country', 'Cross-Country-Skiing-Picto.png'],
+  ['curling', 'Curling-Picto.png'],
+  ['figure skating', 'Figure-Skating-Picto.png'],
+  ['freestyle', 'Freestyle-Skiing-Picto.png'],
+  ['ice hockey', 'Ice-Hockey-Picto.png'],
+  ['luge', 'Luge-Picto.png'],
+  ['nordic combined', 'Nordic-Combined.png'],
+  ['short track', 'Short-Track-Speed-Skating-Picto.png'],
+  ['skeleton', 'Skeleton-Picto.png'],
+  ['ski jumping', 'Ski-Jumping-Picto.png'],
+  ['ski mountaineering', 'Ski-Mountaineering-Picto.png'],
+  ['snowboard', 'Snowboard-Picto.png'],
+  ['speed skating', 'Speed-Skating-Picto.png']
+]
+function getPictoPath(title) {
+  if (!title || typeof title !== 'string') return '/picto/Curling-Picto.png'
+  const lower = title.toLowerCase()
+  for (const [key, file] of PICTO_MAP) {
+    if (lower.includes(key)) return `/picto/${file}`
+  }
+  return '/picto/Curling-Picto.png'
+}
+
+// Sample events shown when API returns none (today in Milan: 10:00, 14:00, 18:30)
+function getSampleEventsToday() {
+  const today = moment.tz('Europe/Rome').format('YYYY-MM-DD')
+  return [
+    { id: 'sample-1', title: 'CUR01 SWE-KOR Mixed Doubles Round Robin - Curling', start_time: `${today}T09:00:00.000Z` },
+    { id: 'sample-2', title: 'IHO01 W SWE-GER Preliminary Round - Ice Hockey', start_time: `${today}T13:00:00.000Z` },
+    { id: 'sample-3', title: 'SBD01 M Snowboard Big Air Qual. - Snowboard', start_time: `${today}T17:30:00.000Z` }
+  ]
+}
+
 export default function Dashboard() {
   const [olympicsDay, setOlympicsDay] = useState(null)
   const [todayLabel, setTodayLabel] = useState('')
@@ -44,7 +82,7 @@ export default function Dashboard() {
     daily: [],
     loading: true
   })
-  const [sportsToday, setSportsToday] = useState([])
+  const [eventsToday, setEventsToday] = useState([])
   const [sportsLoading, setSportsLoading] = useState(true)
 
   // Live clocks (Milan + ET)
@@ -99,7 +137,7 @@ export default function Dashboard() {
     return () => { cancelled = true }
   }, [])
 
-  // Sports on today: from OBS events for today (Milan date)
+  // Events today: from OBS events for today (Milan date)
   useEffect(() => {
     let cancelled = false
     setSportsLoading(true)
@@ -109,17 +147,17 @@ export default function Dashboard() {
       .then(data => {
         if (cancelled) return
         const list = Array.isArray(data) ? data : (data?.events ?? [])
-        const sportsSet = new Set()
-        list.forEach(ev => {
-          const title = (ev.title || ev.name || '').trim()
-          if (!title) return
-          const parts = title.split(' - ')
-          const sport = (parts[1] || parts[0] || title).trim()
-          if (sport.length > 1) sportsSet.add(sport)
-        })
-        setSportsToday([...sportsSet].sort())
+        const withStart = list
+          .filter(ev => (ev.title || ev.name || '').trim().length > 0 && ev.start_time)
+          .map(ev => ({
+            id: ev.id,
+            title: (ev.title || ev.name || '').trim(),
+            start_time: ev.start_time
+          }))
+          .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+        setEventsToday(withStart)
       })
-      .catch(() => setSportsToday([]))
+      .catch(() => setEventsToday([]))
       .finally(() => { if (!cancelled) setSportsLoading(false) })
     return () => { cancelled = true }
   }, [])
@@ -131,6 +169,8 @@ export default function Dashboard() {
         ? 'Opening Day'
         : `Day ${olympicsDay}`
     : '—'
+
+  const eventsToShow = eventsToday.length > 0 ? eventsToday : getSampleEventsToday()
 
   return (
     <div className="h-full flex flex-col min-h-0 p-4 gap-4">
@@ -231,25 +271,28 @@ export default function Dashboard() {
 
         <section className="w-[36rem] flex-shrink-0 rounded-xl bg-white border border-slate-200 overflow-hidden flex flex-col min-h-0">
           <h2 className="text-sm font-semibold text-slate-600 uppercase tracking-wide p-4 border-b border-slate-100">Sports today</h2>
-          <div className="flex-1 overflow-auto p-4 min-h-0">
+          <div className="flex-1 overflow-auto p-4 min-h-0 space-y-3">
             {sportsLoading ? (
               <p className="text-slate-500 text-sm">Loading…</p>
-            ) : sportsToday.length === 0 ? (
-              <p className="text-slate-500 text-sm">No events scheduled for today.</p>
             ) : (
-              <ul className="space-y-3">
-                {sportsToday.map(sport => (
-                  <li key={sport} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
-                    <div
-                      className="w-[50px] h-[50px] flex-shrink-0 rounded bg-slate-200 border border-slate-300"
-                      style={{ width: 50, height: 50 }}
-                      role="img"
-                      aria-label={`${sport} pictogram placeholder`}
-                    />
-                    <span className="text-slate-800 font-medium text-sm">{sport}</span>
-                  </li>
-                ))}
-              </ul>
+              eventsToShow.slice(0, 12).map(ev => (
+                <div
+                  key={ev.id || ev.start_time + ev.title}
+                  className="flex items-center gap-4 rounded-lg bg-slate-700 text-white p-3"
+                >
+                  <img
+                    src={getPictoPath(ev.title)}
+                    alt=""
+                    className="w-12 h-12 flex-shrink-0 object-contain"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm truncate">{ev.title}</div>
+                    <div className="text-slate-300 text-xs mt-0.5">
+                      {moment.utc(ev.start_time).tz('Europe/Rome').format('HH:mm')}
+                    </div>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </section>
