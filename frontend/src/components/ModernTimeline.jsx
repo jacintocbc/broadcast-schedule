@@ -739,16 +739,35 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                       }}
                       title={event.title}
                     >
+                      {/* Live indicator: red circle (bigger, matches maple leaf height); OBS events */}
+                      {isLive && !isBlock && (
+                        <div
+                          className="absolute top-2 right-2 z-20 w-[18px] h-[18px] rounded-full bg-red-500 animate-live-pulse flex items-center justify-center"
+                          title="Live"
+                          aria-hidden
+                        />
+                      )}
                       {isBlock ? (
                         // Block display with metadata - matching the provided format
                         <div 
                           className={`flex flex-col text-[14.6px] leading-tight ${textColor} relative ${hasMinimalContent ? 'p-1' : 'p-2'}`}
                           style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
-                          {/* Canadian Content Maple Leaf - top right corner */}
-                          {block.canadian_content && (
-                            <div className="absolute top-2 right-2 text-red-600 text-lg leading-none" style={{ lineHeight: '1' }}>
-                              🍁
+                          {/* Top right: maple leaf (if Canadian) and live circle (if live), aligned */}
+                          {(block.canadian_content || isLive) && (
+                            <div className="absolute top-2 right-2 z-20 flex items-center justify-end gap-2">
+                              {block.canadian_content && (
+                                <span className="text-red-600 text-lg leading-none shrink-0" style={{ lineHeight: '1' }}>
+                                  🍁
+                                </span>
+                              )}
+                              {isLive && (
+                                <div
+                                  className="w-[18px] h-[18px] rounded-full bg-red-500 animate-live-pulse shrink-0"
+                                  title="Live"
+                                  aria-hidden
+                                />
+                              )}
                             </div>
                           )}
                           
