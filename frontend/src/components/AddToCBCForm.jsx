@@ -560,7 +560,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
           <div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Start Time *</label>
+                <label className="block text-sm font-medium mb-1">Start Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.start_time}
@@ -570,7 +570,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">End Time *</label>
+                <label className="block text-sm font-medium mb-1">End Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.end_time}
@@ -580,7 +580,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast Start Time</label>
+                <label className="block text-sm font-medium mb-1">Broadcast Start Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_start_time}
@@ -600,7 +600,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast End Time</label>
+                <label className="block text-sm font-medium mb-1">Broadcast End Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_end_time}

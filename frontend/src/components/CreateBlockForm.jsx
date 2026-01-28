@@ -38,13 +38,13 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
 
   useEffect(() => {
     if (!draft) return
-    const startEST = moment.utc(draft.startTime).tz('America/New_York')
-    const endEST = moment.utc(draft.endTime).tz('America/New_York')
+    const startMilan = moment.utc(draft.startTime).tz('Europe/Rome')
+    const endMilan = moment.utc(draft.endTime).tz('Europe/Rome')
     const encoder = (encoders || []).find(e => e.name === draft.group)
     setFormData(prev => ({
       ...prev,
-      start_time: startEST.format('YYYY-MM-DDTHH:mm'),
-      end_time: endEST.format('YYYY-MM-DDTHH:mm'),
+      start_time: startMilan.format('YYYY-MM-DDTHH:mm'),
+      end_time: endMilan.format('YYYY-MM-DDTHH:mm'),
       encoder_id: encoder?.id || ''
     }))
   }, [draft, encoders])
@@ -106,31 +106,31 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
     if (!ev || !id) {
       // Unlinking: use draft times for start/end, clear broadcast
       if (!draft) return
-      const startEST = moment.utc(draft.startTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
-      const endEST = moment.utc(draft.endTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
+      const startMilan = moment.utc(draft.startTime).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm')
+      const endMilan = moment.utc(draft.endTime).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm')
       setFormData(prev => ({
         ...prev,
         obs_id: '',
-        start_time: startEST,
-        end_time: endEST,
+        start_time: startMilan,
+        end_time: endMilan,
         broadcast_start_time: '',
         broadcast_end_time: ''
       }))
       return
     }
     // Linking OBS event: use OBS event times for start/end, keep dragged times as broadcast
-    const startEST = moment.utc(ev.start_time).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
-    const endEST = moment.utc(ev.end_time).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
-    const broadcastStartEST = draft ? moment.utc(draft.startTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm') : ''
-    const broadcastEndEST = draft ? moment.utc(draft.endTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm') : ''
+    const startMilan = moment.utc(ev.start_time).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm')
+    const endMilan = moment.utc(ev.end_time).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm')
+    const broadcastStartMilan = draft ? moment.utc(draft.startTime).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm') : ''
+    const broadcastEndMilan = draft ? moment.utc(draft.endTime).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm') : ''
     setFormData(prev => ({
       ...prev,
       obs_id: id,
       name: !prev.name ? (ev.title || '') : prev.name,
-      start_time: startEST,
-      end_time: endEST,
-      broadcast_start_time: broadcastStartEST,
-      broadcast_end_time: broadcastEndEST
+      start_time: startMilan,
+      end_time: endMilan,
+      broadcast_start_time: broadcastStartMilan,
+      broadcast_end_time: broadcastEndMilan
     }))
   }
 
@@ -159,11 +159,11 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
       const booth = booths.find(b => b.id === boothId)
       if (booth && (booth.name === 'VIS' || booth.name === 'VOBS')) return true
       const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
-        : moment.tz(formData.start_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
+        : moment.tz(formData.start_time, 'Europe/Rome').utc()
       const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
-        : moment.tz(formData.end_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
+        : moment.tz(formData.end_time, 'Europe/Rome').utc()
       return !allBlocks.some(block => {
         const existingStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time) : block.start_time ? moment.utc(block.start_time) : null
         const existingEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time) : block.end_time ? moment.utc(block.end_time) : null
@@ -179,11 +179,11 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
     return (commentatorId) => {
       if (!formData.start_time || !formData.end_time || !commentatorId) return true
       const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
-        : moment.tz(formData.start_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
+        : moment.tz(formData.start_time, 'Europe/Rome').utc()
       const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
-        : moment.tz(formData.end_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
+        : moment.tz(formData.end_time, 'Europe/Rome').utc()
       return !allBlocks.some(block => {
         const existingStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time) : block.start_time ? moment.utc(block.start_time) : null
         const existingEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time) : block.end_time ? moment.utc(block.end_time) : null
@@ -199,11 +199,11 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
     return (encoderId) => {
       if (!formData.start_time || !formData.end_time || !encoderId) return true
       const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
-        : moment.tz(formData.start_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
+        : moment.tz(formData.start_time, 'Europe/Rome').utc()
       const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
-        : moment.tz(formData.end_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
+        : moment.tz(formData.end_time, 'Europe/Rome').utc()
       return !allBlocks.some(block => {
         const existingStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time) : block.start_time ? moment.utc(block.start_time) : null
         const existingEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time) : block.end_time ? moment.utc(block.end_time) : null
@@ -223,18 +223,18 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
     try {
       setLoading(true)
       setError(null)
-      const convertESTToUTC = (estDateTimeLocal) => {
-        if (!estDateTimeLocal) return null
-        return moment.tz(estDateTimeLocal, 'America/New_York').utc().toISOString()
+      const convertMilanToUTC = (milanDateTimeLocal) => {
+        if (!milanDateTimeLocal) return null
+        return moment.tz(milanDateTimeLocal, 'Europe/Rome').utc().toISOString()
       }
       const selectedObs = formData.obs_id ? obsEvents.find(o => String(o.id) === formData.obs_id) : null
       const blockData = {
         name: formData.name.trim(),
         obs_id: formData.obs_id || null,
-        start_time: convertESTToUTC(formData.start_time),
-        end_time: convertESTToUTC(formData.end_time),
-        broadcast_start_time: convertESTToUTC(formData.broadcast_start_time),
-        broadcast_end_time: convertESTToUTC(formData.broadcast_end_time),
+        start_time: convertMilanToUTC(formData.start_time),
+        end_time: convertMilanToUTC(formData.end_time),
+        broadcast_start_time: convertMilanToUTC(formData.broadcast_start_time),
+        broadcast_end_time: convertMilanToUTC(formData.broadcast_end_time),
         encoder_id: formData.encoder_id || null,
         producer_id: formData.producer_id || null,
         suite_id: formData.suite_id || null,
@@ -325,7 +325,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
           <div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Start Time *</label>
+                <label className="block text-sm font-medium mb-1">Start Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.start_time}
@@ -335,7 +335,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">End Time *</label>
+                <label className="block text-sm font-medium mb-1">End Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.end_time}
@@ -345,7 +345,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast Start Time</label>
+                <label className="block text-sm font-medium mb-1">Broadcast Start Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_start_time}
@@ -354,14 +354,14 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   onClick={() => {
                     if (!formData.broadcast_start_time && formData.start_time) {
-                      const suggested = moment.tz(formData.start_time, 'America/New_York').subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      const suggested = moment.tz(formData.start_time, 'Europe/Rome').subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_start_time: suggested }))
                     }
                   }}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast End Time</label>
+                <label className="block text-sm font-medium mb-1">Broadcast End Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_end_time}
@@ -370,7 +370,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   onClick={() => {
                     if (!formData.broadcast_end_time && formData.end_time) {
-                      const suggested = moment.tz(formData.end_time, 'America/New_York').add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      const suggested = moment.tz(formData.end_time, 'Europe/Rome').add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_end_time: suggested }))
                     }
                   }}

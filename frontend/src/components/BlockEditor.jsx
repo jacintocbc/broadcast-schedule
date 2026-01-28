@@ -71,11 +71,10 @@ function BlockEditor({ block, onClose, onUpdate }) {
 
   useEffect(() => {
     if (block) {
-      // Convert UTC times from database to EST for display in datetime-local inputs
+      // Convert UTC times from database to Milan time for display in datetime-local inputs
       const formatTimeForInput = (utcTime) => {
         if (!utcTime) return ''
-        // Parse as UTC and convert to EST
-        return moment.utc(utcTime).tz('America/New_York').format('YYYY-MM-DDTHH:mm')
+        return moment.utc(utcTime).tz('Europe/Rome').format('YYYY-MM-DDTHH:mm')
       }
       
       setFormData({
@@ -238,11 +237,11 @@ function BlockEditor({ block, onClose, onUpdate }) {
       
       // Use broadcast times if available, otherwise use start/end times
       const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
-        : moment.tz(formData.start_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
+        : moment.tz(formData.start_time, 'Europe/Rome').utc()
       const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
-        : moment.tz(formData.end_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
+        : moment.tz(formData.end_time, 'Europe/Rome').utc()
       
       // Check if any existing block (other than the current one) uses this booth during an overlapping time period
       return !allBlocks.some(existingBlock => {
@@ -278,11 +277,11 @@ function BlockEditor({ block, onClose, onUpdate }) {
       
       // Use broadcast times if available, otherwise use start/end times
       const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
-        : moment.tz(formData.start_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
+        : moment.tz(formData.start_time, 'Europe/Rome').utc()
       const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
-        : moment.tz(formData.end_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
+        : moment.tz(formData.end_time, 'Europe/Rome').utc()
       
       // Check if any existing block (other than the current one) uses this commentator during an overlapping time period
       return !allBlocks.some(existingBlock => {
@@ -318,11 +317,11 @@ function BlockEditor({ block, onClose, onUpdate }) {
       
       // Use broadcast times if available, otherwise use start/end times
       const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'America/New_York').utc()
-        : moment.tz(formData.start_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
+        : moment.tz(formData.start_time, 'Europe/Rome').utc()
       const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'America/New_York').utc()
-        : moment.tz(formData.end_time, 'America/New_York').utc()
+        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
+        : moment.tz(formData.end_time, 'Europe/Rome').utc()
       
       // Check if any existing block (other than the current one) uses this encoder during an overlapping time period
       return !allBlocks.some(existingBlock => {
@@ -501,21 +500,20 @@ function BlockEditor({ block, onClose, onUpdate }) {
       setLoading(true)
       setError(null)
       
-      // Convert datetime-local values (interpreted as EST) to UTC ISO strings
-      const convertESTToUTC = (estDateTimeLocal) => {
-        if (!estDateTimeLocal) return null
-        // Parse the datetime-local value as EST and convert to UTC
-        return moment.tz(estDateTimeLocal, 'America/New_York').utc().toISOString()
+      // Convert datetime-local values (Milan time) to UTC ISO strings
+      const convertMilanToUTC = (milanDateTimeLocal) => {
+        if (!milanDateTimeLocal) return null
+        return moment.tz(milanDateTimeLocal, 'Europe/Rome').utc().toISOString()
       }
       
       const blockData = {
         name: formData.name,
         obs_id: formData.obs_id || null,
         block_id: block.block_id || null, // Preserve block_id for relational use
-        start_time: convertESTToUTC(formData.start_time),
-        end_time: convertESTToUTC(formData.end_time),
-        broadcast_start_time: convertESTToUTC(formData.broadcast_start_time),
-        broadcast_end_time: convertESTToUTC(formData.broadcast_end_time),
+        start_time: convertMilanToUTC(formData.start_time),
+        end_time: convertMilanToUTC(formData.end_time),
+        broadcast_start_time: convertMilanToUTC(formData.broadcast_start_time),
+        broadcast_end_time: convertMilanToUTC(formData.broadcast_end_time),
         encoder_id: formData.encoder_id || null,
         producer_id: formData.producer_id || null,
         suite_id: formData.suite_id || null,
@@ -607,7 +605,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
           <div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Start Time *</label>
+                <label className="block text-sm font-medium mb-1">Start Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.start_time}
@@ -617,7 +615,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">End Time *</label>
+                <label className="block text-sm font-medium mb-1">End Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.end_time}
@@ -627,7 +625,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast Start Time</label>
+                <label className="block text-sm font-medium mb-1">Broadcast Start Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_start_time}
@@ -641,7 +639,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                   onClick={(e) => {
                     // When calendar opens, if empty, suggest 10 minutes before start time (same date)
                     if (!formData.broadcast_start_time && formData.start_time) {
-                      const startMoment = moment.tz(formData.start_time, 'America/New_York')
+                      const startMoment = moment.tz(formData.start_time, 'Europe/Rome')
                       const suggested = startMoment.clone().subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_start_time: suggested }))
                     }
@@ -649,7 +647,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast End Time</label>
+                <label className="block text-sm font-medium mb-1">Broadcast End Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_end_time}
@@ -663,7 +661,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
                   onClick={(e) => {
                     // When calendar opens, if empty, suggest 10 minutes after end time (same date)
                     if (!formData.broadcast_end_time && formData.end_time) {
-                      const endMoment = moment.tz(formData.end_time, 'America/New_York')
+                      const endMoment = moment.tz(formData.end_time, 'Europe/Rome')
                       const suggested = endMoment.clone().add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_end_time: suggested }))
                     }
