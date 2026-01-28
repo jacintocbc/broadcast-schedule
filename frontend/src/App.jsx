@@ -31,7 +31,7 @@ function Navigation() {
   return (
     <header className="bg-gray-800 text-white p-4 shadow-lg fixed top-0 left-0 right-0 z-50">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Broadcast Resource Scheduler</h1>
+        <h1 className="text-2xl font-bold">CBC Studios - Olympus</h1>
         <nav className="flex gap-4">
           <Link
             to="/cbc-timeline"
