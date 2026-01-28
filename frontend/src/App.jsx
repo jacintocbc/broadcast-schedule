@@ -37,13 +37,13 @@ function Navigation() {
             to="/cbc-timeline"
             className={`px-4 py-2 rounded ${isActive('/cbc-timeline') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
-            CBC Timeline
+            CBC-RC TX
           </Link>
           <Link
             to="/obs-timeline"
             className={`px-4 py-2 rounded ${isActive('/obs-timeline') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
-            OBS Timeline
+            OBS Schedule
           </Link>
           <Link
             to="/resources"
