@@ -3,12 +3,14 @@ import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
   const [availableHeight, setAvailableHeight] = useState(null)
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
+  // Drag-to-create new block (CBC timeline): { startPercent, endPercent, group } while dragging
+  const [newBlockDrag, setNewBlockDrag] = useState(null)
   
   // Calculate selectedDayStart outside useMemo so it's available in render
   // Use Milan timezone as the default
@@ -352,6 +354,80 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
   // Track click timing to distinguish single vs double click
   const clickTimeoutRef = useRef(null)
   const lastClickRef = useRef({ event: null, time: 0 })
+  const dragLayerRef = useRef(null)
+  const newBlockDragRef = useRef(null)
+  newBlockDragRef.current = newBlockDrag
+
+  // Convert timeline percent (0–100) to Milan time
+  const percentToMilanTime = (percent) => {
+    const timelineStartMinutes = 2 * 60 // 02:00
+    const visibleRangeMinutes = (zoomHours >= 24 ? zoomHours : 24) * 60
+    const minutesFromDayStart = timelineStartMinutes + (percent / 100) * visibleRangeMinutes
+    return selectedDayStart.clone().add(minutesFromDayStart, 'minutes')
+  }
+
+  const handleNewBlockDragStart = (e, group) => {
+    if (!onNewBlockRange || e.button !== 0) return
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+    dragLayerRef.current = e.currentTarget
+    const drag = { startPercent: percent, endPercent: percent, group }
+    setNewBlockDrag(drag)
+    newBlockDragRef.current = drag
+  }
+
+  useEffect(() => {
+    if (!newBlockDrag) return
+    const handleMove = (e) => {
+      if (!dragLayerRef.current) return
+      const rect = dragLayerRef.current.getBoundingClientRect()
+      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+      setNewBlockDrag(prev => prev ? { ...prev, endPercent: percent } : null)
+    }
+    const handleUp = () => {
+      const drag = newBlockDragRef.current
+      if (!drag) {
+        setNewBlockDrag(null)
+        dragLayerRef.current = null
+        return
+      }
+      const startPercent = Math.min(drag.startPercent, drag.endPercent)
+      const endPercent = Math.max(drag.startPercent, drag.endPercent)
+      const minDurationPercent = 0.5
+      const effectiveEnd = endPercent - startPercent < minDurationPercent ? startPercent + minDurationPercent : endPercent
+      const timelineStartMinutes = 2 * 60
+      const visibleRangeMinutes = (zoomHours >= 24 ? zoomHours : 24) * 60
+      const startM = selectedDayStart.clone().add(timelineStartMinutes + (startPercent / 100) * visibleRangeMinutes, 'minutes')
+      const endM = selectedDayStart.clone().add(timelineStartMinutes + (Math.min(100, effectiveEnd) / 100) * visibleRangeMinutes, 'minutes')
+      // Round to nearest 5 minutes
+      const roundTo5 = (m) => {
+        const clone = m.clone()
+        const roundedMin = Math.round(clone.minute() / 5) * 5
+        clone.minute(roundedMin).second(0).millisecond(0)
+        if (roundedMin === 60) clone.add(1, 'hour').minute(0)
+        return clone
+      }
+      const startTime = roundTo5(startM)
+      const endTime = roundTo5(endM)
+      if (startTime.isBefore(endTime)) {
+        onNewBlockRange({
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          group: drag.group
+        })
+      }
+      setNewBlockDrag(null)
+      newBlockDragRef.current = null
+      dragLayerRef.current = null
+    }
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+    }
+  }, [newBlockDrag, onNewBlockRange, selectedDayStart, zoomHours])
 
   const handleItemClick = (event) => {
     const now = Date.now()
@@ -623,6 +699,26 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   ))}
                 </div>
 
+                {/* Drag-to-create new block layer (CBC only): empty area triggers drag */}
+                {onNewBlockRange && (
+                  <div
+                    className="absolute inset-0 z-[1] cursor-crosshair"
+                    onMouseDown={(e) => handleNewBlockDragStart(e, group)}
+                    aria-label="Drag to create new block"
+                  />
+                )}
+
+                {/* Preview rectangle while dragging */}
+                {newBlockDrag && newBlockDrag.group === group && (
+                  <div
+                    className="absolute top-2 bottom-2 z-[5] rounded-lg border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-40 pointer-events-none"
+                    style={{
+                      left: `${Math.min(newBlockDrag.startPercent, newBlockDrag.endPercent)}%`,
+                      width: `${Math.max(0.5, Math.abs(newBlockDrag.endPercent - newBlockDrag.startPercent))}%`
+                    }}
+                  />
+                )}
+
                 {/* Events */}
                 {itemsByGroup[group]?.filter(event => {
                   if (event.isEmpty) return false
@@ -710,6 +806,9 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   
                   const broadcastStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time).tz('Europe/Rome') : null
                   const broadcastEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time).tz('Europe/Rome') : null
+                  // OBS event times (block start/end — when linked, these are the OBS event window)
+                  const obsStartMilan = isBlock && block.start_time ? moment.utc(block.start_time).tz('Europe/Rome') : null
+                  const obsEndMilan = isBlock && block.end_time ? moment.utc(block.end_time).tz('Europe/Rome') : null
                   
                   // Check if block has minimal content (no broadcast times, no networks/booths)
                   // Only applies to blocks, not regular events
@@ -771,20 +870,22 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                             </div>
                           )}
                           
-                          {/* Time display: If broadcast times exist, show actual times in brackets first, then broadcast times below. Otherwise, show actual times without brackets */}
+                          {/* Time display: In brackets = OBS event times (block start/end). Below = broadcast start/end. If no broadcast, single line without brackets. */}
                           {hasBroadcastTimes ? (
                             <>
-                              {/* Actual event times in parentheses (first line) - Milan time */}
-                              <div className="text-[13.3px] opacity-90 mb-0.5">
-                                ({startMilan.format('HH:mm')} - {endMilan.format('HH:mm')})
-                              </div>
-                              {/* Broadcast times without parentheses (second line) - Milan time */}
+                              {/* OBS event times in parentheses (first line) - block start/end */}
+                              {obsStartMilan && obsEndMilan && (
+                                <div className="text-[13.3px] opacity-90 mb-0.5">
+                                  ({obsStartMilan.format('HH:mm')} - {obsEndMilan.format('HH:mm')})
+                                </div>
+                              )}
+                              {/* Broadcast times (second line) */}
                               <div className="text-[13.3px] opacity-90 mb-1">
                                 {broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')}
                               </div>
                             </>
                           ) : (
-                            /* Actual event times without parentheses (only line) - Milan time */
+                            /* No broadcast: single line using block times (position uses effective times) */
                             <div className="text-[13.3px] opacity-90 mb-1">
                               {startMilan.format('HH:mm')} - {endMilan.format('HH:mm')}
                             </div>

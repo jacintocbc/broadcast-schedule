@@ -2,10 +2,20 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import ModernTimeline from './ModernTimeline'
 import DateNavigator from './DateNavigator'
 import BlockEditor from './BlockEditor'
+import CreateBlockForm from './CreateBlockForm'
 import { getBlocks, getResources } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 import moment from 'moment-timezone'
+
+// Use broadcast times for position/filtering when both are set; otherwise start/end
+function getBlockEffectiveTimes(block) {
+  const hasBroadcast = block.broadcast_start_time && block.broadcast_end_time
+  return {
+    start: hasBroadcast ? block.broadcast_start_time : block.start_time,
+    end: hasBroadcast ? block.broadcast_end_time : block.end_time
+  }
+}
 
 function CBCTimelineView() {
   const [blocks, setBlocks] = useState([])
@@ -13,6 +23,7 @@ function CBCTimelineView() {
   const [availableDates, setAvailableDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
   const [selectedBlock, setSelectedBlock] = useState(null)
+  const [newBlockDraft, setNewBlockDraft] = useState(null) // { startTime, endTime, group } from drag-to-create
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const datePickerRef = useRef(null)
@@ -110,10 +121,15 @@ function CBCTimelineView() {
     }
   }
 
-  // Update available dates when blocks change - memoize to prevent unnecessary re-renders
+  // Update available dates when blocks change - use effective (broadcast or start/end) times
   const availableDatesMemo = useMemo(() => {
-    const dates = [...new Set(blocks.map(block => moment(block.start_time).format('YYYY-MM-DD')))].sort()
-    return dates.join(',') // Return as string for comparison
+    const dateSet = new Set()
+    blocks.forEach(block => {
+      const { start, end } = getBlockEffectiveTimes(block)
+      if (start) dateSet.add(moment(start).format('YYYY-MM-DD'))
+      if (end) dateSet.add(moment(end).format('YYYY-MM-DD'))
+    })
+    return [...dateSet].sort().join(',')
   }, [blocks])
 
   useEffect(() => {
@@ -207,18 +223,19 @@ function CBCTimelineView() {
       const failedReasons = { noStart: 0, noEnd: 0, noOverlap: 0 }
       let firstExcludedSample = null
       const filtered = blocks.filter(block => {
-        if (!block.start_time) {
+        const { start, end } = getBlockEffectiveTimes(block)
+        if (!start) {
           failedReasons.noStart++
           if (!firstExcludedSample) firstExcludedSample = { reason: 'noStart', id: block.id, start_time: block.start_time, end_time: block.end_time }
           return false
         }
-        if (!block.end_time) {
+        if (!end) {
           failedReasons.noEnd++
           if (!firstExcludedSample) firstExcludedSample = { reason: 'noEnd', id: block.id, start_time: block.start_time, end_time: block.end_time }
           return false
         }
-        const blockStart = moment.utc(block.start_time).tz('Europe/Rome')
-        const blockEnd = moment.utc(block.end_time).tz('Europe/Rome')
+        const blockStart = moment.utc(start).tz('Europe/Rome')
+        const blockEnd = moment.utc(end).tz('Europe/Rome')
         const overlaps = blockStart.isBefore(timelineEnd) && blockEnd.isAfter(timelineStart)
         if (!overlaps) {
           failedReasons.noOverlap++
@@ -229,13 +246,14 @@ function CBCTimelineView() {
       return filtered
     }
     
-    // For 24h, check overlap with the selected day
+    // For 24h, check overlap with the selected day (using effective broadcast or start/end)
     const selectedDayStart = selectedDateMoment.clone().startOf('day')
     const selectedDayEnd = selectedDateMoment.clone().endOf('day')
     const filtered = blocks.filter(block => {
-      if (!block.start_time || !block.end_time) return false
-      const blockStart = moment.utc(block.start_time).tz('Europe/Rome')
-      const blockEnd = moment.utc(block.end_time).tz('Europe/Rome')
+      const { start, end } = getBlockEffectiveTimes(block)
+      if (!start || !end) return false
+      const blockStart = moment.utc(start).tz('Europe/Rome')
+      const blockEnd = moment.utc(end).tz('Europe/Rome')
       return blockStart.isBefore(selectedDayEnd) && blockEnd.isAfter(selectedDayStart)
     })
     return filtered
@@ -260,12 +278,13 @@ function CBCTimelineView() {
     // Transform blocks to events format
     // Create a deep copy of block data to ensure React detects changes
     const blockEvents = filteredBlocks.map(block => {
+      const { start, end } = getBlockEffectiveTimes(block)
       return {
         id: block.id,
         title: block.name,
         group: block.encoder?.name || 'No Encoder',
-        start_time: block.start_time,
-        end_time: block.end_time,
+        start_time: start,
+        end_time: end,
         block: {
           ...block,
           booths: block.booths ? block.booths.map(b => ({ ...b })) : [],
@@ -340,9 +359,18 @@ function CBCTimelineView() {
   }
 
   const handleBlockUpdate = () => {
-    // Reload blocks after update
     loadBlocks()
     setSelectedBlock(null)
+  }
+
+  const handleNewBlockRange = (draft) => {
+    setSelectedBlock(null)
+    setNewBlockDraft(draft)
+  }
+
+  const handleCreateBlockSuccess = () => {
+    loadBlocks()
+    setNewBlockDraft(null)
   }
 
   // Calculate date picker height for sticky positioning
@@ -495,9 +523,31 @@ function CBCTimelineView() {
                 navbarHeight={navbarHeight}
                 zoomHours={zoomHours}
                 scrollPosition={scrollPosition}
+                onNewBlockRange={handleNewBlockRange}
               />
             </div>
-            {selectedBlock && (
+            {newBlockDraft && (
+              <div 
+                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
+                style={{
+                  position: 'sticky',
+                  top: `${navbarHeight + datePickerHeight}px`,
+                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
+                  alignSelf: 'flex-start',
+                  zIndex: 50,
+                  backgroundColor: 'white'
+                }}
+              >
+                <CreateBlockForm 
+                  draft={newBlockDraft}
+                  selectedDate={selectedDate}
+                  encoders={encoders}
+                  onSuccess={handleCreateBlockSuccess}
+                  onClose={() => setNewBlockDraft(null)}
+                />
+              </div>
+            )}
+            {selectedBlock && !newBlockDraft && (
               <div 
                 className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
                 style={{
