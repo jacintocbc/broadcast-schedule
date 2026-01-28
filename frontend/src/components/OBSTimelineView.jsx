@@ -4,6 +4,7 @@ import DateNavigator from './DateNavigator'
 import EventDetailPanel from './EventDetailPanel'
 import AddToCBCForm from './AddToCBCForm'
 import moment from 'moment-timezone'
+import { getBlocks } from '../utils/api'
 import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
 function OBSTimelineView() {
@@ -110,6 +111,23 @@ function OBSTimelineView() {
 
   // Store all events, filter based on selected date and zoom
   const [allEvents, setAllEvents] = useState([])
+  // OBS event IDs that are already scheduled on the CBC timeline (blocks with obs_id)
+  const [scheduledOnCBCEventIds, setScheduledOnCBCEventIds] = useState(new Set())
+  
+  const fetchScheduledObsIds = async () => {
+    try {
+      const blocks = await getBlocks()
+      const ids = new Set((blocks || []).filter(b => b.obs_id).map(b => String(b.obs_id)))
+      setScheduledOnCBCEventIds(ids)
+    } catch (err) {
+      console.error('Error fetching blocks for scheduled OBS ids:', err)
+    }
+  }
+  
+  // Fetch blocks on mount to know which OBS events are already on CBC timeline
+  useEffect(() => {
+    fetchScheduledObsIds()
+  }, [])
   
   // Fetch all events once on mount
   useEffect(() => {
@@ -262,8 +280,8 @@ function OBSTimelineView() {
   }
 
   const handleAddSuccess = () => {
-    // Optionally refresh or show success message
     setEventToAdd(null)
+    fetchScheduledObsIds() // Refresh so the new block shows as "scheduled" on OBS timeline
   }
 
   // Calculate date picker height for sticky positioning
@@ -412,6 +430,7 @@ function OBSTimelineView() {
                 navbarHeight={navbarHeight}
                 zoomHours={zoomHours}
                 scrollPosition={scrollPosition}
+                scheduledOnCBCEventIds={scheduledOnCBCEventIds}
               />
             </div>
             {eventToAdd && (

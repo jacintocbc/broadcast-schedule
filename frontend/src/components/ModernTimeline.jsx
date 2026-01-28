@@ -3,7 +3,7 @@ import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0 }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
@@ -670,6 +670,9 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   // Check if this block/event is currently live (current time is within start and end) - using Milan time
                   const isLive = currentTime.isSameOrAfter(event.startMilan) && currentTime.isBefore(event.endMilan)
                   
+                  // OBS events only: whether this event is already scheduled on the CBC timeline (used in JSX below)
+                  let isScheduledOnCBC = false
+                  
                   // Blocks: type from block.type. OBS events: infer type from title to match legend colors.
                   let backgroundColor
                   let borderColor
@@ -686,10 +689,17 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   } else {
                     // OBS event: infer type from title → same colors as legend, black text on light backgrounds
                     const obsType = inferOBSEventDisplayType(event.title)
-                    backgroundColor = getBlockTypeColor(obsType)
+                    const baseBg = getBlockTypeColor(obsType)
+                    isScheduledOnCBC = !!(scheduledOnCBCEventIds && scheduledOnCBCEventIds.has(String(event.id)))
+                    // OBS event: same legend color for both scheduled and unscheduled; black text on light legend colors
+                    backgroundColor = baseBg
                     borderColor = darkenColor(backgroundColor, 30)
-                    if (isLive) borderStyle = 'dashed'
                     if (useBlackText(backgroundColor)) textColor = 'text-gray-900'
+                    if (isScheduledOnCBC) {
+                      // Optional: slightly stronger border to show it's on CBC (colors match legend)
+                      borderColor = darkenColor(backgroundColor, 45)
+                    }
+                    if (isLive) borderStyle = 'dashed'
                   }
                   
                   // Format times for display. Beauty cameras use stored 02:00–04:00; others use raw times.
@@ -877,13 +887,19 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           })()}
                         </div>
                       ) : (
-                        // Regular event display (OBS) — use textColor to match legend: black text on light backgrounds
-                        <div className={`h-full flex flex-col ${textColor}`}>
-                          <div className="flex-1 flex items-center px-2">
+                        // Regular event display (OBS) — same legend colors; blue stripe only in content area; grey bar radius matches block
+                        <div className={`h-full flex flex-col rounded-b-lg overflow-hidden ${textColor}`}>
+                          <div className="flex-1 flex items-center px-2 relative min-h-0">
+                            {isScheduledOnCBC && (
+                              <div
+                                className="absolute left-0 top-0 bottom-0 w-1 rounded-tl-md"
+                                style={{ backgroundColor: '#2563eb' }}
+                                aria-hidden
+                              />
+                            )}
                             <div className="truncate text-xs font-medium">{event.title}</div>
                           </div>
-                          {/* Time label overlay — light bar, black text for readability on OBS blocks */}
-                          <div className="bg-gray-200 text-gray-900 text-[11px] font-semibold px-1 py-0.5 rounded-b-lg flex-shrink-0 w-full">
+                          <div className="text-[11px] font-semibold px-1 py-0.5 flex-shrink-0 w-full bg-gray-200 text-gray-900 rounded-b-lg">
                             <div className="flex justify-between items-center gap-1">
                               <span className="truncate">
                                 Milan: {startMilan.format('HH:mm')}-{endMilan.format('HH:mm')}
