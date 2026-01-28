@@ -65,24 +65,30 @@ export default async function handler(req, res) {
 
           const blockData = {
             ...block,
-            commentators: commentatorsRes.data?.map(c => ({
-              id: c.commentator.id,
-              name: c.commentator.name,
-              role: c.role
-            })) || [],
-            booths: boothsRes.data?.map(b => ({
-              id: b.booth.id,
-              name: b.booth.name,
-              network_id: b.network_id,
-              network: b.network ? {
-                id: b.network.id,
-                name: b.network.name
-              } : null
-            })) || [],
-            networks: networksRes.data?.map(n => ({
-              id: n.network.id,
-              name: n.network.name
-            })) || []
+            commentators: (commentatorsRes.data || [])
+              .filter(c => c.commentator)
+              .map(c => ({
+                id: c.commentator.id,
+                name: c.commentator.name,
+                role: c.role
+              })),
+            booths: (boothsRes.data || [])
+              .filter(b => b.booth)
+              .map(b => ({
+                id: b.booth.id,
+                name: b.booth.name,
+                network_id: b.network_id,
+                network: b.network ? {
+                  id: b.network.id,
+                  name: b.network.name
+                } : null
+              })),
+            networks: (networksRes.data || [])
+              .filter(n => n.network)
+              .map(n => ({
+                id: n.network.id,
+                name: n.network.name
+              }))
           };
 
           res.json(blockData);
@@ -120,24 +126,30 @@ export default async function handler(req, res) {
 
               return {
                 ...block,
-                commentators: commentatorsRes.data?.map(c => ({
-                  id: c.commentator.id,
-                  name: c.commentator.name,
-                  role: c.role
-                })) || [],
-                booths: boothsRes.data?.map(b => ({
-                  id: b.booth.id,
-                  name: b.booth.name,
-                  network_id: b.network_id,
-                  network: b.network ? {
-                    id: b.network.id,
-                    name: b.network.name
-                  } : null
-                })) || [],
-                networks: networksRes.data?.map(n => ({
-                  id: n.network.id,
-                  name: n.network.name
-                })) || []
+                commentators: (commentatorsRes.data || [])
+                  .filter(c => c.commentator)
+                  .map(c => ({
+                    id: c.commentator.id,
+                    name: c.commentator.name,
+                    role: c.role
+                  })),
+                booths: (boothsRes.data || [])
+                  .filter(b => b.booth)
+                  .map(b => ({
+                    id: b.booth.id,
+                    name: b.booth.name,
+                    network_id: b.network_id,
+                    network: b.network ? {
+                      id: b.network.id,
+                      name: b.network.name
+                    } : null
+                  })),
+                networks: (networksRes.data || [])
+                  .filter(n => n.network)
+                  .map(n => ({
+                    id: n.network.id,
+                    name: n.network.name
+                  }))
               };
             })
           );
@@ -298,6 +310,9 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     console.error('Error in blocks CRUD:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    res.status(500).json({
+      error: error.message || 'Internal server error',
+      ...(process.env.NODE_ENV !== 'production' && { stack: error.stack })
+    });
   }
 }
