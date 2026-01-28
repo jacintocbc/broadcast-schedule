@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
+import Dashboard from './components/Dashboard'
 import OBSTimelineView from './components/OBSTimelineView'
 import CBCTimelineView from './components/CBCTimelineView'
 import ResourceManager from './components/ResourceManager'
@@ -33,6 +34,12 @@ function Navigation() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">CBC Studios - Olympus</h1>
         <nav className="flex gap-4">
+          <Link
+            to="/dashboard"
+            className={`px-4 py-2 rounded ${isActive('/dashboard') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Dashboard
+          </Link>
           <Link
             to="/cbc-timeline"
             className={`px-4 py-2 rounded ${isActive('/cbc-timeline') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
@@ -87,7 +94,8 @@ function AppContent() {
   return (
     <div className="flex-1" style={{ paddingTop: `${paddingTop}px` }}>
       <Routes>
-        <Route path="/" element={<Navigate to="/cbc-timeline" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/cbc-timeline" element={<CBCTimelineView />} />
         <Route path="/obs-timeline" element={<OBSTimelineView />} />
         <Route path="/resources" element={
