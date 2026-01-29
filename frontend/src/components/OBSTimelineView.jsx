@@ -312,8 +312,8 @@ function OBSTimelineView() {
   }, [])
 
   return (
-    <div className="flex-1 flex flex-col">
-      <div ref={datePickerRef} className="p-4 border-b bg-gray-50 sticky z-40" style={{ top: `${navbarHeight}px` }}>
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div ref={datePickerRef} className="flex-shrink-0 p-4 border-b bg-gray-50 z-40">
         {availableDates.length > 0 && (
           <>
             <div className="flex items-center gap-4 flex-wrap mb-3">
@@ -434,17 +434,7 @@ function OBSTimelineView() {
               />
             </div>
             {eventToAdd && (
-              <div 
-                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
-                style={{
-                  position: 'sticky',
-                  top: `${navbarHeight + datePickerHeight}px`,
-                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
-                  alignSelf: 'flex-start',
-                  zIndex: 50,
-                  backgroundColor: 'white'
-                }}
-              >
+              <div className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200 flex flex-col min-h-0">
                 <AddToCBCForm 
                   event={eventToAdd}
                   onClose={() => setEventToAdd(null)}
@@ -453,17 +443,7 @@ function OBSTimelineView() {
               </div>
             )}
             {selectedEvent && !eventToAdd && (
-              <div 
-                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
-                style={{
-                  position: 'sticky',
-                  top: `${navbarHeight + datePickerHeight}px`,
-                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
-                  alignSelf: 'flex-start',
-                  zIndex: 50,
-                  backgroundColor: 'white'
-                }}
-              >
+              <div className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200 flex flex-col min-h-0">
                 <EventDetailPanel 
                   event={selectedEvent}
                   onClose={() => setSelectedEvent(null)}

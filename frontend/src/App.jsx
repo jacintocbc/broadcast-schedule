@@ -99,7 +99,7 @@ function AppContent() {
   const paddingTop = isBoothDetailPage ? 0 : navbarHeight
 
   return (
-    <div className="flex-1" style={{ paddingTop: `${paddingTop}px` }}>
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden" style={{ paddingTop: `${paddingTop}px` }}>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />

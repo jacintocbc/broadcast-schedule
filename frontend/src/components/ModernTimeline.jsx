@@ -473,25 +473,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
 
   return (
     <div ref={containerRef} className="h-full w-full flex flex-col bg-white">
-      {/* Single scroll container: header + grid share the same width, so day dividers stay aligned when sidebar opens (scrollbar doesn't shift only the grid) */}
-      <div
-        ref={scrollableRef}
-        className={`flex-1 overflow-y-auto bg-white ${zoomHours < 24 ? 'overflow-x-auto' : ''} min-h-0 relative`}
-        style={{ minHeight: 0 }}
-        key={`scrollable-${groups.length}-${selectedDate}-${zoomHours}-${scrollPosition}`}
-      >
-        {/* Single day-boundary line: one element for all rows so it never misaligns (position = 96px + (content width) * daySplit) */}
-        {isMultiDay && (
-          <div
-            className="absolute top-0 bottom-0 w-0.5 bg-gray-400 z-20 pointer-events-none"
-            style={{
-              left: `calc(96px + (100% - 96px) * ${daySplitPercent / 100})`,
-              transform: 'translateX(-50%)'
-            }}
-          />
-        )}
-        {/* Header with hours - inside scroll so it shares width with grid; sticky so it stays visible when scrolling */}
-        <div ref={headerRef} className="flex-shrink-0 sticky top-0 z-30 bg-white border-b-2 border-gray-200 shadow-sm relative" style={{ top: 0 }}>
+      {/* Fixed header: date + time rows always visible (not inside scroll) */}
+      <div ref={headerRef} className="flex-shrink-0 z-30 bg-white border-b-2 border-gray-200 shadow-sm relative">
           {/* Current time indicator line - spans all rows */}
           {currentTimePosition !== null && (
             <div
@@ -618,9 +601,26 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
             </div>
           </div>
         </div>
-        </div>
+      </div>
 
-        {/* Timeline rows - same scroll container as header so widths match when sidebar/scrollbar changes */}
+      {/* Scrollable area: only timeline rows (date/time header stays fixed above) */}
+      <div
+        ref={scrollableRef}
+        className={`flex-1 overflow-y-auto bg-white ${zoomHours < 24 ? 'overflow-x-auto' : ''} min-h-0 relative`}
+        style={{ minHeight: 0 }}
+        key={`scrollable-${groups.length}-${selectedDate}-${zoomHours}-${scrollPosition}`}
+      >
+        {/* Single day-boundary line: one element for all rows so it never misaligns */}
+        {isMultiDay && (
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-gray-400 z-20 pointer-events-none"
+            style={{
+              left: `calc(96px + (100% - 96px) * ${daySplitPercent / 100})`,
+              transform: 'translateX(-50%)'
+            }}
+          />
+        )}
+        {/* Timeline rows */}
         <div className="w-full relative">
           {groups.map((group, groupIdx) => {
             // Check if this group has any blocks (CBC timeline) vs events (OBS timeline)
