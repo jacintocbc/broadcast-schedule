@@ -1,18 +1,11 @@
--- Add type column to blocks table for event type classification
--- Run this in Supabase SQL Editor
+-- Add 'NOT FOR BROADCAST' to valid_block_type (used by frontend BLOCK_TYPES)
+-- Run this in Supabase SQL Editor if you get: violates check constraint "valid_block_type"
 
-ALTER TABLE blocks
-ADD COLUMN IF NOT EXISTS type TEXT;
-
--- Add index for performance
-CREATE INDEX IF NOT EXISTS idx_blocks_type ON blocks(type);
-
--- Add constraint to ensure type is one of the valid values
 ALTER TABLE blocks
 DROP CONSTRAINT IF EXISTS valid_block_type;
 
 ALTER TABLE blocks
-ADD CONSTRAINT valid_block_type 
+ADD CONSTRAINT valid_block_type
 CHECK (
   type IS NULL OR type IN (
     'PRELIM',

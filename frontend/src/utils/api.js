@@ -60,21 +60,20 @@ export async function createBlock(blockData) {
     body: JSON.stringify(blockData)
   });
   if (!response.ok) {
-    // Check if response is JSON before trying to parse
+    const text = await response.text();
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
       try {
-        const error = await response.json();
+        const error = JSON.parse(text);
         throw new Error(error.error || 'Failed to create block');
       } catch (parseError) {
-        // If JSON parsing fails, get text instead
-        const text = await response.text();
-        throw new Error(text || `Failed to create block: ${response.status} ${response.statusText}`);
+        if (parseError instanceof SyntaxError) {
+          throw new Error(text || `Failed to create block: ${response.status} ${response.statusText}`);
+        }
+        throw parseError;
       }
-    } else {
-      const text = await response.text();
-      throw new Error(text || `Failed to create block: ${response.status} ${response.statusText}`);
     }
+    throw new Error(text || `Failed to create block: ${response.status} ${response.statusText}`);
   }
   return response.json();
 }
