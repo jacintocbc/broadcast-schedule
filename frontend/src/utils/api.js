@@ -102,6 +102,26 @@ export async function deleteBlock(id) {
   }
 }
 
+// Planning API (On Air row + producer broadcast times and notes)
+export async function getPlanning() {
+  const response = await fetch(`${API_BASE}/api/planning`);
+  if (!response.ok) throw new Error('Failed to fetch planning');
+  return response.json();
+}
+
+export async function savePlanning(data) {
+  const response = await fetch(`${API_BASE}/api/planning`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to save planning');
+  }
+  return response.json();
+}
+
 // Block relationships API - now uses consolidated /api/blocks/[blockId]/relationships endpoint
 export async function getBlockRelationships(blockId, relationshipType) {
   const url = `${API_BASE}/api/blocks/${blockId}/relationships?relationshipType=${relationshipType}`;

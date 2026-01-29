@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react
 import Dashboard from './components/Dashboard'
 import OBSTimelineView from './components/OBSTimelineView'
 import CBCTimelineView from './components/CBCTimelineView'
+import PlanningTimelineView from './components/PlanningTimelineView'
 import ResourceManager from './components/ResourceManager'
 import BlockManager from './components/BlockManager'
 import BoothPage from './components/BoothPage'
@@ -39,6 +40,12 @@ function Navigation() {
             className={`px-4 py-2 rounded ${isActive('/dashboard') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
             Dashboard
+          </Link>
+          <Link
+            to="/planning"
+            className={`px-4 py-2 rounded ${isActive('/planning') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Planning
           </Link>
           <Link
             to="/cbc-timeline"
@@ -96,6 +103,7 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/planning" element={<PlanningTimelineView />} />
         <Route path="/cbc-timeline" element={<CBCTimelineView />} />
         <Route path="/obs-timeline" element={<OBSTimelineView />} />
         <Route path="/resources" element={

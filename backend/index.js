@@ -1043,6 +1043,51 @@ app.delete('/api/blocks', async (req, res) => {
   }
 });
 
+// Planning: On Air row + producer broadcast times and notes (stored separately from blocks)
+const planningPath = path.join(dataDir, 'planning.json');
+function readPlanning() {
+  try {
+    const raw = fs.readFileSync(planningPath, 'utf8');
+    const data = JSON.parse(raw);
+    return {
+      onAirBlockIds: Array.isArray(data.onAirBlockIds) ? data.onAirBlockIds : [],
+      overrides: data.overrides && typeof data.overrides === 'object' ? data.overrides : {}
+    };
+  } catch (e) {
+    if (e.code === 'ENOENT') return { onAirBlockIds: [], overrides: {} };
+    throw e;
+  }
+}
+function writePlanning(data) {
+  fs.writeFileSync(planningPath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+app.get('/api/planning', (req, res) => {
+  try {
+    const data = readPlanning();
+    res.json(data);
+  } catch (error) {
+    console.error('Error reading planning:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.put('/api/planning', (req, res) => {
+  try {
+    const { onAirBlockIds, overrides } = req.body || {};
+    const current = readPlanning();
+    const next = {
+      onAirBlockIds: Array.isArray(onAirBlockIds) ? onAirBlockIds : current.onAirBlockIds,
+      overrides: overrides && typeof overrides === 'object' ? overrides : current.overrides
+    };
+    writePlanning(next);
+    res.json(next);
+  } catch (error) {
+    console.error('Error writing planning:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 // Block relationships: /api/blocks/:blockId/relationships
 app.all('/api/blocks/:blockId/relationships', async (req, res) => {
   // Handle OPTIONS preflight
@@ -1382,9 +1427,10 @@ app.listen(PORT, () => {
   if (supabase) {
     console.log('  Database routes (Supabase):');
     console.log('    GET/POST/PUT/DELETE /api/resources/:type');
-    console.log('    GET/POST/PUT/DELETE /api/blocks');
-    console.log('    GET/POST/DELETE /api/blocks/:blockId/relationships');
-    console.log('    GET /api/booths/:boothId/blocks');
+  console.log('    GET/POST/PUT/DELETE /api/blocks');
+  console.log('    GET/PUT /api/planning');
+  console.log('    GET/POST/DELETE /api/blocks/:blockId/relationships');
+  console.log('    GET /api/booths/:boothId/blocks');
   }
   loadStaticCSVOnStartup();
 });

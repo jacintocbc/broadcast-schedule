@@ -3,7 +3,7 @@ import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
@@ -85,8 +85,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
     // Get unique groups (channels)
     const uniqueGroups = [...new Set(events.map(e => e.group).filter(Boolean))]
     
-    // Custom sort: DX01 first, then DX02-DX99 numerically, then TX 01-27 numerically, then others alphabetically
+    // Custom sort: On Air first (planning), then DX01, then DX02-DX99, TX 01-27, then others
     const groups = uniqueGroups.sort((a, b) => {
+      if (a === 'On Air') return -1
+      if (b === 'On Air') return 1
       // Check if both are DX groups
       const aIsDX = /^DX\d+$/i.test(a)
       const bIsDX = /^DX\d+$/i.test(b)
@@ -683,7 +685,16 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               </div>
 
               {/* Timeline area */}
-              <div className="flex-1 relative" style={{ minHeight: rowMinHeight }}>
+              <div
+                className="flex-1 relative"
+                style={{ minHeight: rowMinHeight }}
+                onDragOver={onBlockDropOnGroup && group === 'On Air' ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } : undefined}
+                onDrop={onBlockDropOnGroup && group === 'On Air' ? (e) => {
+                  e.preventDefault()
+                  const blockId = e.dataTransfer.getData('blockId') || e.dataTransfer.getData('text/plain')
+                  if (blockId) onBlockDropOnGroup(blockId, group)
+                } : undefined}
+              >
                 {/* Hour markers */}
                 <div className="absolute inset-0 flex w-full">
                   {hours.map((_, idx) => (
@@ -821,11 +832,18 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     ? `${event.id}-${eventIdx}-${JSON.stringify(block.booths.map(b => ({ id: b.id, network_id: b.network_id, name: b.name })))}`
                     : `${event.id}-${eventIdx}`
                   
+                  const isDraggable = onBlockDropOnGroup && event.block && event.group !== 'On Air'
                   return (
                     <div
                       key={blockKey}
+                      draggable={!!isDraggable}
+                      onDragStart={isDraggable ? (e) => {
+                        e.dataTransfer.setData('blockId', String(event.id))
+                        e.dataTransfer.setData('text/plain', String(event.id))
+                        e.dataTransfer.effectAllowed = 'move'
+                      } : undefined}
                       onClick={() => handleItemClick(event)}
-                      className={`absolute rounded-lg shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer group ${hasMinimalContent ? 'top-1 bottom-1' : 'top-2 bottom-2'}`}
+                      className={`absolute rounded-lg shadow-md hover:shadow-lg transition-all duration-200 ${isDraggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} group ${hasMinimalContent ? 'top-1 bottom-1' : 'top-2 bottom-2'}`}
                       style={{
                         left,
                         width,
