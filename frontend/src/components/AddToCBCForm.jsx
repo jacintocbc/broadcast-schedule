@@ -4,6 +4,7 @@ import 'moment-timezone'
 import { createBlock, addBlockRelationship, getBlocks, getResources } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES, inferBlockType } from '../utils/blockTypes'
+import { isSharedBooth, SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
 function AddToCBCForm({ event, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
@@ -217,10 +218,10 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     return unavailable
   }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks])
   
-  // Sort booths: VT booths first, then VIS/VOBS, then VM booths at the end
+  // Sort booths: shared (VIS/VOBS/VV), VT, VM, others
   const sortedBooths = useMemo(() => {
     const vtBooths = []
-    const visVobsBooths = []
+    const sharedBooths = []
     const vmBooths = []
     const otherBooths = []
     
@@ -228,8 +229,8 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
       const name = booth.name || ''
       if (name.startsWith('VT ')) {
         vtBooths.push(booth)
-      } else if (name === 'VIS' || name === 'VOBS') {
-        visVobsBooths.push(booth)
+      } else if (SHARED_BOOTH_SORT_ORDER.includes(name)) {
+        sharedBooths.push(booth)
       } else if (name.startsWith('VM ')) {
         vmBooths.push(booth)
       } else {
@@ -244,11 +245,11 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
       return aNum - bNum
     })
     
-    // Sort VIS/VOBS: VIS first, then VOBS
-    visVobsBooths.sort((a, b) => {
-      if (a.name === 'VIS') return -1
-      if (b.name === 'VIS') return 1
-      return 0
+    // Sort shared booths by SHARED_BOOTH_SORT_ORDER
+    sharedBooths.sort((a, b) => {
+      const ai = SHARED_BOOTH_SORT_ORDER.indexOf(a.name)
+      const bi = SHARED_BOOTH_SORT_ORDER.indexOf(b.name)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
     })
     
     // Sort VM booths numerically
@@ -258,23 +259,17 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
       return aNum - bNum
     })
     
-    // Combine: VIS/VOBS, VT, VM, others
-    return [...visVobsBooths, ...vtBooths, ...vmBooths, ...otherBooths]
+    return [...sharedBooths, ...vtBooths, ...vmBooths, ...otherBooths]
   }, [booths])
 
   // Check if a booth is available during the block's time range
-  // VIS and VOBS can always be used (can be assigned to multiple blocks at the same time)
+  // Shared booths (VIS, VOBS, VV MH2, VV MH1, VV MOS) can always be used
   const isBoothAvailable = useMemo(() => {
     return (boothId) => {
       if (!formData.start_time || !formData.end_time || !boothId) return true
       
-      // Find the booth to check its name
       const booth = booths.find(b => b.id === boothId)
-      
-      // VIS and VOBS can always be used (no availability check needed)
-      if (booth && (booth.name === 'VIS' || booth.name === 'VOBS')) {
-        return true
-      }
+      if (booth && isSharedBooth(booth)) return true
       
       // Use broadcast times if available, otherwise use start/end times
       const blockStart = formData.broadcast_start_time

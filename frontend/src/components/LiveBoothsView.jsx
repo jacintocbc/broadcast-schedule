@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getBlocks, getResources } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
+import { isSharedBooth } from '../utils/boothConstants'
 import moment from 'moment-timezone'
 
 function LiveBoothsView() {
@@ -66,7 +67,7 @@ function LiveBoothsView() {
   }
 
       // Filter for live blocks (current time is between start_time and end_time)
-      // Don't exclude blocks entirely if they have VIS or VOBS booths - we'll filter them out in the grouping
+      // Don't exclude blocks entirely if they have shared booths (VIS/VOBS/VV) - we'll filter them out in the grouping
       const liveBlocks = useMemo(() => {
         const now = currentTime.utc()
 
@@ -81,11 +82,11 @@ function LiveBoothsView() {
 
           if (!isLive) return false
 
-          // Only exclude blocks that ONLY have VIS or VOBS booths (no other booths)
+          // Only exclude blocks that ONLY have shared booths (no other booths)
           if (block.booths && block.booths.length > 0) {
-            const nonVisVobsBooths = block.booths.filter(booth => booth.name !== 'VIS' && booth.name !== 'VOBS')
-            // If there are no non-VIS/VOBS booths, exclude this block
-            if (nonVisVobsBooths.length === 0) return false
+            const nonSharedBooths = block.booths.filter(booth => !isSharedBooth(booth))
+            // If there are no non-shared booths, exclude this block
+            if (nonSharedBooths.length === 0) return false
           }
 
           return true
@@ -99,9 +100,9 @@ function LiveBoothsView() {
       const boothsWithBlocks = useMemo(() => {
         const boothMap = new Map()
 
-        // Initialize all booths (excluding VIS and VOBS) - show all booths even if no live blocks
+        // Initialize all booths (excluding shared booths) - show all booths even if no live blocks
         booths.forEach(booth => {
-          if (booth.name !== 'VIS' && booth.name !== 'VOBS') {
+          if (!isSharedBooth(booth)) {
             boothMap.set(booth.id, {
               booth: booth,
               blocks: [],
@@ -114,7 +115,7 @@ function LiveBoothsView() {
         liveBlocks.forEach(block => {
           if (block.booths && block.booths.length > 0) {
             block.booths.forEach(booth => {
-              if (booth.name !== 'VIS' && booth.name !== 'VOBS' && boothMap.has(booth.id)) {
+              if (!isSharedBooth(booth) && boothMap.has(booth.id)) {
             const boothData = boothMap.get(booth.id)
             boothData.blocks.push(block)
             

@@ -12,6 +12,7 @@ import {
 } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES } from '../utils/blockTypes'
+import { isSharedBooth, SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
 function BlockEditor({ block, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
@@ -175,10 +176,10 @@ function BlockEditor({ block, onClose, onUpdate }) {
     }
   }, [block])
 
-  // Sort booths: VT booths first, then VIS/VOBS, then VM booths at the end
+  // Sort booths: shared (VIS/VOBS/VV), VT, VM, others
   const sortedBooths = useMemo(() => {
     const vtBooths = []
-    const visVobsBooths = []
+    const sharedBooths = []
     const vmBooths = []
     const otherBooths = []
     
@@ -186,8 +187,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
       const name = booth.name || ''
       if (name.startsWith('VT ')) {
         vtBooths.push(booth)
-      } else if (name === 'VIS' || name === 'VOBS') {
-        visVobsBooths.push(booth)
+      } else if (SHARED_BOOTH_SORT_ORDER.includes(name)) {
+        sharedBooths.push(booth)
       } else if (name.startsWith('VM ')) {
         vmBooths.push(booth)
       } else {
@@ -195,45 +196,34 @@ function BlockEditor({ block, onClose, onUpdate }) {
       }
     })
     
-    // Sort VT booths numerically
     vtBooths.sort((a, b) => {
       const aNum = parseInt(a.name.match(/\d+/)?.[0] || '999', 10)
       const bNum = parseInt(b.name.match(/\d+/)?.[0] || '999', 10)
       return aNum - bNum
     })
     
-    // Sort VIS/VOBS: VIS first, then VOBS
-    visVobsBooths.sort((a, b) => {
-      if (a.name === 'VIS') return -1
-      if (b.name === 'VIS') return 1
-      return 0
+    sharedBooths.sort((a, b) => {
+      const ai = SHARED_BOOTH_SORT_ORDER.indexOf(a.name)
+      const bi = SHARED_BOOTH_SORT_ORDER.indexOf(b.name)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
     })
     
-    // Sort VM booths numerically
     vmBooths.sort((a, b) => {
       const aNum = parseInt(a.name.match(/\d+/)?.[0] || '999', 10)
       const bNum = parseInt(b.name.match(/\d+/)?.[0] || '999', 10)
       return aNum - bNum
     })
     
-    // Combine: VIS/VOBS, VT, VM, others
-    return [...visVobsBooths, ...vtBooths, ...vmBooths, ...otherBooths]
+    return [...sharedBooths, ...vtBooths, ...vmBooths, ...otherBooths]
   }, [booths])
 
-  // Check if a booth is available during the block's time range
-  // When editing, exclude the current block from availability checks
-  // VIS and VOBS can always be used (can be assigned to multiple blocks at the same time)
+  // Shared booths (VIS, VOBS, VV MH2, VV MH1, VV MOS) can always be used
   const isBoothAvailable = useMemo(() => {
     return (boothId) => {
       if (!formData.start_time || !formData.end_time || !boothId) return true
       
-      // Find the booth to check its name
       const booth = booths.find(b => b.id === boothId)
-      
-      // VIS and VOBS can always be used (no availability check needed)
-      if (booth && (booth.name === 'VIS' || booth.name === 'VOBS')) {
-        return true
-      }
+      if (booth && isSharedBooth(booth)) return true
       
       // Use broadcast times if available, otherwise use start/end times
       const blockStart = formData.broadcast_start_time

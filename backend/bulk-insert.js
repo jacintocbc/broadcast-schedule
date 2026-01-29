@@ -60,12 +60,14 @@ async function bulkInsertEncoders() {
 }
 
 async function bulkInsertBooths() {
-  console.log('📝 Inserting booths (VT 51 - VT 62)...');
+  console.log('📝 Inserting booths (VT 51 - VT 62, VV MH2, VV MH1, VV MOS)...');
   
   const booths = [];
   for (let i = 51; i <= 62; i++) {
     booths.push({ name: `VT ${i}` });
   }
+  // VV booths: same logic as VIS/VOBS (shared, always available)
+  ;['VV MH2', 'VV MH1', 'VV MOS'].forEach(name => booths.push({ name }));
   
   const { data, error } = await supabase
     .from('booths')

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getBlocks, getResources } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
+import { isSharedBooth } from '../utils/boothConstants'
 import moment from 'moment-timezone'
 
 function BoothDetailView() {
@@ -65,9 +66,9 @@ function BoothDetailView() {
     return booths.find(b => b.id === boothId)
   }, [booths, boothId])
 
-      // Find live blocks for this booth (excluding VIS and VOBS)
+      // Find live blocks for this booth (shared booths don't show live blocks)
       const liveBlocks = useMemo(() => {
-        if (!booth || booth.name === 'VIS' || booth.name === 'VOBS') return []
+        if (!booth || isSharedBooth(booth)) return []
     
     const now = currentTime.utc()
     

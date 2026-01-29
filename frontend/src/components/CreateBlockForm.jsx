@@ -3,6 +3,7 @@ import moment from 'moment'
 import 'moment-timezone'
 import { createBlock, addBlockRelationship, getBlocks, getResources } from '../utils/api'
 import { BLOCK_TYPES } from '../utils/blockTypes'
+import { isSharedBooth, SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -136,28 +137,32 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
 
   const sortedBooths = useMemo(() => {
     const vtBooths = []
-    const visVobsBooths = []
+    const sharedBooths = []
     const vmBooths = []
     const otherBooths = []
     booths.forEach(booth => {
       const name = booth.name || ''
       if (name.startsWith('VT ')) vtBooths.push(booth)
-      else if (name === 'VIS' || name === 'VOBS') visVobsBooths.push(booth)
+      else if (SHARED_BOOTH_SORT_ORDER.includes(name)) sharedBooths.push(booth)
       else if (name.startsWith('VM ')) vmBooths.push(booth)
       else otherBooths.push(booth)
     })
     const byNum = (a, b) => parseInt(a.name.match(/\d+/)?.[0] || '999', 10) - parseInt(b.name.match(/\d+/)?.[0] || '999', 10)
     vtBooths.sort(byNum)
-    visVobsBooths.sort((a, b) => (a.name === 'VIS' ? -1 : 1))
+    sharedBooths.sort((a, b) => {
+      const ai = SHARED_BOOTH_SORT_ORDER.indexOf(a.name)
+      const bi = SHARED_BOOTH_SORT_ORDER.indexOf(b.name)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+    })
     vmBooths.sort(byNum)
-    return [...visVobsBooths, ...vtBooths, ...vmBooths, ...otherBooths]
+    return [...sharedBooths, ...vtBooths, ...vmBooths, ...otherBooths]
   }, [booths])
 
   const isBoothAvailable = useMemo(() => {
     return (boothId) => {
       if (!formData.start_time || !formData.end_time || !boothId) return true
       const booth = booths.find(b => b.id === boothId)
-      if (booth && (booth.name === 'VIS' || booth.name === 'VOBS')) return true
+      if (booth && isSharedBooth(booth)) return true
       const blockStart = formData.broadcast_start_time
         ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
         : moment.tz(formData.start_time, 'Europe/Rome').utc()
