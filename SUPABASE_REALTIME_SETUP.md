@@ -18,6 +18,7 @@ Supabase Realtime must be enabled for each table you want to subscribe to. By de
 - ✅ `block_booths` - For booth assignment changes
 - ✅ `block_commentators` - For commentator assignment changes
 - ✅ `block_networks` - For network assignment changes
+- ✅ `planning` - For On Air row changes (Planning page)
 - ✅ `encoders` - For encoder changes (optional)
 - ✅ `booths` - For booth changes (optional)
 - ✅ `commentators` - For commentator changes (optional)
@@ -50,6 +51,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE blocks;
 ALTER PUBLICATION supabase_realtime ADD TABLE block_booths;
 ALTER PUBLICATION supabase_realtime ADD TABLE block_commentators;
 ALTER PUBLICATION supabase_realtime ADD TABLE block_networks;
+ALTER PUBLICATION supabase_realtime ADD TABLE planning;
 ALTER PUBLICATION supabase_realtime ADD TABLE encoders;
 ALTER PUBLICATION supabase_realtime ADD TABLE booths;
 ALTER PUBLICATION supabase_realtime ADD TABLE commentators;

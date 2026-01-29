@@ -3,6 +3,7 @@ import ModernTimeline from './ModernTimeline'
 import DateNavigator from './DateNavigator'
 import PlanningBlockPanel from './PlanningBlockPanel'
 import { getBlocks, getResources, getPlanning, savePlanning } from '../utils/api'
+import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 import moment from 'moment-timezone'
 
@@ -42,6 +43,16 @@ function PlanningTimelineView() {
     loadBlocks()
     loadEncoders()
     loadPlanning()
+  }, [])
+
+  // Realtime: refetch planning when the planning table changes (other tabs/devices)
+  useEffect(() => {
+    const unsubscribePlanning = realtimeManager.subscribe('planning', () => {
+      loadPlanning()
+    })
+    return () => {
+      unsubscribePlanning()
+    }
   }, [])
 
   const loadBlocks = async () => {

@@ -1043,9 +1043,10 @@ app.delete('/api/blocks', async (req, res) => {
   }
 });
 
-// Planning: On Air row + producer broadcast times and notes (stored separately from blocks)
+// Planning: On Air row + producer broadcast times and notes (stored in DB)
+// Fallback to file when Supabase is not configured
 const planningPath = path.join(dataDir, 'planning.json');
-function readPlanning() {
+function readPlanningFile() {
   try {
     const raw = fs.readFileSync(planningPath, 'utf8');
     const data = JSON.parse(raw);
@@ -1058,13 +1059,30 @@ function readPlanning() {
     throw e;
   }
 }
-function writePlanning(data) {
+function writePlanningFile(data) {
   fs.writeFileSync(planningPath, JSON.stringify(data, null, 2), 'utf8');
 }
 
-app.get('/api/planning', (req, res) => {
+app.get('/api/planning', async (req, res) => {
   try {
-    const data = readPlanning();
+    if (supabase) {
+      const { data: rows, error } = await supabase
+        .from('planning')
+        .select('block_id, producer_broadcast_start_time, producer_broadcast_end_time, notes, sort_order')
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      const onAirBlockIds = (rows || []).map(r => r.block_id);
+      const overrides = (rows || []).reduce((acc, r) => {
+        acc[r.block_id] = {
+          producer_broadcast_start_time: r.producer_broadcast_start_time || undefined,
+          producer_broadcast_end_time: r.producer_broadcast_end_time || undefined,
+          notes: r.notes || undefined
+        };
+        return acc;
+      }, {});
+      return res.json({ onAirBlockIds, overrides });
+    }
+    const data = readPlanningFile();
     res.json(data);
   } catch (error) {
     console.error('Error reading planning:', error);
@@ -1072,15 +1090,52 @@ app.get('/api/planning', (req, res) => {
   }
 });
 
-app.put('/api/planning', (req, res) => {
+app.put('/api/planning', async (req, res) => {
   try {
     const { onAirBlockIds, overrides } = req.body || {};
-    const current = readPlanning();
+    const ids = Array.isArray(onAirBlockIds) ? onAirBlockIds : [];
+    const overridesObj = overrides && typeof overrides === 'object' ? overrides : {};
+
+    if (supabase) {
+      const { error: deleteError } = await supabase.from('planning').delete().neq('block_id', '00000000-0000-0000-0000-000000000000');
+      if (deleteError) throw deleteError;
+      if (ids.length > 0) {
+        const insertRows = ids.map((block_id, i) => {
+          const o = overridesObj[block_id] || {};
+          return {
+            block_id,
+            producer_broadcast_start_time: o.producer_broadcast_start_time || null,
+            producer_broadcast_end_time: o.producer_broadcast_end_time || null,
+            notes: o.notes || null,
+            sort_order: i
+          };
+        });
+        const { error: insertError } = await supabase.from('planning').upsert(insertRows, { onConflict: 'block_id' });
+        if (insertError) throw insertError;
+      }
+      const { data: rows, error: selectError } = await supabase
+        .from('planning')
+        .select('block_id, producer_broadcast_start_time, producer_broadcast_end_time, notes, sort_order')
+        .order('sort_order', { ascending: true });
+      if (selectError) throw selectError;
+      const nextIds = (rows || []).map(r => r.block_id);
+      const nextOverrides = (rows || []).reduce((acc, r) => {
+        acc[r.block_id] = {
+          producer_broadcast_start_time: r.producer_broadcast_start_time || undefined,
+          producer_broadcast_end_time: r.producer_broadcast_end_time || undefined,
+          notes: r.notes || undefined
+        };
+        return acc;
+      }, {});
+      return res.json({ onAirBlockIds: nextIds, overrides: nextOverrides });
+    }
+
+    const current = readPlanningFile();
     const next = {
-      onAirBlockIds: Array.isArray(onAirBlockIds) ? onAirBlockIds : current.onAirBlockIds,
-      overrides: overrides && typeof overrides === 'object' ? overrides : current.overrides
+      onAirBlockIds: ids.length > 0 ? ids : current.onAirBlockIds,
+      overrides: Object.keys(overridesObj).length > 0 ? overridesObj : current.overrides
     };
-    writePlanning(next);
+    writePlanningFile(next);
     res.json(next);
   } catch (error) {
     console.error('Error writing planning:', error);
