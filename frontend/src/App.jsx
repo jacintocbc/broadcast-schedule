@@ -42,10 +42,10 @@ function Navigation() {
             Dashboard
           </Link>
           <Link
-            to="/planning"
-            className={`px-4 py-2 rounded ${isActive('/planning') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+            to="/obs-timeline"
+            className={`px-4 py-2 rounded ${isActive('/obs-timeline') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
-            Planning
+            OBS Schedule
           </Link>
           <Link
             to="/cbc-timeline"
@@ -54,16 +54,16 @@ function Navigation() {
             CBC-RC TX
           </Link>
           <Link
-            to="/obs-timeline"
-            className={`px-4 py-2 rounded ${isActive('/obs-timeline') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+            to="/planning"
+            className={`px-4 py-2 rounded ${isActive('/planning') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
-            OBS Schedule
+            Planning
           </Link>
           <Link
-            to="/resources"
-            className={`px-4 py-2 rounded ${isActive('/resources') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+            to="/live-booths"
+            className={`px-4 py-2 rounded ${isActive('/live-booths') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
-            Resources
+            Live Booths
           </Link>
           <Link
             to="/booths"
@@ -72,10 +72,10 @@ function Navigation() {
             Booths
           </Link>
           <Link
-            to="/live-booths"
-            className={`px-4 py-2 rounded ${isActive('/live-booths') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+            to="/resources"
+            className={`px-4 py-2 rounded ${isActive('/resources') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
-            Live Booths
+            Resources
           </Link>
         </nav>
       </div>
