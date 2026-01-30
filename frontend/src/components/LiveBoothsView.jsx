@@ -13,6 +13,7 @@ function LiveBoothsView() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [currentTime, setCurrentTime] = useState(moment())
+  const [selectedCity, setSelectedCity] = useState('toronto') // 'toronto' => VT booths, 'montreal' => VM booths
 
   // Update current time every second for real-time updates
   useEffect(() => {
@@ -116,40 +117,48 @@ function LiveBoothsView() {
           if (block.booths && block.booths.length > 0) {
             block.booths.forEach(booth => {
               if (!isSharedBooth(booth) && boothMap.has(booth.id)) {
-            const boothData = boothMap.get(booth.id)
-            boothData.blocks.push(block)
-            
-            // Collect commentators from this block
-            if (block.commentators && block.commentators.length > 0) {
-              block.commentators.forEach(commentator => {
-                // Avoid duplicates by checking both id and role (same commentator can have different roles)
-                const exists = boothData.commentators.some(c => 
-                  c.id === commentator.id && c.role === commentator.role
-                )
-                if (!exists) {
-                  // Handle both direct name and nested commentator.name structure
-                  const commentatorName = commentator.name || commentator.commentator?.name || 'Unknown'
-                  const commentatorId = commentator.id || commentator.commentator?.id
-                  boothData.commentators.push({
-                    id: commentatorId,
-                    name: commentatorName,
-                    role: commentator.role
+                const boothData = boothMap.get(booth.id)
+                boothData.blocks.push(block)
+                // Collect commentators from this block
+                if (block.commentators && block.commentators.length > 0) {
+                  block.commentators.forEach(commentator => {
+                    const exists = boothData.commentators.some(c =>
+                      c.id === commentator.id && c.role === commentator.role
+                    )
+                    if (!exists) {
+                      const commentatorName = commentator.name || commentator.commentator?.name || 'Unknown'
+                      const commentatorId = commentator.id || commentator.commentator?.id
+                      boothData.commentators.push({
+                        id: commentatorId,
+                        name: commentatorName,
+                        role: commentator.role
+                      })
+                    }
                   })
                 }
-              })
-            }
+              }
+            })
           }
         })
-      }
-    })
-    
-    // Convert to array and sort by booth name (VT51, VT52, etc.)
-    return Array.from(boothMap.values()).sort((a, b) => {
-      const aNum = parseInt(a.booth.name.match(/\d+/)?.[0] || '999', 10)
-      const bNum = parseInt(b.booth.name.match(/\d+/)?.[0] || '999', 10)
-      return aNum - bNum
-    })
-  }, [liveBlocks, booths])
+
+        // Convert to array and sort by booth name (VT51, VT52, etc.)
+        return Array.from(boothMap.values()).sort((a, b) => {
+          const aNum = parseInt(a.booth.name.match(/\d+/)?.[0] || '999', 10)
+          const bNum = parseInt(b.booth.name.match(/\d+/)?.[0] || '999', 10)
+          return aNum - bNum
+        })
+      }, [booths, liveBlocks])
+
+      // Filter by city: Toronto => VT booths, Montreal => VM booths
+      const boothsWithBlocksFiltered = useMemo(() => {
+        if (selectedCity === 'toronto') {
+          return boothsWithBlocks.filter(entry => (entry.booth.name || '').startsWith('VT '))
+        }
+        if (selectedCity === 'montreal') {
+          return boothsWithBlocks.filter(entry => (entry.booth.name || '').startsWith('VM '))
+        }
+        return boothsWithBlocks
+      }, [boothsWithBlocks, selectedCity])
 
   // Get the three primary commentators for a booth
   // Show assigned commentators, or show all available commentators with status
@@ -221,9 +230,35 @@ function LiveBoothsView() {
     <div className="h-full bg-gray-900 text-white overflow-y-auto">
       {/* Header */}
       <div className="bg-gray-800 p-4 shadow-lg sticky top-0 z-10">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Booth Summary</h1>
-              <div className="flex items-center">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold">Booth Summary</h1>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedCity('toronto')}
+                className={`px-4 py-2 rounded font-medium transition-colors ${
+                  selectedCity === 'toronto'
+                    ? 'bg-emerald-500/30 text-white border border-emerald-400/50'
+                    : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
+                }`}
+              >
+                Toronto
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedCity('montreal')}
+                className={`px-4 py-2 rounded font-medium transition-colors ${
+                  selectedCity === 'montreal'
+                    ? 'bg-emerald-500/30 text-white border border-emerald-400/50'
+                    : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
+                }`}
+              >
+                Montreal
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center">
                 <div className="text-3xl font-bold text-white font-mono">
                   {times.et} <span className="font-bold">ET</span>
                 </div>
@@ -243,13 +278,13 @@ function LiveBoothsView() {
 
       {/* Booth Grid */}
       <div className="p-4">
-        {boothsWithBlocks.length === 0 ? (
+        {boothsWithBlocksFiltered.length === 0 ? (
           <div className="text-center text-gray-400 py-12">
-            No booths available
+            {selectedCity === 'toronto' ? 'No VT booths available' : 'No VM booths available'}
           </div>
         ) : (
           <div className="grid grid-cols-4 gap-4">
-            {boothsWithBlocks.map((boothData) => {
+            {boothsWithBlocksFiltered.map((boothData) => {
               const eventName = getEventName(boothData)
               const displayCommentators = getDisplayCommentators(boothData)
               const hasBlocks = boothData.blocks.length > 0
