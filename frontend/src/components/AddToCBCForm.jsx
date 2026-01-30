@@ -6,7 +6,7 @@ import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES, inferBlockType } from '../utils/blockTypes'
 import { SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
-function AddToCBCForm({ event, onClose, onSuccess }) {
+function AddToCBCForm({ event, onClose, onSuccess, dark }) {
   const [formData, setFormData] = useState({
     name: '',
     obs_id: '',
@@ -42,13 +42,6 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     rcTvWeb: ''
   })
   
-  // Collapsible sections state (collapsed by default)
-  const [expandedSections, setExpandedSections] = useState({
-    commentators: false,
-    producer: false,
-    suite: false
-  })
-  
   // Network labels that correspond to booth selections (these are just labels, not actual network records)
   const networkLabels = {
     cbcTv: 'CBC TV',
@@ -56,13 +49,6 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     rcTvWeb: 'R-C TV/WEB'
   }
   
-  const toggleSection = (section) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section]
-    }))
-  }
-
   useEffect(() => {
     if (event) {
       // Convert UTC times from event to Milan time for display in datetime-local inputs
@@ -401,22 +387,28 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
     return null
   }
 
+  const inputClass = dark ? 'w-full px-3 py-2 border border-gray-600 rounded-md bg-gray-700 text-white' : 'w-full px-3 py-2 border border-gray-300 rounded-md'
+  const labelClass = dark ? 'block text-sm font-medium mb-1 text-gray-300' : 'block text-sm font-medium mb-1'
+  const sectionTitleClass = dark ? 'text-sm font-semibold text-gray-300 uppercase mb-2' : 'text-sm font-semibold text-gray-700 uppercase mb-2'
+  const smallLabelClass = dark ? 'block text-xs text-gray-400 mb-1' : 'block text-xs text-gray-600 mb-1'
+
   return (
-    <div className="h-full bg-white border-l border-gray-300 shadow-lg flex flex-col">
-      <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-800">Add to CBC Timeline</h2>
+    <div className={`h-full flex flex-col min-h-0 ${dark ? 'bg-gray-800' : 'bg-white border-l border-gray-300 shadow-lg'}`}>
+      <div className={`p-4 border-b flex items-center justify-between ${dark ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+        <h2 className={`text-xl font-bold ${dark ? 'text-white' : 'text-gray-800'}`}>Add to CBC Timeline</h2>
         <button
           onClick={onClose}
-          className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+          className={`text-2xl leading-none ${dark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}
           title="Close"
         >
           ×
         </button>
       </div>
       
-      <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4">
+      <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {error && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+          <div className={`mb-4 p-3 border rounded ${dark ? 'bg-red-900/30 border-red-500 text-red-200' : 'bg-red-100 border-red-400 text-red-700'}`}>
             {error}
           </div>
         )}
@@ -424,13 +416,13 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
         <div className="space-y-4">
           {/* Event Name */}
           <div>
-            <label className="block text-sm font-medium mb-1">Event Name *</label>
+            <label className={labelClass}>Event Name *</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className={inputClass}
             />
           </div>
 
@@ -438,27 +430,27 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
           <div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Start Time * (Milan)</label>
+                <label className={labelClass}>Start Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.start_time}
                   onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">End Time * (Milan)</label>
+                <label className={labelClass}>End Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.end_time}
                   onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast Start Time (Milan)</label>
+                <label className={labelClass}>Broadcast Start Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_start_time}
@@ -467,7 +459,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                     const startDate = formData.start_time.split('T')[0]
                     return `${startDate}T00:00`
                   })() : undefined}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                   onClick={(e) => {
                     if (!formData.broadcast_start_time && formData.start_time) {
                       const startMoment = moment.tz(formData.start_time, 'Europe/Rome')
@@ -478,7 +470,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast End Time (Milan)</label>
+                <label className={labelClass}>Broadcast End Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_end_time}
@@ -487,7 +479,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                     const endDate = formData.end_time.split('T')[0]
                     return `${endDate}T00:00`
                   })() : undefined}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                   onClick={(e) => {
                     if (!formData.broadcast_end_time && formData.end_time) {
                       const endMoment = moment.tz(formData.end_time, 'Europe/Rome')
@@ -503,11 +495,11 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
           {/* Type and Canadian Content */}
           <div className="flex gap-4 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-medium mb-1">Type</label>
+              <label className={labelClass}>Type</label>
               <select
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className={inputClass}
               >
                 <option value="">None</option>
                 {BLOCK_TYPES.map(type => (
@@ -531,15 +523,15 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
 
           {/* Resources */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Resources</h3>
+            <h3 className={sectionTitleClass}>Resources</h3>
             <div className="space-y-3">
               {/* Encoder */}
               <div>
-                <label className="block text-sm font-medium mb-1">Encoder</label>
+                <label className={labelClass}>Encoder</label>
                 <select
                   value={formData.encoder_id}
                   onChange={(e) => setFormData({ ...formData, encoder_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                 >
                   <option value="">None</option>
                   {encoders.map(e => {
@@ -565,7 +557,7 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                   <select
                     value={boothSelections.cbcTv}
                     onChange={(e) => setBoothSelections({ ...boothSelections, cbcTv: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className={inputClass}
                   >
                     <option value="">None</option>
                     {sortedBooths.map(b => {
@@ -585,11 +577,11 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium mb-1">CBC Gem - Booth</label>
+                  <label className={labelClass}>CBC Gem - Booth</label>
                   <select
                     value={boothSelections.cbcWeb}
                     onChange={(e) => setBoothSelections({ ...boothSelections, cbcWeb: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className={inputClass}
                   >
                     <option value="">None</option>
                     {sortedBooths.map(b => {
@@ -609,11 +601,11 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium mb-1">R-C TV/WEB - Booth</label>
+                  <label className={labelClass}>R-C TV/WEB - Booth</label>
                   <select
                     value={boothSelections.rcTvWeb}
                     onChange={(e) => setBoothSelections({ ...boothSelections, rcTvWeb: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className={inputClass}
                   >
                     <option value="">None</option>
                     {sortedBooths.map(b => {
@@ -633,26 +625,16 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                 </div>
               </div>
               
-              {/* Commentators */}
+              {/* Commentators - always visible like edit view */}
               <div>
-                <button
-                  type="button"
-                  onClick={() => toggleSection('commentators')}
-                  className="flex items-center gap-2 w-full text-left text-sm font-medium mb-1 hover:text-gray-700"
-                >
-                  <span className={`transform transition-transform ${expandedSections.commentators ? 'rotate-90' : ''}`}>
-                    ▶
-                  </span>
-                  <span>Commentators</span>
-                </button>
-                {expandedSections.commentators && (
-                  <div className="space-y-2 ml-6">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">PxP</label>
+                <label className={labelClass}>Commentators</label>
+                <div className="space-y-2">
+                  <div>
+                    <label className={smallLabelClass}>PxP</label>
                       <select
                         value={commentatorSelections.pxp}
                         onChange={(e) => setCommentatorSelections({ ...commentatorSelections, pxp: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        className={inputClass}
                       >
                         <option value="">None</option>
                         {commentators.map(c => {
@@ -671,11 +653,11 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-600 mb-1">Color</label>
+                      <label className={smallLabelClass}>Color</label>
                       <select
                         value={commentatorSelections.color}
                         onChange={(e) => setCommentatorSelections({ ...commentatorSelections, color: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        className={inputClass}
                       >
                         <option value="">None</option>
                         {commentators.map(c => {
@@ -694,11 +676,11 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-600 mb-1">Spare</label>
+                      <label className={smallLabelClass}>Spare</label>
                       <select
                         value={commentatorSelections.spare}
                         onChange={(e) => setCommentatorSelections({ ...commentatorSelections, spare: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        className={inputClass}
                       >
                         <option value="">None</option>
                         {commentators.map(c => {
@@ -717,84 +699,58 @@ function AddToCBCForm({ event, onClose, onSuccess }) {
                       </select>
                     </div>
                   </div>
-                )}
               </div>
 
-              {/* Producer */}
+              {/* Producer - always visible like edit view */}
               <div>
-                <button
-                  type="button"
-                  onClick={() => toggleSection('producer')}
-                  className="flex items-center gap-2 w-full text-left text-sm font-medium mb-1 hover:text-gray-700"
+                <label className={labelClass}>Producer</label>
+                <select
+                  value={formData.producer_id}
+                  onChange={(e) => setFormData({ ...formData, producer_id: e.target.value })}
+                  className={inputClass}
                 >
-                  <span className={`transform transition-transform ${expandedSections.producer ? 'rotate-90' : ''}`}>
-                    ▶
-                  </span>
-                  <span>Producer</span>
-                </button>
-                {expandedSections.producer && (
-                  <div className="ml-6">
-                    <select
-                      value={formData.producer_id}
-                      onChange={(e) => setFormData({ ...formData, producer_id: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    >
-                      <option value="">None</option>
-                      {producers.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                  <option value="">None</option>
+                  {producers.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
               </div>
               
-              {/* Suite */}
+              {/* Suite - always visible like edit view */}
               <div>
-                <button
-                  type="button"
-                  onClick={() => toggleSection('suite')}
-                  className="flex items-center gap-2 w-full text-left text-sm font-medium mb-1 hover:text-gray-700"
+                <label className={labelClass}>Suite</label>
+                <select
+                  value={formData.suite_id}
+                  onChange={(e) => setFormData({ ...formData, suite_id: e.target.value })}
+                  className={inputClass}
                 >
-                  <span className={`transform transition-transform ${expandedSections.suite ? 'rotate-90' : ''}`}>
-                    ▶
-                  </span>
-                  <span>Suite</span>
-                </button>
-                {expandedSections.suite && (
-                  <div className="ml-6">
-                    <select
-                      value={formData.suite_id}
-                      onChange={(e) => setFormData({ ...formData, suite_id: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    >
-                      <option value="">None</option>
-                      {suites.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                  <option value="">None</option>
+                  {suites.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </section>
+        </div>
+        </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-2 pt-4 border-t">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-            >
-              {loading ? 'Adding...' : 'Add to CBC Timeline'}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500"
-            >
-              Cancel
-            </button>
-          </div>
+        {/* Action Buttons - fixed at bottom like CBC edit sidebar */}
+        <div className={`flex-shrink-0 p-4 border-t flex gap-2 ${dark ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+          >
+            {loading ? 'Adding...' : 'Add to CBC Timeline'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className={`px-4 py-2 text-white rounded-md ${dark ? 'bg-gray-600 hover:bg-gray-500' : 'bg-gray-400 hover:bg-gray-500'}`}
+          >
+            Cancel
+          </button>
         </div>
       </form>
     </div>

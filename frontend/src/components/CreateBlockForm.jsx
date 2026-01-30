@@ -7,7 +7,7 @@ import { SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
-function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) {
+function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, dark }) {
   const [formData, setFormData] = useState({
     name: '',
     obs_id: '',
@@ -247,36 +247,41 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
   if (!draft) return null
 
   const encodersSource = encoders?.length ? encoders : encodersList
+  const inputClass = dark ? 'w-full px-3 py-2 border border-gray-600 rounded-md bg-gray-700 text-white' : 'w-full px-3 py-2 border border-gray-300 rounded-md'
+  const labelClass = dark ? 'block text-sm font-medium mb-1 text-gray-300' : 'block text-sm font-medium mb-1'
+  const sectionTitleClass = dark ? 'text-sm font-semibold text-gray-300 uppercase mb-2' : 'text-sm font-semibold text-gray-700 uppercase mb-2'
+  const smallLabelClass = dark ? 'block text-xs text-gray-400 mb-1' : 'block text-xs text-gray-600 mb-1'
 
   return (
-    <div className="h-full bg-white border-l border-gray-300 shadow-lg flex flex-col">
-      <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-800">New Block</h2>
-        <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl leading-none" title="Close">×</button>
+    <div className={`h-full flex flex-col min-h-0 ${dark ? 'bg-gray-800' : 'bg-white border-l border-gray-300 shadow-lg'}`}>
+      <div className={`p-4 border-b flex items-center justify-between ${dark ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+        <h2 className={`text-xl font-bold ${dark ? 'text-white' : 'text-gray-800'}`}>New Block</h2>
+        <button type="button" onClick={onClose} className={`text-2xl leading-none ${dark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`} title="Close">×</button>
       </div>
-      <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4">
+      <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {error && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">{error}</div>
+          <div className={`mb-4 p-3 border rounded ${dark ? 'bg-red-900/30 border-red-500 text-red-200' : 'bg-red-100 border-red-400 text-red-700'}`}>{error}</div>
         )}
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Event Name *</label>
+            <label className={labelClass}>Event Name *</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className={inputClass}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Link to OBS event</label>
+            <label className={labelClass}>Link to OBS event</label>
             <select
               value={formData.obs_id}
               onChange={handleObsEventSelect}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className={inputClass}
               disabled={obsEventsLoading}
             >
               <option value="">None</option>
@@ -286,7 +291,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                 </option>
               ))}
             </select>
-            {obsEventsLoading && <p className="text-xs text-gray-500 mt-1">Loading OBS events…</p>}
+            {obsEventsLoading && <p className={`text-xs mt-1 ${dark ? 'text-gray-400' : 'text-gray-500'}`}>Loading OBS events…</p>}
           </div>
 
           <div>
@@ -298,27 +303,27 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                   value={formData.start_time}
                   onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">End Time * (Milan)</label>
+                <label className={labelClass}>End Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.end_time}
                   onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Broadcast Start Time (Milan)</label>
+                <label className={labelClass}>Broadcast Start Time (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.broadcast_start_time}
                   onChange={(e) => setFormData({ ...formData, broadcast_start_time: e.target.value })}
                   min={formData.start_time ? `${formData.start_time.split('T')[0]}T00:00` : undefined}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                   onClick={() => {
                     if (!formData.broadcast_start_time && formData.start_time) {
                       const suggested = moment.tz(formData.start_time, 'Europe/Rome').subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
@@ -334,7 +339,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                   value={formData.broadcast_end_time}
                   onChange={(e) => setFormData({ ...formData, broadcast_end_time: e.target.value })}
                   min={formData.end_time ? `${formData.end_time.split('T')[0]}T00:00` : undefined}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                   onClick={() => {
                     if (!formData.broadcast_end_time && formData.end_time) {
                       const suggested = moment.tz(formData.end_time, 'Europe/Rome').add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
@@ -348,11 +353,11 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
 
           <div className="flex gap-4 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-medium mb-1">Type</label>
+              <label className={labelClass}>Type</label>
               <select
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className={inputClass}
               >
                 <option value="">None</option>
                 {BLOCK_TYPES.map(t => (
@@ -373,14 +378,14 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
           </div>
 
           <section>
-            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Resources</h3>
+            <h3 className={sectionTitleClass}>Resources</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Encoder</label>
+                <label className={labelClass}>Encoder</label>
                 <select
                   value={formData.encoder_id}
                   onChange={(e) => setFormData({ ...formData, encoder_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className={inputClass}
                 >
                   <option value="">None</option>
                   {encodersSource.map(e => {
@@ -400,7 +405,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                   <select
                     value={boothSelections.cbcTv}
                     onChange={(e) => setBoothSelections({ ...boothSelections, cbcTv: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className={inputClass}
                   >
                     <option value="">None</option>
                     {sortedBooths.map(b => {
@@ -414,11 +419,11 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">CBC Gem - Booth</label>
+                  <label className={labelClass}>CBC Gem - Booth</label>
                   <select
                     value={boothSelections.cbcWeb}
                     onChange={(e) => setBoothSelections({ ...boothSelections, cbcWeb: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className={inputClass}
                   >
                     <option value="">None</option>
                     {sortedBooths.map(b => {
@@ -436,7 +441,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                   <select
                     value={boothSelections.rcTvWeb}
                     onChange={(e) => setBoothSelections({ ...boothSelections, rcTvWeb: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className={inputClass}
                   >
                     <option value="">None</option>
                     {sortedBooths.map(b => {
@@ -452,14 +457,14 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Commentators</label>
+                <label className={labelClass}>Commentators</label>
                 <div className="space-y-2">
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">PxP</label>
+                    <label className={smallLabelClass}>PxP</label>
                     <select
                       value={commentatorSelections.pxp}
                       onChange={(e) => setCommentatorSelections({ ...commentatorSelections, pxp: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      className={inputClass}
                     >
                       <option value="">None</option>
                       {commentators.map(c => {
@@ -473,11 +478,11 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">Color</label>
+                    <label className={smallLabelClass}>Color</label>
                     <select
                       value={commentatorSelections.color}
                       onChange={(e) => setCommentatorSelections({ ...commentatorSelections, color: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      className={inputClass}
                     >
                       <option value="">None</option>
                       {commentators.map(c => {
@@ -491,11 +496,11 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">Spare</label>
+                    <label className={smallLabelClass}>Spare</label>
                     <select
                       value={commentatorSelections.spare}
                       onChange={(e) => setCommentatorSelections({ ...commentatorSelections, spare: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      className={inputClass}
                     >
                       <option value="">None</option>
                       {commentators.map(c => {
@@ -512,19 +517,24 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
               </div>
             </div>
           </section>
+        </div>
+        </div>
 
-          <div className="flex gap-2 pt-2">
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? 'Creating…' : 'Create Block'}
-            </button>
-            <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">
-              Cancel
-            </button>
-          </div>
+        <div className={`flex-shrink-0 p-4 border-t flex gap-2 ${dark ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Creating…' : 'Create Block'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className={`px-4 py-2 text-white rounded-md ${dark ? 'bg-gray-600 hover:bg-gray-500' : 'bg-gray-400 hover:bg-gray-500'}`}
+          >
+            Cancel
+          </button>
         </div>
       </form>
     </div>

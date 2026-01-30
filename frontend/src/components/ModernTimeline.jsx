@@ -461,7 +461,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
 
   if (groups.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
+      <div className="flex items-center justify-center h-full text-gray-400">
         No events to display
       </div>
     )
@@ -472,15 +472,15 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
   const isMultiDay = daySplitPercent != null
 
   return (
-    <div ref={containerRef} className="h-full w-full flex flex-col bg-white">
+    <div ref={containerRef} className="h-full w-full flex flex-col bg-gray-900">
       {/* Fixed header: date + time rows always visible (not inside scroll) */}
-      <div ref={headerRef} className="flex-shrink-0 z-30 bg-white border-b-2 border-gray-200 shadow-sm relative">
+      <div ref={headerRef} className="flex-shrink-0 z-30 bg-gray-800 border-b-2 border-gray-600 relative">
           {/* Current time indicator line - spans all rows */}
           {currentTimePosition !== null && (
             <div
               className="absolute top-0 bottom-0 z-20 pointer-events-none"
               style={{
-                left: `calc(96px + ${currentTimePosition}%)`, // 96px = width of left column (w-24 = 6rem = 96px)
+                left: `calc(96px + (100% - 111px) * ${currentTimePosition / 100})`, // 96px label column + 15px scrollbar gutter; % of time area
                 width: '2px',
                 backgroundColor: '#ef4444',
                 boxShadow: '0 0 4px rgba(239, 68, 68, 0.5)'
@@ -497,11 +497,11 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           )}
           
           {/* Row 1: Date spanning all columns */}
-        <div className="flex relative border-b border-gray-200">
-          <div className="w-24 flex-shrink-0 border-r border-gray-300 bg-gray-50">
+        <div className="flex relative border-b border-gray-600">
+          <div className="w-24 flex-shrink-0 border-r border-gray-600 bg-gray-800">
             {/* Empty - date removed from left column */}
           </div>
-          <div className={`flex-1 flex relative ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
+          <div className={`flex-1 flex relative pr-[15px] ${zoomHours < 24 ? 'overflow-x-auto' : ''}`} style={{ boxSizing: 'border-box' }}>
             {selectedDate ? (() => {
               const dateMoment = moment.tz(selectedDate, 'Europe/Rome')
               const day0Date = moment.tz('2026-02-06', 'Europe/Rome') // February 6 is DAY 0
@@ -518,13 +518,13 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   <>
                     {/* Left part - DAY 00 */}
                     <div className="flex items-center justify-center flex-shrink-0" style={{ width: `${daySplitPercent}%`, paddingTop: '5px', paddingBottom: '5px' }}>
-                      <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>
+                      <div className="font-semibold text-gray-200" style={{ fontSize: '1.2em' }}>
                         {dateMoment.format('dddd, MMMM D, YYYY')} - {dayLabel}
                       </div>
                     </div>
                     {/* Right part - DAY 01 */}
                     <div className="flex-1 flex items-center justify-center" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
-                      <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>
+                      <div className="font-semibold text-gray-200" style={{ fontSize: '1.2em' }}>
                         {nextDateMoment.format('dddd, MMMM D, YYYY')} - {nextDayLabel}
                       </div>
                     </div>
@@ -535,31 +535,31 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               // For other zoom levels, show single centered date
               return (
                 <div className="flex w-full items-center justify-center" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
-                  <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>
+                  <div className="font-semibold text-gray-200" style={{ fontSize: '1.2em' }}>
                     {dateMoment.format('dddd, MMMM D, YYYY')} - {dayLabel}
                   </div>
                 </div>
               )
             })() : (
               <div className="flex w-full items-center justify-center" style={{ paddingTop: '5px', paddingBottom: '5px' }}>
-                <div className="font-semibold text-gray-700" style={{ fontSize: '1.2em' }}>Select Date</div>
+                <div className="font-semibold text-gray-200" style={{ fontSize: '1.2em' }}>Select Date</div>
               </div>
             )}
           </div>
         </div>
         
         {/* Row 2: Milan (CET) times */}
-        <div className="flex relative border-b border-gray-200">
-          <div className="w-24 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700 flex items-center justify-center">
-            <div className="text-xs text-gray-600">Milan (CET)</div>
+        <div className="flex relative border-b border-gray-600">
+          <div className="w-24 flex-shrink-0 border-r border-gray-600 bg-gray-800 p-2 font-semibold text-gray-200 flex items-center justify-center">
+            <div className="text-xs text-gray-400">Milan (CET)</div>
           </div>
-          <div className={`flex-1 flex relative ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
+          <div className={`flex-1 flex relative pr-[15px] ${zoomHours < 24 ? 'overflow-x-auto' : ''}`} style={{ boxSizing: 'border-box' }}>
             <div className="flex w-full">
               {hours.map((hour, idx) => {
                 return (
                   <div
                     key={idx}
-                    className="border-r border-gray-200 text-center p-1 text-base text-gray-600 font-medium"
+                    className="border-r border-gray-600 text-center p-1 text-base text-gray-400 font-medium"
                     style={{ 
                       width: `${100 / hours.length}%`,
                       minWidth: `${100 / hours.length}%`,
@@ -576,10 +576,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
         
         {/* Row 3: ET times */}
         <div className="flex relative">
-          <div className="w-24 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-2 font-semibold text-gray-700 flex items-center justify-center">
-            <div className="text-xs text-gray-600">ET</div>
+          <div className="w-24 flex-shrink-0 border-r border-gray-600 bg-gray-800 p-2 font-semibold text-gray-200 flex items-center justify-center">
+            <div className="text-xs text-gray-400">ET</div>
           </div>
-          <div className={`flex-1 flex relative ${zoomHours < 24 ? 'overflow-x-auto' : ''}`}>
+          <div className={`flex-1 flex relative pr-[15px] ${zoomHours < 24 ? 'overflow-x-auto' : ''}`} style={{ boxSizing: 'border-box' }}>
             <div className="flex w-full">
               {hours.map((hour, idx) => {
                 // Convert Milan hour to EST for display
@@ -587,7 +587,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                 return (
                   <div
                     key={idx}
-                    className="border-r border-gray-200 text-center p-1 text-sm text-gray-400"
+                    className="border-r border-gray-600 text-center p-1 text-sm text-gray-500"
                     style={{ 
                       width: `${100 / hours.length}%`,
                       minWidth: `${100 / hours.length}%`,
@@ -606,14 +606,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       {/* Scrollable area: only timeline rows (date/time header stays fixed above) */}
       <div
         ref={scrollableRef}
-        className={`flex-1 overflow-y-auto bg-white ${zoomHours < 24 ? 'overflow-x-auto' : ''} min-h-0 relative`}
-        style={{ minHeight: 0 }}
+        className={`flex-1 overflow-y-auto bg-gray-900 ${zoomHours < 24 ? 'overflow-x-auto' : ''} min-h-0 relative`}
+        style={{ minHeight: 0, scrollbarGutter: 'stable' }}
         key={`scrollable-${groups.length}-${selectedDate}-${zoomHours}-${scrollPosition}`}
       >
         {/* Single day-boundary line: one element for all rows so it never misaligns */}
         {isMultiDay && (
           <div
-            className="absolute top-0 bottom-0 w-0.5 bg-gray-400 z-20 pointer-events-none"
+            className="absolute top-0 bottom-0 w-0.5 bg-gray-500 z-20 pointer-events-none"
             style={{
               left: `calc(96px + (100% - 96px) * ${daySplitPercent / 100})`,
               transform: 'translateX(-50%)'
@@ -646,13 +646,13 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
             return (
             <div
               key={group}
-              className={`flex border-b border-gray-100 ${
-                groupIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+              className={`flex border-b border-gray-700 ${
+                groupIdx % 2 === 0 ? 'bg-gray-900' : 'bg-gray-800/80'
               }`}
               style={{ minHeight: rowMinHeight }}
             >
               {/* Group label */}
-              <div className="w-24 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 flex flex-col items-center justify-center">
+              <div className="w-24 flex-shrink-0 border-r border-gray-600 bg-gray-800 p-4 flex flex-col items-center justify-center">
                 {isTXEncoder ? (
                   // CBC Timeline TX encoders: Always show TX, OLY, and RX labels
                   (() => {
@@ -668,19 +668,19 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     
                     return (
                       <>
-                        <div className="font-semibold text-gray-800 text-sm">{group}</div>
+                        <div className="font-semibold text-gray-200 text-sm">{group}</div>
                         {olyLabel && (
-                          <div className="font-semibold text-gray-800 text-sm mt-1">{olyLabel}</div>
+                          <div className="font-semibold text-gray-200 text-sm mt-1">{olyLabel}</div>
                         )}
                         {rxLabel && (
-                          <div className="font-semibold text-gray-800 text-sm mt-1">{rxLabel}</div>
+                          <div className="font-semibold text-gray-200 text-sm mt-1">{rxLabel}</div>
                         )}
                       </>
                     )
                   })()
                 ) : (
                   // OBS Timeline or other groups: Just show group name
-                  <div className="font-semibold text-gray-800 text-sm">{group}</div>
+                  <div className="font-semibold text-gray-200 text-sm">{group}</div>
                 )}
               </div>
 
@@ -700,7 +700,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   {hours.map((_, idx) => (
                     <div
                       key={idx}
-                      className="border-r border-gray-100"
+                      className="border-r border-gray-700"
                       style={{ 
                         width: zoomHours < 24 ? `${100 / zoomHours}%` : `${100 / hours.length}%`,
                         minWidth: zoomHours < 24 ? `${100 / zoomHours}%` : `${100 / hours.length}%`,
@@ -722,7 +722,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                 {/* Preview rectangle while dragging */}
                 {newBlockDrag && newBlockDrag.group === group && (
                   <div
-                    className="absolute top-2 bottom-2 z-[5] rounded-lg border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-40 pointer-events-none"
+                    className="absolute top-2 bottom-2 z-[5] rounded-lg border-2 border-dashed border-blue-400 bg-blue-500/30 pointer-events-none"
                     style={{
                       left: `${Math.min(newBlockDrag.startPercent, newBlockDrag.endPercent)}%`,
                       width: `${Math.max(0.5, Math.abs(newBlockDrag.endPercent - newBlockDrag.startPercent))}%`
@@ -1037,7 +1037,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                             )}
                             <div className="truncate text-xs font-medium">{event.title}</div>
                           </div>
-                          <div className="text-[11px] font-semibold px-1 py-0.5 flex-shrink-0 w-full bg-gray-200 text-gray-900 rounded-b-lg">
+                          <div className="text-[11px] font-semibold px-1 py-0.5 flex-shrink-0 w-full bg-gray-700 text-gray-200 rounded-b-lg">
                             <div className="flex justify-between items-center gap-1">
                               <span className="truncate">
                                 Milan: {startMilan.format('HH:mm')}-{endMilan.format('HH:mm')}

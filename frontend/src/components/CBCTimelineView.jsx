@@ -414,8 +414,8 @@ function CBCTimelineView() {
   }, [])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div ref={datePickerRef} className="flex-shrink-0 p-4 border-b bg-gray-50 z-40">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gray-900 text-white">
+      <div ref={datePickerRef} className="flex-shrink-0 p-4 border-b border-gray-600 bg-gray-800 z-40">
         {availableDates.length > 0 && (
           <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
             <div className="flex items-center gap-4 flex-wrap">
@@ -423,11 +423,12 @@ function CBCTimelineView() {
                 dates={availableDates}
                 selectedDate={selectedDate}
                 onDateChange={handleDateChange}
+                dark
               />
               
               {/* Zoom Controls */}
               <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-700">Zoom:</span>
+              <span className="text-sm font-medium text-gray-300">Zoom:</span>
               <div className="flex gap-1">
                 {[24, 36, 48].map(hours => (
                   <button
@@ -438,8 +439,8 @@ function CBCTimelineView() {
                     }}
                     className={`px-3 py-1 text-sm rounded ${
                       zoomHours === hours
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        ? 'bg-emerald-500/30 text-white border border-emerald-400/50'
+                        : 'bg-gray-600 text-gray-200 hover:bg-gray-500'
                     }`}
                   >
                     {hours}h
@@ -451,17 +452,17 @@ function CBCTimelineView() {
                   <button
                     onClick={() => setScrollPosition(Math.max(0, scrollPosition - zoomHours))}
                     disabled={scrollPosition === 0}
-                    className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 text-sm bg-gray-600 text-gray-200 rounded hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     ← Prev
                   </button>
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-gray-400">
                     {String(Math.floor(scrollPosition)).padStart(2, '0')}:00 - {String(Math.floor(scrollPosition + zoomHours) % 24).padStart(2, '0')}:00
                   </span>
                   <button
                     onClick={() => setScrollPosition(Math.min(24 - zoomHours, scrollPosition + zoomHours))}
                     disabled={scrollPosition >= 24 - zoomHours}
-                    className="px-2 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 text-sm bg-gray-600 text-gray-200 rounded hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next →
                   </button>
@@ -497,11 +498,11 @@ function CBCTimelineView() {
           
           {/* Dual Clock Display - Right side of legend row */}
           <div className="flex items-center">
-            <div className="text-3xl font-bold text-gray-800 font-mono">
+            <div className="text-3xl font-bold text-white font-mono">
               {times.cet} CET
             </div>
-            <span className="text-3xl font-bold text-gray-800 mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
-            <div className="text-3xl font-bold text-gray-800 font-mono">
+            <span className="text-3xl font-bold text-white mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
+            <div className="text-3xl font-bold text-white font-mono">
               {times.et} <span className="font-bold">ET</span>
             </div>
           </div>
@@ -512,27 +513,27 @@ function CBCTimelineView() {
         {loading && blocks.length === 0 && !loadTimedOut ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-4">
-              <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" aria-hidden />
-              <span className="text-gray-500">Loading blocks...</span>
+              <div className="w-10 h-10 border-4 border-gray-400 border-t-transparent rounded-full animate-spin" aria-hidden />
+              <span className="text-gray-400">Loading blocks...</span>
             </div>
           </div>
         ) : loading && blocks.length === 0 && loadTimedOut ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">
+            <div className="text-gray-400">
               {selectedDate ? 'No blocks for selected date.' : 'No blocks available. Add blocks from OBS Timeline.'}
             </div>
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-red-500">Error: {error}</div>
+            <div className="text-red-200">Error: {error}</div>
           </div>
         ) : !selectedDate ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">No blocks available. Add blocks from OBS Timeline.</div>
+            <div className="text-gray-400">No blocks available. Add blocks from OBS Timeline.</div>
           </div>
         ) : events.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">No blocks for selected date.</div>
+            <div className="text-gray-400">No blocks for selected date.</div>
           </div>
         ) : (
           <div className="flex flex-1 min-h-0">
@@ -550,7 +551,7 @@ function CBCTimelineView() {
             </div>
             {newBlockDraft && (
               <div 
-                className="w-96 flex-shrink-0 flex flex-col min-h-0 bg-white border-l border-gray-200"
+                className="w-96 flex-shrink-0 flex flex-col min-h-0 bg-gray-800 border-l border-gray-600"
                 style={{ zIndex: 50 }}
               >
                 <CreateBlockForm 
@@ -559,18 +560,20 @@ function CBCTimelineView() {
                   encoders={encoders}
                   onSuccess={handleCreateBlockSuccess}
                   onClose={() => setNewBlockDraft(null)}
+                  dark
                 />
               </div>
             )}
             {selectedBlock && !newBlockDraft && (
               <div 
-                className="w-96 flex-shrink-0 flex flex-col min-h-0 bg-white border-l border-gray-200"
+                className="w-96 flex-shrink-0 flex flex-col min-h-0 bg-gray-800 border-l border-gray-600"
                 style={{ zIndex: 50 }}
               >
                 <BlockEditor 
                   block={selectedBlock}
                   onClose={() => setSelectedBlock(null)}
                   onUpdate={handleBlockUpdate}
+                  dark
                 />
               </div>
             )}

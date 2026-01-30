@@ -29,7 +29,7 @@ function PlanningTimelineView() {
   const [availableDates, setAvailableDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
   const [selectedOnAirBlock, setSelectedOnAirBlock] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const datePickerRef = useRef(null)
   const [datePickerHeight, setDatePickerHeight] = useState(0)
@@ -40,6 +40,7 @@ function PlanningTimelineView() {
   const previousDatesStr = useRef('')
 
   useEffect(() => {
+    setLoading(true)
     loadBlocks()
     loadEncoders()
     loadPlanning()
@@ -316,8 +317,8 @@ function PlanningTimelineView() {
   }, [])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div ref={datePickerRef} className="flex-shrink-0 p-4 border-b bg-gray-50 z-40">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gray-900 text-white">
+      <div ref={datePickerRef} className="flex-shrink-0 p-4 border-b border-gray-600 bg-gray-800 z-40">
         {availableDates.length > 0 && (
           <div className="flex justify-between gap-4 flex-wrap mb-3">
             <div className="flex gap-4 flex-wrap">
@@ -325,14 +326,15 @@ function PlanningTimelineView() {
                 dates={availableDates}
                 selectedDate={selectedDate}
                 onDateChange={handleDateChange}
+                dark
               />
               <div className="flex gap-2">
-                <span className="text-sm font-medium text-gray-700">Zoom:</span>
+                <span className="text-sm font-medium text-gray-300">Zoom:</span>
                 {[24, 36, 48].map(hours => (
                   <button
                     key={hours}
                     onClick={() => { setZoomHours(hours); setScrollPosition(0) }}
-                    className={`px-3 py-1 text-sm rounded ${zoomHours === hours ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                    className={`px-3 py-1 text-sm rounded ${zoomHours === hours ? 'bg-emerald-500/30 text-white border border-emerald-400/50' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'}`}
                   >
                     {hours}h
                   </button>
@@ -345,13 +347,18 @@ function PlanningTimelineView() {
 
       <div className="flex-1 flex flex-col min-h-0">
         {loading && blocks.length === 0 ? (
-          <div className="flex justify-center items-center h-full text-gray-500">Loading…</div>
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" aria-hidden />
+              <span className="text-gray-400">Loading planning...</span>
+            </div>
+          </div>
         ) : error ? (
-          <div className="flex justify-center items-center h-full text-red-500">Error: {error}</div>
+          <div className="flex justify-center items-center h-full text-red-200">Error: {error}</div>
         ) : !selectedDate ? (
-          <div className="flex justify-center items-center h-full text-gray-500">No dates available. Add blocks from OBS Timeline.</div>
+          <div className="flex justify-center items-center h-full text-gray-400">No dates available. Add blocks from OBS Timeline.</div>
         ) : events.length === 0 ? (
-          <div className="flex justify-center items-center h-full text-gray-500">No blocks for selected date.</div>
+          <div className="flex justify-center items-center h-full text-gray-400">No blocks for selected date.</div>
         ) : (
           <div className="flex flex-1 min-h-0">
             <div className="flex-1 min-w-0 min-h-0">
@@ -367,16 +374,7 @@ function PlanningTimelineView() {
               />
             </div>
             {selectedOnAirBlock && (
-              <div
-                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
-                style={{
-                  position: 'sticky',
-                  top: `${navbarHeight + datePickerHeight}px`,
-                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
-                  alignSelf: 'flex-start',
-                  zIndex: 50
-                }}
-              >
+              <div className="w-96 flex-shrink-0 flex flex-col min-h-0 bg-gray-800 border-l border-gray-600">
                 <PlanningBlockPanel
                   block={selectedOnAirBlock.block}
                   override={selectedOnAirBlock.override}
