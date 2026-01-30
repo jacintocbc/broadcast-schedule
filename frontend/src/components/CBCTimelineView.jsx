@@ -24,7 +24,8 @@ function CBCTimelineView() {
   const [selectedDate, setSelectedDate] = useState(null)
   const [selectedBlock, setSelectedBlock] = useState(null)
   const [newBlockDraft, setNewBlockDraft] = useState(null) // { startTime, endTime, group } from drag-to-create
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadTimedOut, setLoadTimedOut] = useState(false)
   const [error, setError] = useState(null)
   const datePickerRef = useRef(null)
   const [datePickerHeight, setDatePickerHeight] = useState(0)
@@ -33,6 +34,7 @@ function CBCTimelineView() {
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
   const hasInitializedDate = useRef(false) // Track if we've initialized the date from localStorage
   const previousDatesStr = useRef('') // Track previous dates string to detect actual changes
+  const hasLoadedOnce = useRef(false) // Only show loading spinner on initial load, not on real-time refresh
   
   // Update current time every second for real-time clock display
   useEffect(() => {
@@ -61,6 +63,16 @@ function CBCTimelineView() {
     loadBlocks()
     loadEncoders()
   }, [])
+
+  // After 60 seconds of loading with no blocks, show "no blocks" message instead of spinner
+  useEffect(() => {
+    if (!loading || blocks.length > 0) {
+      setLoadTimedOut(false)
+      return
+    }
+    const t = setTimeout(() => setLoadTimedOut(true), 60000)
+    return () => clearTimeout(t)
+  }, [loading, blocks.length])
 
   // Real-time subscriptions
   useEffect(() => {
@@ -324,7 +336,7 @@ function CBCTimelineView() {
   const loadBlocks = async () => {
     try {
       setError(null)
-      // Don't set loading to true for real-time updates to avoid UI flicker
+      if (!hasLoadedOnce.current) setLoading(true)
       const data = await getBlocks()
       const blockList = Array.isArray(data) ? data : (data?.blocks ?? data?.data ?? [])
       setBlocks(blockList)
@@ -339,6 +351,7 @@ function CBCTimelineView() {
       setError(err.message)
       console.error('Error loading blocks:', err)
     } finally {
+      hasLoadedOnce.current = true
       setLoading(false)
     }
   }
@@ -496,9 +509,18 @@ function CBCTimelineView() {
       </div>
       
       <div className="flex-1 flex flex-col min-h-0">
-        {loading && blocks.length === 0 ? (
+        {loading && blocks.length === 0 && !loadTimedOut ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">Loading blocks...</div>
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" aria-hidden />
+              <span className="text-gray-500">Loading blocks...</span>
+            </div>
+          </div>
+        ) : loading && blocks.length === 0 && loadTimedOut ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-gray-500">
+              {selectedDate ? 'No blocks for selected date.' : 'No blocks available. Add blocks from OBS Timeline.'}
+            </div>
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-full">
