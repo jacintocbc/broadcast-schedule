@@ -12,7 +12,7 @@ import {
 } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES } from '../utils/blockTypes'
-import { isSharedBooth, SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
+import { SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
 function BlockEditor({ block, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
@@ -217,87 +217,9 @@ function BlockEditor({ block, onClose, onUpdate }) {
     return [...sharedBooths, ...vtBooths, ...vmBooths, ...otherBooths]
   }, [booths])
 
-  // Shared booths (VIS, VOBS, VV MH2, VV MH1, VV MOS) can always be used
-  const isBoothAvailable = useMemo(() => {
-    return (boothId) => {
-      if (!formData.start_time || !formData.end_time || !boothId) return true
-      
-      const booth = booths.find(b => b.id === boothId)
-      if (booth && isSharedBooth(booth)) return true
-      
-      // Use broadcast times if available, otherwise use start/end times
-      const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
-        : moment.tz(formData.start_time, 'Europe/Rome').utc()
-      const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
-        : moment.tz(formData.end_time, 'Europe/Rome').utc()
-      
-      // Check if any existing block (other than the current one) uses this booth during an overlapping time period
-      return !allBlocks.some(existingBlock => {
-        // Skip the current block being edited
-        if (block && existingBlock.id === block.id) return false
-        
-        // Use broadcast times if available, otherwise use start/end times
-        const existingStart = (existingBlock.broadcast_start_time
-          ? moment.utc(existingBlock.broadcast_start_time)
-          : existingBlock.start_time ? moment.utc(existingBlock.start_time) : null)
-        const existingEnd = (existingBlock.broadcast_end_time
-          ? moment.utc(existingBlock.broadcast_end_time)
-          : existingBlock.end_time ? moment.utc(existingBlock.end_time) : null)
-        
-        if (!existingStart || !existingEnd) return false
-        
-        // Check if this block uses the booth
-        const hasBooth = existingBlock.booths && existingBlock.booths.some(b => b.id === boothId)
-        if (!hasBooth) return false
-        
-        // Check for time overlap
-        // Two time ranges overlap if: start1 < end2 && start2 < end1
-        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
-      })
-    }
-  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks, block, booths])
-
-  // Check if a commentator is available during the block's time range
-  // When editing, exclude the current block from availability checks
-  const isCommentatorAvailable = useMemo(() => {
-    return (commentatorId) => {
-      if (!formData.start_time || !formData.end_time || !commentatorId) return true
-      
-      // Use broadcast times if available, otherwise use start/end times
-      const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
-        : moment.tz(formData.start_time, 'Europe/Rome').utc()
-      const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
-        : moment.tz(formData.end_time, 'Europe/Rome').utc()
-      
-      // Check if any existing block (other than the current one) uses this commentator during an overlapping time period
-      return !allBlocks.some(existingBlock => {
-        // Skip the current block being edited
-        if (block && existingBlock.id === block.id) return false
-        
-        // Use broadcast times if available, otherwise use start/end times
-        const existingStart = (existingBlock.broadcast_start_time
-          ? moment.utc(existingBlock.broadcast_start_time)
-          : existingBlock.start_time ? moment.utc(existingBlock.start_time) : null)
-        const existingEnd = (existingBlock.broadcast_end_time
-          ? moment.utc(existingBlock.broadcast_end_time)
-          : existingBlock.end_time ? moment.utc(existingBlock.end_time) : null)
-        
-        if (!existingStart || !existingEnd) return false
-        
-        // Check if this block uses the commentator
-        const hasCommentator = existingBlock.commentators && existingBlock.commentators.some(c => c.id === commentatorId)
-        if (!hasCommentator) return false
-        
-        // Check for time overlap
-        // Two time ranges overlap if: start1 < end2 && start2 < end1
-        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
-      })
-    }
-  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks, block])
+  // Booths and commentators can be used in overlapping blocks (no conflict check)
+  const isBoothAvailable = useMemo(() => () => true, [])
+  const isCommentatorAvailable = useMemo(() => () => true, [])
 
   // Check if an encoder is available during the block's time range
   // When editing, exclude the current block from availability checks

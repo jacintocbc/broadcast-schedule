@@ -3,7 +3,7 @@ import moment from 'moment'
 import 'moment-timezone'
 import { createBlock, addBlockRelationship, getBlocks, getResources } from '../utils/api'
 import { BLOCK_TYPES } from '../utils/blockTypes'
-import { isSharedBooth, SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
+import { SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -158,47 +158,9 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess }) 
     return [...sharedBooths, ...vtBooths, ...vmBooths, ...otherBooths]
   }, [booths])
 
-  const isBoothAvailable = useMemo(() => {
-    return (boothId) => {
-      if (!formData.start_time || !formData.end_time || !boothId) return true
-      const booth = booths.find(b => b.id === boothId)
-      if (booth && isSharedBooth(booth)) return true
-      const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
-        : moment.tz(formData.start_time, 'Europe/Rome').utc()
-      const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
-        : moment.tz(formData.end_time, 'Europe/Rome').utc()
-      return !allBlocks.some(block => {
-        const existingStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time) : block.start_time ? moment.utc(block.start_time) : null
-        const existingEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time) : block.end_time ? moment.utc(block.end_time) : null
-        if (!existingStart || !existingEnd) return false
-        const hasBooth = block.booths && block.booths.some(b => b.id === boothId)
-        if (!hasBooth) return false
-        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
-      })
-    }
-  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks, booths])
-
-  const isCommentatorAvailable = useMemo(() => {
-    return (commentatorId) => {
-      if (!formData.start_time || !formData.end_time || !commentatorId) return true
-      const blockStart = formData.broadcast_start_time
-        ? moment.tz(formData.broadcast_start_time, 'Europe/Rome').utc()
-        : moment.tz(formData.start_time, 'Europe/Rome').utc()
-      const blockEnd = formData.broadcast_end_time
-        ? moment.tz(formData.broadcast_end_time, 'Europe/Rome').utc()
-        : moment.tz(formData.end_time, 'Europe/Rome').utc()
-      return !allBlocks.some(block => {
-        const existingStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time) : block.start_time ? moment.utc(block.start_time) : null
-        const existingEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time) : block.end_time ? moment.utc(block.end_time) : null
-        if (!existingStart || !existingEnd) return false
-        const hasCommentator = block.commentators && block.commentators.some(c => c.id === commentatorId)
-        if (!hasCommentator) return false
-        return blockStart.isBefore(existingEnd) && existingStart.isBefore(blockEnd)
-      })
-    }
-  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, allBlocks])
+  // Booths and commentators can be used in overlapping blocks (no conflict check)
+  const isBoothAvailable = useMemo(() => () => true, [])
+  const isCommentatorAvailable = useMemo(() => () => true, [])
 
   const isEncoderAvailable = useMemo(() => {
     return (encoderId) => {
