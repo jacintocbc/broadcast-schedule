@@ -41,7 +41,10 @@ function weatherCodeToLabel(code) {
 }
 
 // Map event title to picto filename (public/picto). Order matters: more specific first.
+// IHO = Ice hockey, ALP = Alpine skiing (event codes)
 const PICTO_MAP = [
+  ['iho', 'Ice-Hockey-Picto.png'],
+  ['alp', 'Alpine-Skiing-Picto.png'],
   ['alpine', 'Alpine-Skiing-Picto.png'],
   ['biathlon', 'Biathlon-Picto.png'],
   ['bobsleigh', 'Bobsleigh-Picto.png'],
