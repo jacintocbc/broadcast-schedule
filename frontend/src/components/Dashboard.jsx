@@ -180,40 +180,40 @@ export default function Dashboard() {
   const eventsToShow = eventsToday.length > 0 ? eventsToday : getSampleEventsToday()
 
   return (
-    <div className="h-full flex flex-col min-h-0 p-4 gap-4 bg-slate-200">
-      {/* Top row: Weather + Olympics Day — same height so bottom line aligns */}
-      <div className="flex gap-4 flex-shrink-0 min-h-[220px]">
-        <section className="flex-1 rounded-xl bg-slate-400 border border-slate-500 p-4 flex flex-col min-h-0">
-          <div className="h-[100px] flex flex-col justify-start">
-            <h2 className="text-sm font-semibold text-slate-200 uppercase tracking-wide">Milan weather</h2>
+    <div className="h-full flex flex-col min-h-0 p-4 gap-4 bg-gray-900 text-white">
+      {/* Top row: Weather + Olympics Day — single row layout */}
+      <div className="flex gap-4 flex-shrink-0">
+        <section className="flex-1 rounded-xl bg-gray-800 border border-gray-600 p-4 flex flex-row items-center gap-6 min-h-0">
+          <div className="flex flex-col justify-center flex-shrink-0">
+            <h2 className="text-base font-semibold text-gray-200 uppercase tracking-wide">Milan weather</h2>
             {weather.loading ? (
               <p className="text-2xl font-bold text-white mt-1">Loading…</p>
             ) : (
               <>
                 <p className="text-3xl font-bold text-white mt-1">
-                  {weather.temp != null ? `${Math.round(weather.temp)}°C` : '—'} {weather.condition && <span className="text-lg font-normal text-slate-100">{weather.condition}</span>}
+                  {weather.temp != null ? `${Math.round(weather.temp)}°C` : '—'} {weather.condition && <span className="text-xl font-normal text-gray-100">{weather.condition}</span>}
                 </p>
                 {weather.precipitation != null && (
-                  <p className="text-base text-slate-200 mt-1">Precipitation now: <span className="font-semibold">{weather.precipitation} mm</span></p>
+                  <p className="text-lg text-gray-300 mt-1">Precipitation now: <span className="font-semibold text-white">{weather.precipitation} mm</span></p>
                 )}
               </>
             )}
           </div>
           {!weather.loading && weather.daily.length > 0 && (
-            <div className="border-t border-slate-500 pt-3 mt-1">
-              <h3 className="text-xs font-semibold text-slate-200 uppercase tracking-wide mb-2">5-day forecast</h3>
-              <div className="grid grid-cols-5 gap-2">
+            <div className="flex-1 flex items-center gap-2 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wide flex-shrink-0">5-day</h3>
+              <div className="grid grid-cols-5 gap-2 flex-1">
                 {weather.daily.slice(0, 5).map((day, i) => (
-                  <div key={day.date} className="bg-slate-500/80 rounded-lg px-2 py-2 text-center border border-slate-600">
-                    <div className="text-xs font-medium text-slate-200 truncate">
+                  <div key={day.date} className="bg-gray-700 rounded-lg px-2 py-2 text-center border border-gray-600">
+                    <div className="text-sm font-medium text-gray-200 truncate">
                       {i === 0 ? 'Today' : moment(day.date).format('ddd')}
                     </div>
-                    <div className="text-sm font-bold text-white mt-0.5">
+                    <div className="text-base font-bold text-white mt-0.5">
                       {day.max != null ? `${Math.round(day.max)}°` : '—'} / {day.min != null ? `${Math.round(day.min)}°` : '—'}
                     </div>
-                    <div className="text-xs text-slate-300 mt-0.5">{weatherCodeToLabel(day.code)}</div>
+                    <div className="text-sm text-gray-300 mt-0.5">{weatherCodeToLabel(day.code)}</div>
                     {day.precip != null && day.precip > 0 && (
-                      <div className="text-xs text-slate-200 mt-0.5">{day.precip} mm</div>
+                      <div className="text-sm text-gray-200 mt-0.5">{day.precip} mm</div>
                     )}
                   </div>
                 ))}
@@ -221,24 +221,24 @@ export default function Dashboard() {
             </div>
           )}
         </section>
-        <section className="flex-1 rounded-xl border border-emerald-800/50 p-4 flex flex-col min-h-0" style={{ backgroundColor: '#0f5132' }}>
-          <div className="h-[100px] flex flex-col justify-start flex-shrink-0">
-            <h2 className="text-sm font-semibold text-emerald-100 uppercase tracking-wide">Olympics day</h2>
+        <section className="flex-1 rounded-xl border border-gray-600 p-4 flex flex-row items-center justify-between gap-6 min-h-0 flex-shrink-0 bg-gray-800">
+          <div className="flex flex-col justify-center flex-shrink-0">
+            <h2 className="text-base font-semibold text-gray-200 uppercase tracking-wide">Olympics day</h2>
             <p className="text-3xl font-bold text-white mt-1">{dayDisplay}</p>
-            <p className="text-sm text-emerald-100 mt-0.5">{todayLabel}</p>
+            <p className="text-base text-gray-300 mt-0.5">{todayLabel}</p>
           </div>
-          <div className="flex-1 flex items-center justify-start gap-8 min-h-0 pt-4 border-t border-emerald-600/50">
-            <div className="text-left">
-              <div className="text-sm font-medium text-emerald-200 uppercase tracking-wide mb-1">Milan (CET)</div>
-              <div className="text-4xl font-bold font-mono text-white tabular-nums">
+          <div className="flex items-center gap-8 flex-shrink-0">
+            <div className="flex items-baseline gap-2">
+              <span className="text-base font-medium text-gray-300 uppercase tracking-wide">Milan (CET)</span>
+              <span className="text-4xl font-bold font-mono text-white tabular-nums">
                 {currentTime.clone().tz('Europe/Rome').format('HH:mm:ss')}
-              </div>
+              </span>
             </div>
-            <div className="text-left">
-              <div className="text-sm font-medium text-emerald-200 uppercase tracking-wide mb-1">ET</div>
-              <div className="text-4xl font-bold font-mono text-white tabular-nums">
+            <div className="flex items-baseline gap-2">
+              <span className="text-base font-medium text-gray-300 uppercase tracking-wide">ET</span>
+              <span className="text-4xl font-bold font-mono text-white tabular-nums">
                 {currentTime.clone().tz('America/New_York').format('HH:mm:ss')}
-              </div>
+              </span>
             </div>
           </div>
         </section>
@@ -246,39 +246,39 @@ export default function Dashboard() {
 
       {/* Main: Medals (larger) + Sports today (narrow column) */}
       <div className="flex-1 flex gap-4 min-h-0">
-        <section className="flex-1 rounded-xl bg-white border border-slate-200 overflow-hidden flex flex-col min-w-0">
-          <h2 className="text-sm font-semibold text-slate-600 uppercase tracking-wide p-4 border-b border-slate-100">Top 10 medal standings</h2>
+        <section className="flex-1 rounded-xl bg-gray-800 border border-gray-600 overflow-hidden flex flex-col min-w-0">
+          <h2 className="text-base font-semibold text-gray-200 uppercase tracking-wide p-4 border-b border-gray-600">Top 10 medal standings</h2>
           <div className="flex-1 overflow-auto min-h-0">
             <table className="w-full text-left">
-              <thead className="bg-slate-50 sticky top-0">
+              <thead className="bg-gray-700 sticky top-0">
                 <tr>
-                  <th className="px-5 py-3 text-lg font-semibold text-slate-500">#</th>
-                  <th className="px-5 py-3 text-lg font-semibold text-slate-500">Country</th>
-                  <th className="px-5 py-3 text-lg font-semibold text-slate-500 text-center">G</th>
-                  <th className="px-5 py-3 text-lg font-semibold text-slate-500 text-center">S</th>
-                  <th className="px-5 py-3 text-lg font-semibold text-slate-500 text-center">B</th>
-                  <th className="px-5 py-3 text-lg font-semibold text-slate-500 text-right">Total</th>
+                  <th className="px-5 py-3 text-xl font-semibold text-gray-200">#</th>
+                  <th className="px-5 py-3 text-xl font-semibold text-gray-200">Country</th>
+                  <th className="px-5 py-3 text-xl font-semibold text-gray-200 text-center">G</th>
+                  <th className="px-5 py-3 text-xl font-semibold text-gray-200 text-center">S</th>
+                  <th className="px-5 py-3 text-xl font-semibold text-gray-200 text-center">B</th>
+                  <th className="px-5 py-3 text-xl font-semibold text-gray-200 text-right">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {MOCK_MEDALS.map(row => (
-                  <tr key={row.countryCode} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-5 py-3 text-xl font-medium text-slate-700">{row.rank}</td>
-                    <td className="px-5 py-3 text-xl font-medium text-slate-800">
+                  <tr key={row.countryCode} className="border-t border-gray-600 hover:bg-gray-700/50">
+                    <td className="px-5 py-3 text-2xl font-medium text-gray-100">{row.rank}</td>
+                    <td className="px-5 py-3 text-2xl font-medium text-white">
                       <span className="inline-flex items-center gap-2">
                         <img
                           src={getFlagSrc(row.countryCode)}
                           alt=""
-                          className="h-5 w-8 flex-shrink-0 object-cover rounded-sm"
+                          className="h-6 w-10 flex-shrink-0 object-cover rounded-sm"
                           onError={e => { e.target.style.display = 'none' }}
                         />
                         {row.country}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-xl text-center text-amber-600 font-semibold">{row.gold}</td>
-                    <td className="px-5 py-3 text-xl text-center text-slate-400 font-semibold">{row.silver}</td>
-                    <td className="px-5 py-3 text-xl text-center text-amber-700 font-semibold">{row.bronze}</td>
-                    <td className="px-5 py-3 text-xl text-right font-semibold text-slate-700">{row.total}</td>
+                    <td className="px-5 py-3 text-2xl text-center font-semibold text-amber-300">{row.gold}</td>
+                    <td className="px-5 py-3 text-2xl text-center font-semibold text-gray-300">{row.silver}</td>
+                    <td className="px-5 py-3 text-2xl text-center font-semibold text-amber-600">{row.bronze}</td>
+                    <td className="px-5 py-3 text-2xl text-right font-semibold text-gray-100">{row.total}</td>
                   </tr>
                 ))}
               </tbody>
@@ -286,25 +286,25 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="w-[36rem] flex-shrink-0 rounded-xl bg-white border border-slate-200 overflow-hidden flex flex-col min-h-0">
-          <h2 className="text-sm font-semibold text-slate-600 uppercase tracking-wide p-4 border-b border-slate-100">Sports today</h2>
+        <section className="w-[36rem] flex-shrink-0 rounded-xl bg-gray-800 border border-gray-600 overflow-hidden flex flex-col min-h-0">
+          <h2 className="text-base font-semibold text-gray-200 uppercase tracking-wide p-4 border-b border-gray-600">Sports today</h2>
           <div className="flex-1 overflow-auto p-4 min-h-0 space-y-3">
             {sportsLoading ? (
-              <p className="text-slate-500 text-sm">Loading…</p>
+              <p className="text-gray-400 text-base">Loading…</p>
             ) : (
               eventsToShow.slice(0, 12).map(ev => (
                 <div
                   key={ev.id || ev.start_time + ev.title}
-                  className="flex items-center gap-4 rounded-lg bg-slate-700 text-white p-3"
+                  className="flex items-center gap-4 rounded-lg bg-gray-700 text-white p-3 border border-gray-600"
                 >
                   <img
                     src={getPictoPath(ev.title)}
                     alt=""
-                    className="w-12 h-12 flex-shrink-0 object-contain"
+                    className="w-14 h-14 flex-shrink-0 object-contain"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium text-sm truncate">{ev.title}</div>
-                    <div className="text-slate-300 text-xs mt-0.5">
+                    <div className="font-medium text-base truncate">{ev.title}</div>
+                    <div className="text-gray-300 text-sm mt-0.5">
                       {moment.utc(ev.start_time).tz('Europe/Rome').format('HH:mm')}
                     </div>
                   </div>
