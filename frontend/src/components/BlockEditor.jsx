@@ -481,7 +481,7 @@ function BlockEditor({ block, onClose, onUpdate }) {
   if (!block) return null
 
   return (
-    <div className="h-full bg-white border-l border-gray-300 shadow-lg flex flex-col">
+    <div className="h-full min-h-0 bg-white border-l border-gray-300 shadow-lg flex flex-col">
       <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-800">Edit Block</h2>
         <button
@@ -493,7 +493,8 @@ function BlockEditor({ block, onClose, onUpdate }) {
         </button>
       </div>
       
-      <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4">
+      <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
             {error}
@@ -1211,34 +1212,35 @@ function BlockEditor({ block, onClose, onUpdate }) {
               </div>
             </div>
           </section>
+        </div>
+        </div>
 
-          <div className="flex gap-2 pt-4 border-t">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-            >
-              {loading ? 'Saving...' : 'Save Changes'}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={loading}
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-              title="Delete Block"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
+        <div className="flex-shrink-0 p-4 border-t border-gray-200 bg-gray-50 flex gap-2">
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+          >
+            {loading ? 'Saving...' : 'Save Changes'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={loading}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+            title="Delete Block"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          </button>
         </div>
       </form>
     </div>

@@ -550,15 +550,8 @@ function CBCTimelineView() {
             </div>
             {newBlockDraft && (
               <div 
-                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
-                style={{
-                  position: 'sticky',
-                  top: `${navbarHeight + datePickerHeight}px`,
-                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
-                  alignSelf: 'flex-start',
-                  zIndex: 50,
-                  backgroundColor: 'white'
-                }}
+                className="w-96 flex-shrink-0 flex flex-col min-h-0 bg-white border-l border-gray-200"
+                style={{ zIndex: 50 }}
               >
                 <CreateBlockForm 
                   draft={newBlockDraft}
@@ -571,15 +564,8 @@ function CBCTimelineView() {
             )}
             {selectedBlock && !newBlockDraft && (
               <div 
-                className="w-96 flex-shrink-0 overflow-y-auto bg-white border-l border-gray-200"
-                style={{
-                  position: 'sticky',
-                  top: `${navbarHeight + datePickerHeight}px`,
-                  maxHeight: `calc(100vh - ${navbarHeight + datePickerHeight}px)`,
-                  alignSelf: 'flex-start',
-                  zIndex: 50,
-                  backgroundColor: 'white'
-                }}
+                className="w-96 flex-shrink-0 flex flex-col min-h-0 bg-white border-l border-gray-200"
+                style={{ zIndex: 50 }}
               >
                 <BlockEditor 
                   block={selectedBlock}
