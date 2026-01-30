@@ -107,7 +107,7 @@ function AppContent() {
         <Route path="/cbc-timeline" element={<CBCTimelineView />} />
         <Route path="/obs-timeline" element={<OBSTimelineView />} />
         <Route path="/resources" element={
-          <div className="p-6 space-y-6 overflow-y-auto">
+          <div className="h-full bg-gray-900 text-white p-6 space-y-6 overflow-y-auto">
             <ResourceManager resourceType="commentators" displayName="Commentators" />
             <ResourceManager resourceType="producers" displayName="Producers" />
             <ResourceManager resourceType="encoders" displayName="Encoders" />

@@ -220,8 +220,11 @@ function LiveBoothsView() {
 
   if (loading && blocks.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-gray-500">Loading live booths...</div>
+      <div className="h-full bg-gray-900 text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" aria-hidden />
+          <span className="text-gray-400">Loading live booths...</span>
+        </div>
       </div>
     )
   }

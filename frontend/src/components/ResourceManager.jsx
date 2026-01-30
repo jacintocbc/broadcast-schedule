@@ -88,11 +88,11 @@ function ResourceManager({ resourceType, displayName }) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-xl font-bold mb-4">{displayName} Management</h2>
+    <div className="bg-gray-800 border border-gray-600 rounded-lg p-6">
+      <h2 className="text-xl font-bold text-white mb-4">{displayName} Management</h2>
       
       {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+        <div className="mb-4 p-3 bg-red-900/50 border border-red-700 text-red-200 rounded-lg">
           {error}
         </div>
       )}
@@ -104,11 +104,11 @@ function ResourceManager({ resourceType, displayName }) {
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder={`Add new ${displayName.toLowerCase()}...`}
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500"
         />
         <button
           type="submit"
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
         >
           Add
         </button>
@@ -116,48 +116,52 @@ function ResourceManager({ resourceType, displayName }) {
 
       {/* List */}
       {loading ? (
-        <div className="text-gray-500">Loading...</div>
+        <div className="text-gray-400">Loading...</div>
       ) : items.length === 0 ? (
-        <div className="text-gray-500">No {displayName.toLowerCase()} yet. Add one above.</div>
+        <div className="text-gray-400">No {displayName.toLowerCase()} yet. Add one above.</div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="grid grid-cols-3 gap-2">
           {items.map((item) => (
-            <li key={item.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-md">
+            <li key={item.id} className="flex items-center justify-between gap-2 p-3 bg-gray-700 border border-gray-600 rounded-md">
               {editingId === item.id ? (
                 <div className="flex-1 flex gap-2">
                   <input
                     type="text"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
-                    className="flex-1 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex-1 px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white focus:outline-none focus:ring-2 focus:ring-gray-500"
                     autoFocus
                   />
                   <button
                     onClick={() => handleUpdate(item.id)}
-                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                    type="button"
+                    className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-500"
                   >
                     Save
                   </button>
                   <button
                     onClick={handleCancelEdit}
-                    className="px-3 py-1 bg-gray-400 text-white rounded hover:bg-gray-500"
+                    type="button"
+                    className="px-3 py-1 bg-gray-600 text-gray-200 rounded hover:bg-gray-500"
                   >
                     Cancel
                   </button>
                 </div>
               ) : (
                 <>
-                  <span className="flex-1">{item.name}</span>
-                  <div className="flex gap-2">
+                  <span className="flex-1 min-w-0 truncate text-white">{item.name}</span>
+                  <div className="flex gap-2 flex-shrink-0">
                     <button
                       onClick={() => handleEdit(item)}
-                      className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                      type="button"
+                      className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-500 text-sm"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDelete(item.id)}
-                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+                      type="button"
+                      className="px-3 py-1 bg-gray-600 text-red-200 rounded hover:bg-gray-500 text-sm"
                     >
                       Delete
                     </button>
