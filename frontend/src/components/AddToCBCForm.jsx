@@ -393,7 +393,7 @@ function AddToCBCForm({ event, onClose, onSuccess, dark }) {
   const smallLabelClass = dark ? 'block text-xs text-gray-400 mb-1' : 'block text-xs text-gray-600 mb-1'
 
   return (
-    <div className={`h-full flex flex-col min-h-0 ${dark ? 'bg-gray-800' : 'bg-white border-l border-gray-300 shadow-lg'}`}>
+    <div className={`h-full flex flex-col min-h-0 ${dark ? 'bg-gray-800' : 'bg-white border-l border-gray-300 shadow-lg'}`} data-theme={dark ? 'dark' : undefined}>
       <div className={`p-4 border-b flex items-center justify-between ${dark ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
         <h2 className={`text-xl font-bold ${dark ? 'text-white' : 'text-gray-800'}`}>Add to CBC Timeline</h2>
         <button

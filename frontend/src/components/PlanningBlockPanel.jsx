@@ -57,7 +57,7 @@ export default function PlanningBlockPanel({ block, override, onClose, onSave, o
   const title = block?.name || block?.title || 'Block'
 
   return (
-    <div className="p-4 flex flex-col h-full min-h-0">
+    <div className="p-4 flex flex-col h-full min-h-0" data-theme="dark">
       <div className="flex justify-between items-start mb-4 flex-shrink-0">
         <h2 className="text-lg font-semibold text-white truncate pr-2">{title}</h2>
         <button

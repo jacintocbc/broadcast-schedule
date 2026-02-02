@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
 import { createBlock, addBlockRelationship, getBlocks, getResources } from '../utils/api'
@@ -7,7 +7,7 @@ import { SHARED_BOOTH_SORT_ORDER } from '../utils/boothConstants'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
-function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, dark }) {
+function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, onDraftChange, dark }) {
   const [formData, setFormData] = useState({
     name: '',
     obs_id: '',
@@ -36,6 +36,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, da
   const [error, setError] = useState(null)
 
   const networkLabels = { cbcTv: 'CBC TV', cbcWeb: 'CBC Gem', rcTvWeb: 'R-C TV/WEB' }
+  const hasUserEditedTimes = useRef(false)
 
   useEffect(() => {
     if (!draft) return
@@ -49,6 +50,26 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, da
       encoder_id: encoder?.id || ''
     }))
   }, [draft, encoders])
+
+  // Reset "user edited" flag when draft changes (e.g. new drag)
+  useEffect(() => {
+    hasUserEditedTimes.current = false
+  }, [draft?.startTime, draft?.endTime])
+
+  // Notify parent of effective times for timeline outline (broadcast overrides when both set)
+  // Only call when user has explicitly edited times - never on initial load, so the drag dimensions stay exact
+  useEffect(() => {
+    if (!onDraftChange || !draft?.group || !hasUserEditedTimes.current) return
+    const hasBroadcast = formData.broadcast_start_time && formData.broadcast_end_time
+    const startLocal = hasBroadcast ? formData.broadcast_start_time : formData.start_time
+    const endLocal = hasBroadcast ? formData.broadcast_end_time : formData.end_time
+    if (!startLocal || !endLocal) return
+    const startTime = moment.tz(startLocal, 'Europe/Rome').utc().toISOString()
+    const endTime = moment.tz(endLocal, 'Europe/Rome').utc().toISOString()
+    if (!moment.utc(startTime).isBefore(moment.utc(endTime))) return
+    if (draft.startTime === startTime && draft.endTime === endTime) return
+    onDraftChange({ startTime, endTime })
+  }, [formData.start_time, formData.end_time, formData.broadcast_start_time, formData.broadcast_end_time, draft?.group, draft?.startTime, draft?.endTime, onDraftChange])
 
   useEffect(() => {
     const load = async () => {
@@ -102,6 +123,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, da
   }, [draft?.startTime, draft?.endTime])
 
   const handleObsEventSelect = (e) => {
+    hasUserEditedTimes.current = true
     const id = e.target.value
     const ev = obsEvents.find(o => String(o.id) === id)
     if (!ev || !id) {
@@ -253,7 +275,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, da
   const smallLabelClass = dark ? 'block text-xs text-gray-400 mb-1' : 'block text-xs text-gray-600 mb-1'
 
   return (
-    <div className={`h-full flex flex-col min-h-0 ${dark ? 'bg-gray-800' : 'bg-white border-l border-gray-300 shadow-lg'}`}>
+    <div className={`h-full flex flex-col min-h-0 ${dark ? 'bg-gray-800' : 'bg-white border-l border-gray-300 shadow-lg'}`} data-theme={dark ? 'dark' : undefined}>
       <div className={`p-4 border-b flex items-center justify-between ${dark ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
         <h2 className={`text-xl font-bold ${dark ? 'text-white' : 'text-gray-800'}`}>New Block</h2>
         <button type="button" onClick={onClose} className={`text-2xl leading-none ${dark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`} title="Close">×</button>
@@ -297,7 +319,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, da
           <div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Start Time * (Milan)</label>
+                <label className={labelClass}>Start Time * (Milan)</label>
                 <input
                   type="datetime-local"
                   value={formData.start_time}
@@ -311,7 +333,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, da
                 <input
                   type="datetime-local"
                   value={formData.end_time}
-                  onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                  onChange={(e) => { hasUserEditedTimes.current = true; setFormData({ ...formData, end_time: e.target.value }) }}
                   required
                   className={inputClass}
                 />
@@ -337,11 +359,12 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, da
                 <input
                   type="datetime-local"
                   value={formData.broadcast_end_time}
-                  onChange={(e) => setFormData({ ...formData, broadcast_end_time: e.target.value })}
+                  onChange={(e) => { hasUserEditedTimes.current = true; setFormData({ ...formData, broadcast_end_time: e.target.value }) }}
                   min={formData.end_time ? `${formData.end_time.split('T')[0]}T00:00` : undefined}
                   className={inputClass}
                   onClick={() => {
                     if (!formData.broadcast_end_time && formData.end_time) {
+                      hasUserEditedTimes.current = true
                       const suggested = moment.tz(formData.end_time, 'Europe/Rome').add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_end_time: suggested }))
                     }

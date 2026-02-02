@@ -49,7 +49,17 @@ export async function getBlocks(blockId = null) {
     ? `${API_BASE}/api/blocks?id=${blockId}`
     : `${API_BASE}/api/blocks`;
   const response = await fetch(url);
-  if (!response.ok) throw new Error('Failed to fetch blocks');
+  if (!response.ok) {
+    const text = await response.text();
+    let errMsg = 'Failed to fetch blocks';
+    try {
+      const err = JSON.parse(text);
+      errMsg = err.error || errMsg;
+      if (err.details) errMsg += ` (${err.details})`;
+      if (err.code) errMsg += ` [${err.code}]`;
+    } catch (_) {}
+    throw new Error(errMsg);
+  }
   return response.json();
 }
 

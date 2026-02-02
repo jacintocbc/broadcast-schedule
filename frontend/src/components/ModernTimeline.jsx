@@ -3,20 +3,21 @@ import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup, editingBlockDraft }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
+  const timelineHeaderTimeRef = useRef(null) // Header time area - matches hour markers, avoids scrollbar narrowing rows
+  const dragRectRef = useRef(null) // Captured at mousedown, used for entire drag (same coord system for start & end)
   const [availableHeight, setAvailableHeight] = useState(null)
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
   // Drag-to-create new block (CBC timeline): { startPercent, endPercent, group } while dragging
   const [newBlockDrag, setNewBlockDrag] = useState(null)
   
-  // Calculate selectedDayStart outside useMemo so it's available in render
-  // Use Milan timezone as the default
+  // Calculate selectedDayStart - explicitly parse as midnight Milan to avoid local-timezone interpretation
   const selectedDayStart = useMemo(() => {
     return selectedDate 
-      ? moment.tz(selectedDate, 'Europe/Rome').startOf('day')
+      ? moment.tz(selectedDate + ' 00:00', 'YYYY-MM-DD HH:mm', 'Europe/Rome')
       : moment.tz('Europe/Rome').startOf('day')
   }, [selectedDate])
   
@@ -371,7 +372,9 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
   const handleNewBlockDragStart = (e, group) => {
     if (!onNewBlockRange || e.button !== 0) return
     e.preventDefault()
+    // Capture rect at mousedown and use for entire drag - same coordinate system for start and end
     const rect = e.currentTarget.getBoundingClientRect()
+    dragRectRef.current = rect
     const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
     dragLayerRef.current = e.currentTarget
     const drag = { startPercent: percent, endPercent: percent, group }
@@ -382,8 +385,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
   useEffect(() => {
     if (!newBlockDrag) return
     const handleMove = (e) => {
-      if (!dragLayerRef.current) return
-      const rect = dragLayerRef.current.getBoundingClientRect()
+      if (!dragLayerRef.current || !dragRectRef.current) return
+      const rect = dragRectRef.current
       const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
       setNewBlockDrag(prev => prev ? { ...prev, endPercent: percent } : null)
     }
@@ -401,7 +404,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       const timelineStartMinutes = 2 * 60
       const visibleRangeMinutes = (zoomHours >= 24 ? zoomHours : 24) * 60
       const startM = selectedDayStart.clone().add(timelineStartMinutes + (startPercent / 100) * visibleRangeMinutes, 'minutes')
-      const endM = selectedDayStart.clone().add(timelineStartMinutes + (Math.min(100, effectiveEnd) / 100) * visibleRangeMinutes, 'minutes')
+      const endM = selectedDayStart.clone().add(timelineStartMinutes + (Math.min(100, effectiveEnd) / 100) * visibleRangeMinutes - 60, 'minutes') // -60 to correct end extension
       // Round to nearest 5 minutes
       const roundTo5 = (m) => {
         const clone = m.clone()
@@ -422,6 +425,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       setNewBlockDrag(null)
       newBlockDragRef.current = null
       dragLayerRef.current = null
+      dragRectRef.current = null
     }
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
@@ -458,6 +462,38 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       }, 300)
     }
   }
+
+  // Compute editing block outline position (when form is open, outline persists and updates with form times)
+  const editingBlockOutline = useMemo(() => {
+    if (!editingBlockDraft?.startTime || !editingBlockDraft?.endTime || !selectedDayStart) return null
+    const start = moment.utc(editingBlockDraft.startTime).tz('Europe/Rome')
+    const end = moment.utc(editingBlockDraft.endTime).tz('Europe/Rome')
+    if (!start.isValid() || !end.isValid() || !start.isBefore(end)) return null
+    const timelineStartMinutes = 2 * 60
+    const effectiveZoomHours = zoomHours >= 24 ? zoomHours : 24
+    const timelineEndMinutes = (effectiveZoomHours + 2) * 60
+    const visibleRangeMinutes = timelineEndMinutes - timelineStartMinutes
+    const startMinutesFromDayStart = start.diff(selectedDayStart, 'minutes')
+    const endMinutesFromDayStart = end.diff(selectedDayStart, 'minutes')
+    let startMinutesFromTimelineStart = startMinutesFromDayStart >= timelineStartMinutes ? startMinutesFromDayStart - timelineStartMinutes : 0
+    let endMinutesFromTimelineStart
+    if (endMinutesFromDayStart <= timelineEndMinutes) {
+      endMinutesFromTimelineStart = endMinutesFromDayStart >= timelineStartMinutes ? endMinutesFromDayStart - timelineStartMinutes : 0
+    } else {
+      endMinutesFromTimelineStart = visibleRangeMinutes
+    }
+    if (endMinutesFromDayStart < startMinutesFromDayStart) {
+      if (startMinutesFromDayStart >= timelineStartMinutes) endMinutesFromTimelineStart = visibleRangeMinutes
+      else if (endMinutesFromDayStart <= 60) {
+        startMinutesFromTimelineStart = 0
+        endMinutesFromTimelineStart = endMinutesFromDayStart + (24 * 60 - timelineStartMinutes)
+      }
+    }
+    const startPercent = Math.max(0, Math.min(100, (startMinutesFromTimelineStart / visibleRangeMinutes) * 100))
+    const endPercent = Math.max(0, Math.min(100, (endMinutesFromTimelineStart / visibleRangeMinutes) * 100))
+    const widthPercent = Math.max(0.5, endPercent - startPercent)
+    return { startPercent, widthPercent, group: editingBlockDraft.group }
+  }, [editingBlockDraft, selectedDayStart, zoomHours])
 
   if (groups.length === 0) {
     return (
@@ -548,12 +584,12 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
           </div>
         </div>
         
-        {/* Row 2: Milan (CET) times */}
+        {/* Row 2: Milan (CET) times - ref for drag coords to match hour markers */}
         <div className="flex relative border-b border-gray-600">
           <div className="w-24 flex-shrink-0 border-r border-gray-600 bg-gray-800 p-2 font-semibold text-gray-200 flex items-center justify-center">
             <div className="text-xs text-gray-400">Milan (CET)</div>
           </div>
-          <div className={`flex-1 flex relative pr-[15px] ${zoomHours < 24 ? 'overflow-x-auto' : ''}`} style={{ boxSizing: 'border-box' }}>
+          <div ref={timelineHeaderTimeRef} className={`flex-1 flex relative pr-[15px] ${zoomHours < 24 ? 'overflow-x-auto' : ''}`} style={{ boxSizing: 'border-box' }}>
             <div className="flex w-full">
               {hours.map((hour, idx) => {
                 return (
@@ -726,6 +762,17 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     style={{
                       left: `${Math.min(newBlockDrag.startPercent, newBlockDrag.endPercent)}%`,
                       width: `${Math.max(0.5, Math.abs(newBlockDrag.endPercent - newBlockDrag.startPercent))}%`
+                    }}
+                  />
+                )}
+
+                {/* Persistent outline while editing new block (updates with form start/end/broadcast times) */}
+                {editingBlockOutline && editingBlockOutline.group === group && (
+                  <div
+                    className="absolute top-2 bottom-2 z-[5] rounded-lg border-2 border-dashed border-blue-400 bg-blue-500/30 pointer-events-none"
+                    style={{
+                      left: `${editingBlockOutline.startPercent}%`,
+                      width: `${editingBlockOutline.widthPercent}%`
                     }}
                   />
                 )}

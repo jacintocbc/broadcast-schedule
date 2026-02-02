@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import ModernTimeline from './ModernTimeline'
 import DateNavigator from './DateNavigator'
 import BlockEditor from './BlockEditor'
@@ -381,6 +381,10 @@ function CBCTimelineView() {
     setNewBlockDraft(draft)
   }
 
+  const handleDraftChange = useCallback((updates) => {
+    setNewBlockDraft(prev => prev ? { ...prev, ...updates } : null)
+  }, [])
+
   const handleCreateBlockSuccess = () => {
     loadBlocks()
     setNewBlockDraft(null)
@@ -547,6 +551,7 @@ function CBCTimelineView() {
                 zoomHours={zoomHours}
                 scrollPosition={scrollPosition}
                 onNewBlockRange={handleNewBlockRange}
+                editingBlockDraft={newBlockDraft}
               />
             </div>
             {newBlockDraft && (
@@ -560,6 +565,7 @@ function CBCTimelineView() {
                   encoders={encoders}
                   onSuccess={handleCreateBlockSuccess}
                   onClose={() => setNewBlockDraft(null)}
+                  onDraftChange={handleDraftChange}
                   dark
                 />
               </div>
