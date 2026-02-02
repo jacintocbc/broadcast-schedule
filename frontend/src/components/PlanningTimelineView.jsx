@@ -36,8 +36,20 @@ function PlanningTimelineView() {
   const [zoomHours, setZoomHours] = useState(24)
   const [scrollPosition, setScrollPosition] = useState(0)
   const [navbarHeight, setNavbarHeight] = useState(73)
+  const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
   const hasInitializedDate = useRef(false)
   const previousDatesStr = useRef('')
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(moment.tz('America/New_York')), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const times = useMemo(() => {
+    const et = currentTime.clone().tz('America/New_York')
+    const cet = currentTime.clone().tz('Europe/Rome')
+    return { et: et.format('HH:mm:ss'), cet: cet.format('HH:mm:ss') }
+  }, [currentTime])
 
   useEffect(() => {
     setLoading(true)
@@ -199,7 +211,8 @@ function PlanningTimelineView() {
         group: 'On Air',
         start_time: start,
         end_time: end,
-        block: { ...block, booths: block.booths || [], networks: block.networks || [], commentators: block.commentators || [] }
+        block: { ...block, booths: block.booths || [], networks: block.networks || [], commentators: block.commentators || [] },
+        override: override || {}
       })
     })
 
@@ -296,6 +309,16 @@ function PlanningTimelineView() {
     }
   }
 
+  const handleOnAirResize = async (blockId, newStartTime, newEndTime) => {
+    const override = planning.overrides[blockId] || {}
+    const nextOverride = {
+      ...override,
+      producer_broadcast_start_time: newStartTime,
+      producer_broadcast_end_time: newEndTime
+    }
+    await handleSaveOverride(blockId, nextOverride)
+  }
+
   useEffect(() => {
     const update = () => {
       if (datePickerRef.current) setDatePickerHeight(datePickerRef.current.offsetHeight)
@@ -320,29 +343,60 @@ function PlanningTimelineView() {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gray-900 text-white">
       <div ref={datePickerRef} className="flex-shrink-0 p-4 border-b border-gray-600 bg-gray-800 z-40">
         {availableDates.length > 0 && (
-          <div className="flex justify-between gap-4 flex-wrap mb-3">
-            <div className="flex gap-4 flex-wrap">
+          <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+            <div className="flex items-center gap-4 flex-wrap">
               <DateNavigator
                 dates={availableDates}
                 selectedDate={selectedDate}
                 onDateChange={handleDateChange}
                 dark
               />
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-300">Zoom:</span>
-                {[24, 36, 48].map(hours => (
-                  <button
-                    key={hours}
-                    onClick={() => { setZoomHours(hours); setScrollPosition(0) }}
-                    className={`px-3 py-1 text-sm rounded ${zoomHours === hours ? 'bg-emerald-500/30 text-white border border-emerald-400/50' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'}`}
-                  >
-                    {hours}h
-                  </button>
-                ))}
+                <div className="flex gap-1">
+                  {[24, 36, 48].map(hours => (
+                    <button
+                      key={hours}
+                      onClick={() => { setZoomHours(hours); setScrollPosition(0) }}
+                      className={`px-3 py-1 text-sm rounded ${zoomHours === hours ? 'bg-emerald-500/30 text-white border border-emerald-400/50' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'}`}
+                    >
+                      {hours}h
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         )}
+
+        {/* Legend and Clock */}
+        <div className="flex flex-wrap gap-2 items-center justify-between">
+          <div className="flex flex-wrap gap-2 items-center">
+            {BLOCK_TYPES.map(type => {
+              const bgColor = BLOCK_TYPE_COLORS[type] || DEFAULT_BLOCK_COLOR
+              const borderColor = darkenColor(bgColor, 30)
+              const textColor = LEGEND_LIGHT_BACKGROUNDS.includes(bgColor) ? 'text-gray-900' : 'text-white'
+              return (
+                <div
+                  key={type}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded border ${textColor}`}
+                  style={{
+                    backgroundColor: bgColor,
+                    borderColor: borderColor,
+                    borderWidth: '2px'
+                  }}
+                >
+                  <span className="text-xs font-medium">{type}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex items-center">
+            <div className="text-3xl font-bold text-white font-mono">{times.cet} CET</div>
+            <span className="text-3xl font-bold text-white mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
+            <div className="text-3xl font-bold text-white font-mono">{times.et} <span className="font-bold">ET</span></div>
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col min-h-0">
@@ -365,12 +419,20 @@ function PlanningTimelineView() {
               <ModernTimeline
                 events={events}
                 selectedDate={selectedDate}
-                onItemSelect={handleBlockSelect}
+                onItemSelect={(event) => {
+                  if (event.group !== 'On Air' || !event.block) setSelectedOnAirBlock(null)
+                }}
+                onItemDoubleClick={(event) => {
+                  if (event.group === 'On Air' && event.block) {
+                    handleBlockSelect(event)
+                  }
+                }}
                 datePickerHeight={datePickerHeight}
                 navbarHeight={navbarHeight}
                 zoomHours={zoomHours}
                 scrollPosition={scrollPosition}
                 onBlockDropOnGroup={handleAddToOnAir}
+                onOnAirResize={handleOnAirResize}
               />
             </div>
             {selectedOnAirBlock && (

@@ -3,7 +3,7 @@ import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup, editingBlockDraft }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup, editingBlockDraft, onOnAirResize }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
@@ -13,6 +13,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
   // Drag-to-create new block (CBC timeline): { startPercent, endPercent, group } while dragging
   const [newBlockDrag, setNewBlockDrag] = useState(null)
+  // Resize On Air block: { blockId, edge: 'left'|'right', startPercent, endPercent, group, rect }
+  const [resizeDrag, setResizeDrag] = useState(null)
+  const resizeDragRef = useRef(null)
+  resizeDragRef.current = resizeDrag
+  // Move On Air block: { blockId, startPercent, endPercent, group, rect, initialMouseX, initialStartPercent, initialEndPercent }
+  const [moveDrag, setMoveDrag] = useState(null)
+  const moveDragRef = useRef(null)
+  moveDragRef.current = moveDrag
   
   // Calculate selectedDayStart - explicitly parse as midnight Milan to avoid local-timezone interpretation
   const selectedDayStart = useMemo(() => {
@@ -403,8 +411,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       const effectiveEnd = endPercent - startPercent < minDurationPercent ? startPercent + minDurationPercent : endPercent
       const timelineStartMinutes = 2 * 60
       const visibleRangeMinutes = (zoomHours >= 24 ? zoomHours : 24) * 60
-      const startM = selectedDayStart.clone().add(timelineStartMinutes + (startPercent / 100) * visibleRangeMinutes, 'minutes')
-      const endM = selectedDayStart.clone().add(timelineStartMinutes + (Math.min(100, effectiveEnd) / 100) * visibleRangeMinutes - 60, 'minutes') // -60 to correct end extension
+      const startM = selectedDayStart.clone().add(timelineStartMinutes + (startPercent / 100) * visibleRangeMinutes + 60, 'minutes')
+      const endM = selectedDayStart.clone().add(timelineStartMinutes + (Math.min(100, effectiveEnd) / 100) * visibleRangeMinutes - 60, 'minutes')
       // Round to nearest 5 minutes
       const roundTo5 = (m) => {
         const clone = m.clone()
@@ -434,6 +442,173 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
       window.removeEventListener('mouseup', handleUp)
     }
   }, [newBlockDrag, onNewBlockRange, selectedDayStart, zoomHours])
+
+  // Resize On Air block
+  useEffect(() => {
+    if (!resizeDrag || !onOnAirResize) return
+    const handleMove = (e) => {
+      if (!resizeDragRef.current?.rect) return
+      const { rect, edge, startPercent, endPercent } = resizeDragRef.current
+      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+      let newStart = startPercent
+      let newEnd = endPercent
+      if (edge === 'left') {
+        newStart = Math.min(percent, endPercent - 0.5)
+      } else {
+        newEnd = Math.max(percent, startPercent + 0.5)
+      }
+      setResizeDrag(prev => {
+        const next = prev ? { ...prev, startPercent: newStart, endPercent: newEnd } : null
+        resizeDragRef.current = next
+        return next
+      })
+    }
+    const handleUp = () => {
+      const drag = resizeDragRef.current
+      if (!drag) {
+        setResizeDrag(null)
+        return
+      }
+      const timelineStartMinutes = 2 * 60
+      const visibleRangeMinutes = (zoomHours >= 24 ? zoomHours : 24) * 60
+      const startM = selectedDayStart.clone().add(timelineStartMinutes + (drag.startPercent / 100) * visibleRangeMinutes, 'minutes')
+      const endM = selectedDayStart.clone().add(timelineStartMinutes + (drag.endPercent / 100) * visibleRangeMinutes, 'minutes')
+      const roundTo5 = (m) => {
+        const clone = m.clone()
+        const roundedMin = Math.round(clone.minute() / 5) * 5
+        clone.minute(roundedMin).second(0).millisecond(0)
+        if (roundedMin === 60) clone.add(1, 'hour').minute(0)
+        return clone
+      }
+      const startTime = roundTo5(startM)
+      const endTime = roundTo5(endM)
+      if (startTime.isBefore(endTime)) {
+        onOnAirResize(drag.blockId, startTime.toISOString(), endTime.toISOString())
+      }
+      setResizeDrag(null)
+    }
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+    }
+  }, [resizeDrag, onOnAirResize, selectedDayStart, zoomHours])
+
+  // Move On Air block
+  useEffect(() => {
+    if (!moveDrag || !onOnAirResize) return
+    const handleMove = (e) => {
+      if (!moveDragRef.current?.rect) return
+      const { rect, initialMouseX, initialStartPercent, initialEndPercent } = moveDragRef.current
+      const percent = ((e.clientX - rect.left) / rect.width) * 100
+      const deltaPercent = percent - initialMouseX
+      let newStart = initialStartPercent + deltaPercent
+      let newEnd = initialEndPercent + deltaPercent
+      const width = initialEndPercent - initialStartPercent
+      if (newStart < 0) {
+        newStart = 0
+        newEnd = width
+      } else if (newEnd > 100) {
+        newEnd = 100
+        newStart = 100 - width
+      }
+      setMoveDrag(prev => {
+        const next = prev ? { ...prev, startPercent: newStart, endPercent: newEnd } : null
+        moveDragRef.current = next
+        return next
+      })
+    }
+    const handleUp = () => {
+      const drag = moveDragRef.current
+      if (!drag) {
+        setMoveDrag(null)
+        return
+      }
+      const timelineStartMinutes = 2 * 60
+      const visibleRangeMinutes = (zoomHours >= 24 ? zoomHours : 24) * 60
+      const startM = selectedDayStart.clone().add(timelineStartMinutes + (drag.startPercent / 100) * visibleRangeMinutes, 'minutes')
+      const endM = selectedDayStart.clone().add(timelineStartMinutes + (drag.endPercent / 100) * visibleRangeMinutes, 'minutes')
+      const roundTo5 = (m) => {
+        const clone = m.clone()
+        const roundedMin = Math.round(clone.minute() / 5) * 5
+        clone.minute(roundedMin).second(0).millisecond(0)
+        if (roundedMin === 60) clone.add(1, 'hour').minute(0)
+        return clone
+      }
+      const startTime = roundTo5(startM)
+      const endTime = roundTo5(endM)
+      if (startTime.isBefore(endTime)) {
+        onOnAirResize(drag.blockId, startTime.toISOString(), endTime.toISOString())
+      }
+      setMoveDrag(null)
+    }
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+    }
+  }, [moveDrag, onOnAirResize, selectedDayStart, zoomHours])
+
+  const handleMoveStart = (e, event) => {
+    if (!onOnAirResize || e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const timelineArea = e.currentTarget.closest('[data-timeline-area]')
+    if (!timelineArea) return
+    const rect = timelineArea.getBoundingClientRect()
+    const percent = ((e.clientX - rect.left) / rect.width) * 100
+    const startPercent = event.startPercent
+    const endPercent = event.startPercent + event.widthPercent
+    setMoveDrag({
+      blockId: event.id,
+      startPercent,
+      endPercent,
+      group: event.group,
+      rect,
+      initialMouseX: percent,
+      initialStartPercent: startPercent,
+      initialEndPercent: endPercent
+    })
+    moveDragRef.current = {
+      blockId: event.id,
+      startPercent,
+      endPercent,
+      group: event.group,
+      rect,
+      initialMouseX: percent,
+      initialStartPercent: startPercent,
+      initialEndPercent: endPercent
+    }
+  }
+
+  const handleResizeStart = (e, event, edge) => {
+    if (!onOnAirResize || e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const timelineArea = e.currentTarget.closest('[data-timeline-area]')
+    if (!timelineArea) return
+    const rect = timelineArea.getBoundingClientRect()
+    const startPercent = event.startPercent
+    const endPercent = event.startPercent + event.widthPercent
+    setResizeDrag({
+      blockId: event.id,
+      edge,
+      startPercent,
+      endPercent,
+      group: event.group,
+      rect
+    })
+    resizeDragRef.current = {
+      blockId: event.id,
+      edge,
+      startPercent,
+      endPercent,
+      group: event.group,
+      rect
+    }
+  }
 
   const handleItemClick = (event) => {
     const now = Date.now()
@@ -722,6 +897,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
 
               {/* Timeline area */}
               <div
+                data-timeline-area
                 className="flex-1 relative"
                 style={{ minHeight: rowMinHeight }}
                 onDragOver={onBlockDropOnGroup && group === 'On Air' ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } : undefined}
@@ -762,6 +938,28 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     style={{
                       left: `${Math.min(newBlockDrag.startPercent, newBlockDrag.endPercent)}%`,
                       width: `${Math.max(0.5, Math.abs(newBlockDrag.endPercent - newBlockDrag.startPercent))}%`
+                    }}
+                  />
+                )}
+
+                {/* Resize preview overlay for On Air blocks */}
+                {resizeDrag && resizeDrag.group === group && (
+                  <div
+                    className="absolute top-2 bottom-2 z-[5] rounded-lg border-2 border-dashed border-amber-400 bg-amber-500/30 pointer-events-none"
+                    style={{
+                      left: `${Math.min(resizeDrag.startPercent, resizeDrag.endPercent)}%`,
+                      width: `${Math.max(0.5, Math.abs(resizeDrag.endPercent - resizeDrag.startPercent))}%`
+                    }}
+                  />
+                )}
+
+                {/* Move preview overlay for On Air blocks */}
+                {moveDrag && moveDrag.group === group && (
+                  <div
+                    className="absolute top-2 bottom-2 z-[5] rounded-lg border-2 border-dashed border-emerald-400 bg-emerald-500/30 pointer-events-none"
+                    style={{
+                      left: `${Math.min(moveDrag.startPercent, moveDrag.endPercent)}%`,
+                      width: `${Math.max(0.5, Math.abs(moveDrag.endPercent - moveDrag.startPercent))}%`
                     }}
                   />
                 )}
@@ -862,9 +1060,13 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   const startEST = (event.isBeautyCamera && event.startEST) ? event.startEST : moment.utc(event.start_time).tz('America/New_York')
                   const endEST = (event.isBeautyCamera && event.endEST) ? event.endEST : moment.utc(event.end_time).tz('America/New_York')
                   
-                  const broadcastStart = block.broadcast_start_time ? moment.utc(block.broadcast_start_time).tz('Europe/Rome') : null
-                  const broadcastEnd = block.broadcast_end_time ? moment.utc(block.broadcast_end_time).tz('Europe/Rome') : null
-                  // OBS event times (block start/end — when linked, these are the OBS event window)
+                  // Planning override (producer_broadcast_*) takes precedence for On Air blocks; else use block.broadcast_*
+                  const override = event.override || {}
+                  const broadcastStart = (override.producer_broadcast_start_time ? moment.utc(override.producer_broadcast_start_time).tz('Europe/Rome') : null) ||
+                    (block.broadcast_start_time ? moment.utc(block.broadcast_start_time).tz('Europe/Rome') : null)
+                  const broadcastEnd = (override.producer_broadcast_end_time ? moment.utc(override.producer_broadcast_end_time).tz('Europe/Rome') : null) ||
+                    (block.broadcast_end_time ? moment.utc(block.broadcast_end_time).tz('Europe/Rome') : null)
+                  // OBS event times (block start/end — original times, always shown in parentheses when we have broadcast times)
                   const obsStartMilan = isBlock && block.start_time ? moment.utc(block.start_time).tz('Europe/Rome') : null
                   const obsEndMilan = isBlock && block.end_time ? moment.utc(block.end_time).tz('Europe/Rome') : null
                   
@@ -880,6 +1082,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     : `${event.id}-${eventIdx}`
                   
                   const isDraggable = onBlockDropOnGroup && event.block && event.group !== 'On Air'
+                  const isOnAirResizable = onOnAirResize && event.group === 'On Air' && event.block && !event.isEmpty
+                  const isOnAirMovable = isOnAirResizable
+                  const isResizing = resizeDrag?.blockId === event.id
+                  const isMoving = moveDrag?.blockId === event.id
                   return (
                     <div
                       key={blockKey}
@@ -889,12 +1095,13 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                         e.dataTransfer.setData('text/plain', String(event.id))
                         e.dataTransfer.effectAllowed = 'move'
                       } : undefined}
-                      onClick={() => handleItemClick(event)}
-                      className={`absolute rounded-lg shadow-md hover:shadow-lg transition-all duration-200 ${isDraggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} group ${hasMinimalContent ? 'top-1 bottom-1' : 'top-2 bottom-2'}`}
+                      onMouseDown={isOnAirMovable && !isResizing ? (e) => handleMoveStart(e, event) : undefined}
+                      onClick={() => !isResizing && !isMoving && handleItemClick(event)}
+                      className={`absolute rounded-lg shadow-md hover:shadow-lg transition-all duration-200 ${isDraggable ? 'cursor-grab active:cursor-grabbing' : isOnAirMovable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} group ${hasMinimalContent ? 'top-1 bottom-1' : 'top-2 bottom-2'} ${(isResizing || isMoving) ? 'opacity-30' : ''}`}
                       style={{
                         left,
                         width,
-                        minWidth: isBlock ? '200px' : '120px',
+                        minWidth: isOnAirResizable ? '50px' : (isBlock ? '200px' : '120px'),
                         backgroundColor,
                         border: `2px ${borderStyle} ${borderColor}`,
                         zIndex: 10,
@@ -903,6 +1110,21 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                       }}
                       title={event.title}
                     >
+                      {/* Resize handles for On Air blocks */}
+                      {isOnAirResizable && !isResizing && (
+                        <>
+                          <div
+                            className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-30 hover:bg-white/20 rounded-l-lg"
+                            onMouseDown={(e) => handleResizeStart(e, event, 'left')}
+                            title="Drag to resize"
+                          />
+                          <div
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-30 hover:bg-white/20 rounded-r-lg"
+                            onMouseDown={(e) => handleResizeStart(e, event, 'right')}
+                            title="Drag to resize"
+                          />
+                        </>
+                      )}
                       {/* Live indicator: red circle (bigger, matches maple leaf height); OBS events */}
                       {isLive && !isBlock && (
                         <div
