@@ -230,18 +230,13 @@ export default function Dashboard() {
             <p className="text-3xl font-bold text-white mt-1">{dayDisplay}</p>
             <p className="text-base text-gray-300 mt-0.5">{todayLabel}</p>
           </div>
-          <div className="flex items-center gap-8 flex-shrink-0">
-            <div className="flex items-baseline gap-2">
-              <span className="text-base font-medium text-gray-300 uppercase tracking-wide">Milan (CET)</span>
-              <span className="text-4xl font-bold font-mono text-white tabular-nums">
-                {currentTime.clone().tz('Europe/Rome').format('HH:mm:ss')}
-              </span>
+          <div className="flex items-center flex-shrink-0">
+            <div className="text-3xl font-bold text-white font-mono">
+              {currentTime.clone().tz('Europe/Rome').format('HH:mm:ss')} CET
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-base font-medium text-gray-300 uppercase tracking-wide">ET</span>
-              <span className="text-4xl font-bold font-mono text-white tabular-nums">
-                {currentTime.clone().tz('America/New_York').format('HH:mm:ss')}
-              </span>
+            <span className="text-3xl font-bold text-white mx-4" style={{ transform: 'translateY(-2px)' }}>/</span>
+            <div className="text-3xl font-bold text-white font-mono">
+              {currentTime.clone().tz('America/New_York').format('HH:mm:ss')} <span className="font-bold">ET</span>
             </div>
           </div>
         </section>

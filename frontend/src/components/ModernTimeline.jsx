@@ -679,8 +679,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                     )
                   })()
                 ) : (
-                  // OBS Timeline or other groups: Just show group name
-                  <div className="font-semibold text-gray-200 text-sm">{group}</div>
+                  // OBS Timeline or other groups: Just show group name (centered like TX rows)
+                  <div className="font-semibold text-gray-200 text-sm text-center">{group}</div>
                 )}
               </div>
 
