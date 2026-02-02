@@ -33,7 +33,10 @@ function Navigation() {
   return (
     <header className="bg-gray-800 text-white p-4 shadow-lg fixed top-0 left-0 right-0 z-50">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">CBC Studios - Olympus</h1>
+        <div className="flex items-center gap-3">
+          <img src="/logo-1.png" alt="" className="h-9 max-h-[36px] w-auto object-contain" />
+          <img src="/logo-2.png" alt="" className="h-9 max-h-[36px] w-auto object-contain" />
+        </div>
         <nav className="flex gap-4">
           <Link
             to="/dashboard"
