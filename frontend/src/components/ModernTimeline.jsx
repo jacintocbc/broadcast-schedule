@@ -1017,12 +1017,13 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   const widthPercent = Math.max(rightPercent - leftPercent, 0.5)
                   const width = `${widthPercent}%` // Minimum 0.5% width
                   
-                  // Calculate approximate pixel width for narrow block detection
-                  // Estimate: timeline width is roughly viewport width minus label column (96px) minus padding
-                  // For narrow block detection, we'll use a percentage threshold
+                  // Narrow block: very small width (compact text styling)
                   const isNarrowBlock = widthPercent < 2 // Less than 2% of timeline width (roughly < 80px on typical screens)
                   
                   const isBlock = event.block
+                  // Short block: duration < 1 hour - show external label to the right for readability
+                  const durationMinutes = event.durationMinutes ?? (event.startMilan && event.endMilan ? event.endMilan.diff(event.startMilan, 'minutes') : 0)
+                  const isShortBlock = durationMinutes > 0 && durationMinutes < 60 && isBlock
                   const block = event.block || {}
                   
                   // Check if this block/event is currently live (current time is within start and end) - using Milan time
@@ -1116,15 +1117,59 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                       }}
                       title={`${block.name || event.title}${hasBroadcastTimes ? `\n(${obsStartMilan?.format('HH:mm')} - ${obsEndMilan?.format('HH:mm')})\n${broadcastStart.format('HH:mm')} - ${broadcastEnd.format('HH:mm')}` : `\n${startMilan.format('HH:mm')} - ${endMilan.format('HH:mm')}`}${block.obs_group ? `\n${block.obs_group}` : ''}`}
                     >
-                      {/* External label for very narrow blocks */}
-                      {isNarrowBlock && isBlock && (
-                        <div 
-                          className="absolute left-full ml-1 top-0 whitespace-nowrap text-[11px] text-gray-300 z-20 pointer-events-none"
-                          style={{ maxWidth: '200px' }}
-                        >
-                          {block.name || event.title}
-                        </div>
-                      )}
+                      {/* External label for blocks under 1 hour - all text moved outside block */}
+                      {isShortBlock && (() => {
+                        const matchNetworkName = (networkName) => {
+                          if (!networkName) return null
+                          const nameLower = networkName.toLowerCase().trim()
+                          if (nameLower === 'cbc tv' || nameLower.includes('cbc tv')) return { label: 'CBC TV', order: 0 }
+                          if (nameLower === 'cbc gem' || nameLower === 'cbc web' || nameLower === 'gem' || nameLower === 'web' || nameLower.includes('cbc gem') || nameLower.includes('cbc web')) return { label: 'CBC Gem', order: 1 }
+                          if (nameLower.includes('r-c') || nameLower.includes('rc tv') || nameLower.includes('radio-canada')) return { label: 'R-C TV/Web', order: 2 }
+                          return null
+                        }
+                        const displayItems = []
+                        const addedNetworks = new Set()
+                        if (block.booths && block.booths.length > 0) {
+                          block.booths.forEach((booth) => {
+                            const boothNetworkId = booth.network_id || (booth.network ? booth.network.id : null)
+                            if (boothNetworkId && !addedNetworks.has(boothNetworkId)) {
+                              const network = block.networks?.find(n => n.id === boothNetworkId)
+                              if (network) {
+                                const match = matchNetworkName(network.name)
+                                if (match) {
+                                  const boothName = booth.name || (booth.booth ? booth.booth.name : '')
+                                  if (boothName) {
+                                    addedNetworks.add(boothNetworkId)
+                                    displayItems.push({ networkName: match.label, boothName, sortOrder: match.order })
+                                  }
+                                }
+                              }
+                            } else if (booth.network && booth.network.name && !addedNetworks.has(booth.network.id)) {
+                              const match = matchNetworkName(booth.network.name)
+                              if (match) {
+                                const boothName = booth.name || (booth.booth ? booth.booth.name : '')
+                                if (boothName) {
+                                  addedNetworks.add(booth.network.id)
+                                  displayItems.push({ networkName: match.label, boothName, sortOrder: match.order })
+                                }
+                              }
+                            }
+                          })
+                        }
+                        displayItems.sort((a, b) => a.sortOrder - b.sortOrder)
+                        return (
+                          <div className="absolute left-full ml-1 top-0 flex flex-col gap-0.5 text-[11px] text-gray-300 z-20 pointer-events-none break-words" style={{ width: '200px' }}>
+                            <span className="font-medium">{block.name || event.title}</span>
+                            {displayItems.length > 0 && (
+                              <div className="space-y-0.5 opacity-90">
+                                {displayItems.map((item, idx) => (
+                                  <span key={idx} className="block">{item.networkName} : {item.boothName}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                       {/* Resize handles for On Air blocks */}
                       {isOnAirResizable && !isResizing && (
                         <>
@@ -1149,9 +1194,9 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                         />
                       )}
                       {isBlock ? (
-                        // Block display with metadata - matching the provided format
+                        // Block display with metadata - when isShortBlock, times and DX channel inside; event name and network/booth outside
                         <div 
-                          className={`flex flex-col ${isNarrowBlock ? 'text-[10px] leading-tight' : 'text-[14.6px] leading-tight'} ${textColor} relative ${hasMinimalContent ? 'p-1' : (isNarrowBlock ? 'p-0.5' : 'p-2')}`}
+                          className={`flex flex-col ${isNarrowBlock ? 'text-[10px] leading-tight' : 'text-[14.6px] leading-tight'} ${textColor} relative ${hasMinimalContent && !isShortBlock ? 'p-1' : (isNarrowBlock && !isShortBlock ? 'p-0.5' : isShortBlock ? 'p-1' : 'p-2')}`}
                           style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
                           {/* Top right: maple leaf (if Canadian) and live circle (if live), aligned */}
@@ -1172,7 +1217,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                             </div>
                           )}
                           
-                          {/* Time display: In brackets = OBS event times (block start/end). Below = broadcast start/end. If no broadcast, single line without brackets. */}
+                          {/* Time display - always show for blocks (including short blocks) */}
                           {hasBroadcastTimes ? (
                             <>
                               {/* OBS event times in parentheses (first line) - block start/end */}
@@ -1193,7 +1238,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                             </div>
                           )}
                           
-                          {/* DX Channel from OBS or Encoder/Suite identifier (third line) - hide for very narrow blocks */}
+                          {/* DX Channel from OBS or Encoder/Suite identifier (third line) - hide for very narrow blocks only */}
                           {!isNarrowBlock && (
                             <>
                               {block.obs_group ? (
@@ -1208,12 +1253,14 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                             </>
                           )}
                           
-                          {/* Event name (fourth line) - wrap to show full title, truncate for narrow blocks */}
-                          <div className={`font-medium ${isNarrowBlock ? 'mb-0.5 text-[9px] truncate' : 'mb-1 text-[14.6px] break-words'}`}>
-                            {block.name || event.title}
-                          </div>
+                          {/* Event name (fourth line) - wrap to show full title, truncate for narrow blocks; hide for short blocks (moved to external label) */}
+                          {!isShortBlock && (
+                            <div className={`font-medium ${isNarrowBlock ? 'mb-0.5 text-[9px] truncate' : 'mb-1 text-[14.6px] break-words'}`}>
+                              {block.name || event.title}
+                            </div>
+                          )}
                           
-                          {/* Networks and Booths - one per line: "CBC TV : VIS" format - hide for narrow blocks */}
+                          {/* Networks and Booths - one per line: "CBC TV : VIS" format - hide for narrow and short blocks */}
                           {/* Match each network to its booth using network_id */}
                           {(() => {
                             // Define the three network labels in order (with proper capitalization)
@@ -1301,7 +1348,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               return a.sortOrder - b.sortOrder
                             })
                             
-                            return displayItems.length > 0 && !isNarrowBlock ? (
+                            return displayItems.length > 0 && !isNarrowBlock && !isShortBlock ? (
                               <div className="mt-auto space-y-0.5 mb-1">
                                 {displayItems.map((item, idx) => (
                                   <div key={idx} className="text-[13.3px] opacity-90">
