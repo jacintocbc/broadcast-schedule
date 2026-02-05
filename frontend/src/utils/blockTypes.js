@@ -78,8 +78,8 @@ export function inferBlockType(eventName) {
     return 'BEAUTY CAMERA'
   }
   
-  // OBS Highlight Show
-  if (name.includes('HIGHLIGHT') || name.includes('HIGHLIGHTS')) {
+  // OBS Highlight Show (OCNP, OCNH, or highlight patterns - typically on DX24)
+  if (name.includes('OCNP') || name.includes('OCNH') || name.includes('HIGHLIGHT') || name.includes('HIGHLIGHTS')) {
     return 'OBS HIGHLIGHT SHOW'
   }
   
@@ -128,7 +128,7 @@ export function inferOBSEventDisplayType(title) {
   if (name.includes('CEREMONY')) return 'CEREMONY'
   if (name.includes('CONFERENCE') || name.includes('PRESS')) return 'PRESS CONFERENCE'
   if (name.includes('TRAINING')) return 'TRAINING SESSION'
-  if (name.includes('OBS')) return 'OBS HIGHLIGHT SHOW'
+  if (name.includes('OCNP') || name.includes('OCNH') || name.includes('OBS')) return 'OBS HIGHLIGHT SHOW'
   if (name.includes('MEDAL')) return 'FINAL/MEDAL'
   // Final or Finals but NOT semi-final
   if ((name.includes('FINAL') || name.includes('FINALS')) && !name.includes('SEMI') && !name.includes('SEMI-FINAL')) {
