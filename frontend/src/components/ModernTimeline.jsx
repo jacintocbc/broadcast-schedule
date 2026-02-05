@@ -1014,7 +1014,13 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                   rightPercent = Math.max(0, Math.min(100, rightPercent))
                   
                   const left = `${leftPercent}%`
-                  const width = `${Math.max(rightPercent - leftPercent, 0.5)}%` // Minimum 0.5% width
+                  const widthPercent = Math.max(rightPercent - leftPercent, 0.5)
+                  const width = `${widthPercent}%` // Minimum 0.5% width
+                  
+                  // Calculate approximate pixel width for narrow block detection
+                  // Estimate: timeline width is roughly viewport width minus label column (96px) minus padding
+                  // For narrow block detection, we'll use a percentage threshold
+                  const isNarrowBlock = widthPercent < 2 // Less than 2% of timeline width (roughly < 80px on typical screens)
                   
                   const isBlock = event.block
                   const block = event.block || {}
@@ -1101,15 +1107,24 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                       style={{
                         left,
                         width,
-                        minWidth: isOnAirResizable ? '50px' : (isBlock ? '200px' : '120px'),
+                        minWidth: isOnAirResizable ? '50px' : (isBlock ? '40px' : '40px'),
                         backgroundColor,
                         border: `2px ${borderStyle} ${borderColor}`,
                         zIndex: 10,
                         height: hasMinimalContent ? undefined : (isBlock ? 'auto' : undefined),
                         minHeight: hasMinimalContent ? undefined : (isBlock ? 'auto' : undefined)
                       }}
-                      title={event.title}
+                      title={`${block.name || event.title}${hasBroadcastTimes ? `\n(${obsStartMilan?.format('HH:mm')} - ${obsEndMilan?.format('HH:mm')})\n${broadcastStart.format('HH:mm')} - ${broadcastEnd.format('HH:mm')}` : `\n${startMilan.format('HH:mm')} - ${endMilan.format('HH:mm')}`}${block.obs_group ? `\n${block.obs_group}` : ''}`}
                     >
+                      {/* External label for very narrow blocks */}
+                      {isNarrowBlock && isBlock && (
+                        <div 
+                          className="absolute left-full ml-1 top-0 whitespace-nowrap text-[11px] text-gray-300 z-20 pointer-events-none"
+                          style={{ maxWidth: '200px' }}
+                        >
+                          {block.name || event.title}
+                        </div>
+                      )}
                       {/* Resize handles for On Air blocks */}
                       {isOnAirResizable && !isResizing && (
                         <>
@@ -1136,7 +1151,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                       {isBlock ? (
                         // Block display with metadata - matching the provided format
                         <div 
-                          className={`flex flex-col text-[14.6px] leading-tight ${textColor} relative ${hasMinimalContent ? 'p-1' : 'p-2'}`}
+                          className={`flex flex-col ${isNarrowBlock ? 'text-[10px] leading-tight' : 'text-[14.6px] leading-tight'} ${textColor} relative ${hasMinimalContent ? 'p-1' : (isNarrowBlock ? 'p-0.5' : 'p-2')}`}
                           style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
                           {/* Top right: maple leaf (if Canadian) and live circle (if live), aligned */}
@@ -1161,40 +1176,44 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           {hasBroadcastTimes ? (
                             <>
                               {/* OBS event times in parentheses (first line) - block start/end */}
-                              {obsStartMilan && obsEndMilan && (
-                                <div className="text-[13.3px] opacity-90 mb-0.5">
+                              {obsStartMilan && obsEndMilan && !isNarrowBlock && (
+                                <div className={`${isNarrowBlock ? 'text-[9px]' : 'text-[13.3px]'} opacity-90 mb-0.5`}>
                                   ({obsStartMilan.format('HH:mm')} - {obsEndMilan.format('HH:mm')})
                                 </div>
                               )}
                               {/* Broadcast times (second line) */}
-                              <div className="text-[13.3px] opacity-90 mb-1">
+                              <div className={`${isNarrowBlock ? 'text-[9px]' : 'text-[13.3px]'} opacity-90 ${isNarrowBlock ? 'mb-0.5' : 'mb-1'}`}>
                                 {broadcastStart.format('HH:mm')} - {broadcastEnd.format('HH:mm')}
                               </div>
                             </>
                           ) : (
                             /* No broadcast: single line using block times (position uses effective times) */
-                            <div className="text-[13.3px] opacity-90 mb-1">
+                            <div className={`${isNarrowBlock ? 'text-[9px]' : 'text-[13.3px]'} opacity-90 ${isNarrowBlock ? 'mb-0.5' : 'mb-1'}`}>
                               {startMilan.format('HH:mm')} - {endMilan.format('HH:mm')}
                             </div>
                           )}
                           
-                          {/* DX Channel from OBS or Encoder/Suite identifier (third line) */}
-                          {block.obs_group ? (
-                            <div className="font-semibold mb-1 text-[13.3px]">
-                              {block.obs_group}
-                            </div>
-                          ) : (block.encoder || block.suite) ? (
-                            <div className="font-semibold mb-1 text-[13.3px]">
-                              {block.encoder?.name || ''} {block.encoder && block.suite ? '-' : ''} {block.suite?.name || ''}
-                            </div>
-                          ) : null}
+                          {/* DX Channel from OBS or Encoder/Suite identifier (third line) - hide for very narrow blocks */}
+                          {!isNarrowBlock && (
+                            <>
+                              {block.obs_group ? (
+                                <div className={`font-semibold mb-1 ${isNarrowBlock ? 'text-[9px]' : 'text-[13.3px]'}`}>
+                                  {block.obs_group}
+                                </div>
+                              ) : (block.encoder || block.suite) ? (
+                                <div className={`font-semibold mb-1 ${isNarrowBlock ? 'text-[9px]' : 'text-[13.3px]'}`}>
+                                  {block.encoder?.name || ''} {block.encoder && block.suite ? '-' : ''} {block.suite?.name || ''}
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                           
-                          {/* Event name (fourth line) - wrap to show full title */}
-                          <div className="font-medium mb-1 text-[14.6px] break-words">
+                          {/* Event name (fourth line) - wrap to show full title, truncate for narrow blocks */}
+                          <div className={`font-medium ${isNarrowBlock ? 'mb-0.5 text-[9px] truncate' : 'mb-1 text-[14.6px] break-words'}`}>
                             {block.name || event.title}
                           </div>
                           
-                          {/* Networks and Booths - one per line: "CBC TV : VIS" format */}
+                          {/* Networks and Booths - one per line: "CBC TV : VIS" format - hide for narrow blocks */}
                           {/* Match each network to its booth using network_id */}
                           {(() => {
                             // Define the three network labels in order (with proper capitalization)
@@ -1282,7 +1301,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               return a.sortOrder - b.sortOrder
                             })
                             
-                            return displayItems.length > 0 ? (
+                            return displayItems.length > 0 && !isNarrowBlock ? (
                               <div className="mt-auto space-y-0.5 mb-1">
                                 {displayItems.map((item, idx) => (
                                   <div key={idx} className="text-[13.3px] opacity-90">
