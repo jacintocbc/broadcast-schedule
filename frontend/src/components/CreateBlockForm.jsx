@@ -348,7 +348,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, on
                   className={inputClass}
                   onClick={() => {
                     if (!formData.broadcast_start_time && formData.start_time) {
-                      const suggested = moment.tz(formData.start_time, 'Europe/Rome').subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      const suggested = moment.tz(formData.start_time, 'Europe/Rome').add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_start_time: suggested }))
                     }
                   }}
@@ -365,7 +365,9 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, on
                   onClick={() => {
                     if (!formData.broadcast_end_time && formData.end_time) {
                       hasUserEditedTimes.current = true
-                      const suggested = moment.tz(formData.end_time, 'Europe/Rome').add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      const endMoment = moment.tz(formData.end_time, 'Europe/Rome')
+                      const roundedMinutes = Math.floor(endMoment.minute() / 5) * 5
+                      const suggested = endMoment.clone().minute(roundedMinutes).second(0).millisecond(0).format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_end_time: suggested }))
                     }
                   }}

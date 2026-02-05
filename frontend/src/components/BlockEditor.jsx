@@ -555,10 +555,10 @@ function BlockEditor({ block, onClose, onUpdate, dark }) {
                   })() : undefined}
                   className={inputClass}
                   onClick={(e) => {
-                    // When calendar opens, if empty, suggest 10 minutes before start time (same date)
+                    // When calendar opens, if empty, suggest 10 minutes after start time
                     if (!formData.broadcast_start_time && formData.start_time) {
                       const startMoment = moment.tz(formData.start_time, 'Europe/Rome')
-                      const suggested = startMoment.clone().subtract(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      const suggested = startMoment.clone().add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_start_time: suggested }))
                     }
                   }}
@@ -577,10 +577,11 @@ function BlockEditor({ block, onClose, onUpdate, dark }) {
                   })() : undefined}
                   className={inputClass}
                   onClick={(e) => {
-                    // When calendar opens, if empty, suggest 10 minutes after end time (same date)
+                    // When calendar opens, if empty, suggest end time rounded down to nearest :00 or :05
                     if (!formData.broadcast_end_time && formData.end_time) {
                       const endMoment = moment.tz(formData.end_time, 'Europe/Rome')
-                      const suggested = endMoment.clone().add(10, 'minutes').format('YYYY-MM-DDTHH:mm')
+                      const roundedMinutes = Math.floor(endMoment.minute() / 5) * 5
+                      const suggested = endMoment.clone().minute(roundedMinutes).second(0).millisecond(0).format('YYYY-MM-DDTHH:mm')
                       setFormData(prev => ({ ...prev, broadcast_end_time: suggested }))
                     }
                   }}
