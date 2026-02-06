@@ -846,9 +846,24 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
               return !hasBroadcastTimes && !hasNetworksBooths
             })
             
-            // Adjust row height based on content - minimal blocks get smaller rows
+            // Check if any block has heavy content that may overflow - use extra large rows when
+            // block has broadcast times AND 3+ network/booth pairs AND event name meets threshold:
+            // - Events < 2 hours: 20+ chars (narrow block, less space for text)
+            // - Events >= 2 hours: 45+ chars
+            const anyBlockNeedsExtraLarge = blocksInGroup.some(item => {
+              const block = item.block
+              const boothCount = block.booths?.length ?? 0
+              const hasBroadcastTimes = block.broadcast_start_time && block.broadcast_end_time
+              const eventNameLength = (block.name || item.title || '').length
+              const durationMinutes = item.durationMinutes ?? 0
+              const isShortEvent = durationMinutes > 0 && durationMinutes < 120
+              const minChars = isShortEvent ? 20 : 45
+              return hasBroadcastTimes && boothCount >= 3 && eventNameLength >= minChars
+            })
+            
+            // Adjust row height: minimal (100px), standard (200px), extra large (280px) for blocks with heavy content
             const rowMinHeight = hasBlocks 
-              ? (allBlocksMinimal ? '100px' : '200px')
+              ? (allBlocksMinimal ? '100px' : anyBlockNeedsExtraLarge ? '250px' : '200px')
               : '80px'
             
             // Check if this is a TX encoder row (CBC timeline)
