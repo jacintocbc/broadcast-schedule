@@ -104,6 +104,11 @@ function AddToCBCForm({ event, onClose, onSuccess, dark }) {
 
   const loadReferenceData = async () => {
     try {
+      // Determine event date for filtering blocks (only need nearby blocks for encoder availability)
+      const eventDate = event?.start_time
+        ? moment.utc(event.start_time).tz('Europe/Rome').format('YYYY-MM-DD')
+        : moment.tz('Europe/Rome').format('YYYY-MM-DD')
+      
       const [encodersData, producersData, suitesData, commentatorsData, boothsData, networksData, blocksData] = await Promise.all([
         getResources('encoders'),
         getResources('producers'),
@@ -111,7 +116,7 @@ function AddToCBCForm({ event, onClose, onSuccess, dark }) {
         getResources('commentators'),
         getResources('booths'),
         getResources('networks'),
-        getBlocks() // Load all blocks to check booth availability
+        getBlocks({ date: eventDate }) // Load blocks near event date for encoder availability
       ])
       setEncoders(encodersData)
       setProducers(producersData)
@@ -127,37 +132,42 @@ function AddToCBCForm({ event, onClose, onSuccess, dark }) {
 
   // Real-time subscriptions for reference data
   useEffect(() => {
+    // Determine event date for filtering blocks on realtime updates
+    const eventDate = event?.start_time
+      ? moment.utc(event.start_time).tz('Europe/Rome').format('YYYY-MM-DD')
+      : moment.tz('Europe/Rome').format('YYYY-MM-DD')
+    
     const unsubscribers = [
       realtimeManager.subscribe('encoders', () => {
-        getResources('encoders').then(setEncoders).catch(console.error)
+        getResources('encoders', { skipCache: true }).then(setEncoders).catch(console.error)
       }),
       realtimeManager.subscribe('producers', () => {
-        getResources('producers').then(setProducers).catch(console.error)
+        getResources('producers', { skipCache: true }).then(setProducers).catch(console.error)
       }),
       realtimeManager.subscribe('suites', () => {
-        getResources('suites').then(setSuites).catch(console.error)
+        getResources('suites', { skipCache: true }).then(setSuites).catch(console.error)
       }),
       realtimeManager.subscribe('commentators', () => {
-        getResources('commentators').then(setCommentators).catch(console.error)
+        getResources('commentators', { skipCache: true }).then(setCommentators).catch(console.error)
       }),
       realtimeManager.subscribe('booths', () => {
-        getResources('booths').then(setBooths).catch(console.error)
+        getResources('booths', { skipCache: true }).then(setBooths).catch(console.error)
       }),
       realtimeManager.subscribe('networks', () => {
-        getResources('networks').then(setNetworks).catch(console.error)
+        getResources('networks', { skipCache: true }).then(setNetworks).catch(console.error)
       }),
       realtimeManager.subscribe('blocks', () => {
-        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+        getBlocks({ date: eventDate }).then(data => setAllBlocks(data || [])).catch(console.error)
       }),
       realtimeManager.subscribe('block_booths', () => {
-        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+        getBlocks({ date: eventDate }).then(data => setAllBlocks(data || [])).catch(console.error)
       }),
     ]
     
     return () => {
       unsubscribers.forEach(unsub => unsub())
     }
-  }, [])
+  }, [event])
 
   // Sort booths: shared (VIS/VOBS/VV), VT, VM, others
   const sortedBooths = useMemo(() => {

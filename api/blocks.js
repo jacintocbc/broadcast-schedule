@@ -93,8 +93,10 @@ export default async function handler(req, res) {
 
           res.json(blockData);
         } else {
-          // Get all blocks with relationships
-          const { data: blocks, error: blocksError } = await supabase
+          // Get all blocks with relationships, optionally filtered by date
+          const dateFilter = req.query.date; // Optional YYYY-MM-DD date filter
+          
+          let blocksQuery = supabase
             .from('blocks')
             .select(`
               *,
@@ -103,70 +105,92 @@ export default async function handler(req, res) {
               suite:suites(*)
             `)
             .order('start_time');
+
+          // If date filter provided, only return blocks within ±2 days (covers timezone offsets and 48h zoom)
+          if (dateFilter) {
+            const filterDate = new Date(dateFilter + 'T00:00:00Z');
+            const fromDate = new Date(filterDate);
+            fromDate.setDate(fromDate.getDate() - 2);
+            const toDate = new Date(filterDate);
+            toDate.setDate(toDate.getDate() + 3); // +3 to cover full end-of-day
+            blocksQuery = blocksQuery
+              .gte('start_time', fromDate.toISOString())
+              .lte('start_time', toDate.toISOString());
+          }
+
+          const { data: blocks, error: blocksError } = await blocksQuery;
           
           if (blocksError) throw blocksError;
 
-          // For each block, get multiple relationships (per-block try/catch so one bad block doesn't 500)
-          const blocksWithRelations = await Promise.all(
-            (blocks || []).map(async (block) => {
-              try {
-                const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
-                  supabase
-                    .from('block_commentators')
-                    .select('*, commentator:commentators(*)')
-                    .eq('block_id', block.id),
-                  supabase
-                    .from('block_booths')
-                    .select('*, booth:booths(*), network:networks(*)')
-                    .eq('block_id', block.id),
-                  supabase
-                    .from('block_networks')
-                    .select('*, network:networks(*)')
-                    .eq('block_id', block.id)
-                ]);
+          const blockIds = (blocks || []).map(b => b.id);
 
-                const commentators = (commentatorsRes?.data || [])
-                  .filter(c => c && c.commentator)
-                  .map(c => ({
-                    id: c.commentator.id,
-                    name: c.commentator.name,
-                    role: c.role
-                  }));
-                const booths = (boothsRes?.data || [])
-                  .filter(b => b && b.booth)
-                  .map(b => ({
-                    id: b.booth.id,
-                    name: b.booth.name,
-                    network_id: b.network_id,
-                    network: b.network && b.network.id ? {
-                      id: b.network.id,
-                      name: b.network.name
-                    } : null
-                  }));
-                const networks = (networksRes?.data || [])
-                  .filter(n => n && n.network)
-                  .map(n => ({
-                    id: n.network.id,
-                    name: n.network.name
-                  }));
+          // Bulk-load all associations in 3 queries (instead of 3 per block)
+          let allCommentators = [], allBooths = [], allNetworks = [];
+          if (blockIds.length > 0) {
+            const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
+              supabase
+                .from('block_commentators')
+                .select('*, commentator:commentators(*)')
+                .in('block_id', blockIds),
+              supabase
+                .from('block_booths')
+                .select('*, booth:booths(*), network:networks(*)')
+                .in('block_id', blockIds),
+              supabase
+                .from('block_networks')
+                .select('*, network:networks(*)')
+                .in('block_id', blockIds)
+            ]);
+            allCommentators = commentatorsRes?.data || [];
+            allBooths = boothsRes?.data || [];
+            allNetworks = networksRes?.data || [];
+          }
 
-                return {
-                  ...block,
-                  commentators,
-                  booths,
-                  networks
-                };
-              } catch (err) {
-                console.error('Error loading relationships for block', block.id, err);
-                return {
-                  ...block,
-                  commentators: [],
-                  booths: [],
-                  networks: []
-                };
-              }
-            })
-          );
+          // Group associations by block_id
+          const commentatorsByBlock = {};
+          allCommentators.forEach(c => {
+            if (!commentatorsByBlock[c.block_id]) commentatorsByBlock[c.block_id] = [];
+            commentatorsByBlock[c.block_id].push(c);
+          });
+          const boothsByBlock = {};
+          allBooths.forEach(b => {
+            if (!boothsByBlock[b.block_id]) boothsByBlock[b.block_id] = [];
+            boothsByBlock[b.block_id].push(b);
+          });
+          const networksByBlock = {};
+          allNetworks.forEach(n => {
+            if (!networksByBlock[n.block_id]) networksByBlock[n.block_id] = [];
+            networksByBlock[n.block_id].push(n);
+          });
+
+          // Map associations onto blocks
+          const blocksWithRelations = (blocks || []).map(block => ({
+            ...block,
+            commentators: (commentatorsByBlock[block.id] || [])
+              .filter(c => c && c.commentator)
+              .map(c => ({
+                id: c.commentator.id,
+                name: c.commentator.name,
+                role: c.role
+              })),
+            booths: (boothsByBlock[block.id] || [])
+              .filter(b => b && b.booth)
+              .map(b => ({
+                id: b.booth.id,
+                name: b.booth.name,
+                network_id: b.network_id,
+                network: b.network && b.network.id ? {
+                  id: b.network.id,
+                  name: b.network.name
+                } : null
+              })),
+            networks: (networksByBlock[block.id] || [])
+              .filter(n => n && n.network)
+              .map(n => ({
+                id: n.network.id,
+                name: n.network.name
+              }))
+          }));
 
           res.json(blocksWithRelations);
         }

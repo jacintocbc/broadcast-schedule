@@ -74,6 +74,8 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, on
   useEffect(() => {
     const load = async () => {
       try {
+        // Use selectedDate to filter blocks (only need nearby blocks for encoder availability)
+        const dateForFilter = selectedDate || moment.tz('Europe/Rome').format('YYYY-MM-DD')
         const [encData, prodData, suiteData, commData, boothData, netData, blocksData] = await Promise.all([
           getResources('encoders'),
           getResources('producers'),
@@ -81,7 +83,7 @@ function CreateBlockForm({ draft, selectedDate, encoders, onClose, onSuccess, on
           getResources('commentators'),
           getResources('booths'),
           getResources('networks'),
-          getBlocks()
+          getBlocks({ date: dateForFilter })
         ])
         setEncodersList(encData || [])
         setProducers(prodData || [])

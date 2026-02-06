@@ -769,8 +769,10 @@ app.get('/api/blocks', async (req, res) => {
 
       res.json(blockData);
     } else {
-      // Get all blocks with relationships
-      const { data: blocks, error: blocksError } = await supabase
+      // Get all blocks with relationships, optionally filtered by date
+      const dateFilter = req.query.date; // Optional YYYY-MM-DD date filter
+
+      let blocksQuery = supabase
         .from('blocks')
         .select(`
           *,
@@ -779,93 +781,102 @@ app.get('/api/blocks', async (req, res) => {
           suite:suites(*)
         `)
         .order('start_time');
+
+      // If date filter provided, only return blocks within ±2 days (covers timezone offsets and 48h zoom)
+      if (dateFilter) {
+        const filterDate = new Date(dateFilter + 'T00:00:00Z');
+        const fromDate = new Date(filterDate);
+        fromDate.setDate(fromDate.getDate() - 2);
+        const toDate = new Date(filterDate);
+        toDate.setDate(toDate.getDate() + 3); // +3 to cover full end-of-day
+        blocksQuery = blocksQuery
+          .gte('start_time', fromDate.toISOString())
+          .lte('start_time', toDate.toISOString());
+      }
+
+      const { data: blocks, error: blocksError } = await blocksQuery;
       
       if (blocksError) {
         console.error('Blocks query error:', blocksError);
         throw blocksError;
       }
 
-      const blocksWithRelations = await Promise.all(
-        (blocks || []).map(async (block) => {
-          try {
-            const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
-              supabase
-                .from('block_commentators')
-                .select('*, commentator:commentators(*)')
-                .eq('block_id', block.id),
-              supabase
-                .from('block_booths')
-                .select('*, booth:booths(*), network:networks(*)')
-                .eq('block_id', block.id),
-              supabase
-                .from('block_networks')
-                .select('*, network:networks(*)')
-                .eq('block_id', block.id)
-            ]);
+      const blockIds = (blocks || []).map(b => b.id);
 
-            // Check for errors in relationship queries
-            if (commentatorsRes.error) {
-              console.error(`Error fetching commentators for block ${block.id}:`, commentatorsRes.error);
-            }
-            if (boothsRes.error) {
-              console.error(`Error fetching booths for block ${block.id}:`, boothsRes.error);
-            }
-            if (networksRes.error) {
-              console.error(`Error fetching networks for block ${block.id}:`, networksRes.error);
-            }
+      // Bulk-load all associations in 3 queries (instead of 3 per block)
+      let allCommentators = [], allBooths = [], allNetworks = [];
+      if (blockIds.length > 0) {
+        const [commentatorsRes, boothsRes, networksRes] = await Promise.all([
+          supabase
+            .from('block_commentators')
+            .select('*, commentator:commentators(*)')
+            .in('block_id', blockIds),
+          supabase
+            .from('block_booths')
+            .select('*, booth:booths(*), network:networks(*)')
+            .in('block_id', blockIds),
+          supabase
+            .from('block_networks')
+            .select('*, network:networks(*)')
+            .in('block_id', blockIds)
+        ]);
 
-            return {
-              ...block,
-              commentators: (commentatorsRes.data || []).map(c => {
-                if (!c || !c.commentator) {
-                  console.warn(`Missing commentator data for block ${block.id}:`, c);
-                  return null;
-                }
-                return {
-                  id: c.commentator.id,
-                  name: c.commentator.name,
-                  role: c.role
-                };
-              }).filter(Boolean) || [],
-              booths: (boothsRes.data || []).map(b => {
-                if (!b || !b.booth) {
-                  console.warn(`Missing booth data for block ${block.id}:`, b);
-                  return null;
-                }
-                return {
-                  id: b.booth.id,
-                  name: b.booth.name,
-                  network_id: b.network_id,
-                  network: (b.network && b.network.id) ? {
-                    id: b.network.id,
-                    name: b.network.name
-                  } : null
-                };
-              }).filter(Boolean) || [],
-        networks: (networksRes.data || []).map(n => {
-          if (!n || !n.network || !n.network.id) {
-            console.warn(`Missing network data for block ${block.id}:`, n);
-            return null;
-          }
-          return {
+        if (commentatorsRes.error) console.error('Bulk commentators query error:', commentatorsRes.error);
+        if (boothsRes.error) console.error('Bulk booths query error:', boothsRes.error);
+        if (networksRes.error) console.error('Bulk networks query error:', networksRes.error);
+
+        allCommentators = commentatorsRes?.data || [];
+        allBooths = boothsRes?.data || [];
+        allNetworks = networksRes?.data || [];
+      }
+
+      // Group associations by block_id
+      const commentatorsByBlock = {};
+      allCommentators.forEach(c => {
+        if (!commentatorsByBlock[c.block_id]) commentatorsByBlock[c.block_id] = [];
+        commentatorsByBlock[c.block_id].push(c);
+      });
+      const boothsByBlock = {};
+      allBooths.forEach(b => {
+        if (!boothsByBlock[b.block_id]) boothsByBlock[b.block_id] = [];
+        boothsByBlock[b.block_id].push(b);
+      });
+      const networksByBlock = {};
+      allNetworks.forEach(n => {
+        if (!networksByBlock[n.block_id]) networksByBlock[n.block_id] = [];
+        networksByBlock[n.block_id].push(n);
+      });
+
+      // Map associations onto blocks
+      const blocksWithRelations = (blocks || []).map(block => ({
+        ...block,
+        commentators: (commentatorsByBlock[block.id] || [])
+          .filter(c => c && c.commentator)
+          .map(c => ({
+            id: c.commentator.id,
+            name: c.commentator.name,
+            role: c.role
+          })),
+        booths: (boothsByBlock[block.id] || [])
+          .filter(b => b && b.booth)
+          .map(b => ({
+            id: b.booth.id,
+            name: b.booth.name,
+            network_id: b.network_id,
+            network: b.network && b.network.id ? {
+              id: b.network.id,
+              name: b.network.name
+            } : null
+          })),
+        networks: (networksByBlock[block.id] || [])
+          .filter(n => n && n.network && n.network.id)
+          .map(n => ({
             id: n.network.id,
             name: n.network.name
-          };
-        }).filter(Boolean) || []
-            };
-          } catch (blockError) {
-            console.error(`Error processing block ${block.id}:`, blockError);
-            // Return block with empty relationships if there's an error
-            return {
-              ...block,
-              commentators: [],
-              booths: [],
-              networks: []
-            };
-          }
-        })
-      );
+          }))
+      }));
 
+      console.log(`Loaded ${blocksWithRelations.length} blocks with associations in 4 queries${dateFilter ? ` (filtered by ${dateFilter})` : ''}`);
       res.json(blocksWithRelations);
     }
   } catch (error) {

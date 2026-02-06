@@ -333,11 +333,15 @@ function CBCTimelineView() {
     return eventsList
   }, [filteredBlocks, encoders, selectedDate, blocksHash])
 
-  const loadBlocks = async () => {
+  const loadBlocks = async (dateOverride) => {
     try {
       setError(null)
       if (!hasLoadedOnce.current) setLoading(true)
-      const data = await getBlocks()
+      // Use date filter for faster loads when we already have dates (realtime refreshes)
+      const dateToFilter = dateOverride || selectedDate
+      const data = dateToFilter && hasLoadedOnce.current
+        ? await getBlocks({ date: dateToFilter })
+        : await getBlocks()
       const blockList = Array.isArray(data) ? data : (data?.blocks ?? data?.data ?? [])
       setBlocks(blockList)
       // Update selectedBlock if it exists to ensure it has the latest data

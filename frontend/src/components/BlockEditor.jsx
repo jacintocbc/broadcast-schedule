@@ -99,6 +99,11 @@ function BlockEditor({ block, onClose, onUpdate, dark }) {
 
   const loadReferenceData = async () => {
     try {
+      // Use block's start_time to filter blocks (only need nearby blocks for encoder availability)
+      const blockDate = block?.start_time
+        ? moment.utc(block.start_time).tz('Europe/Rome').format('YYYY-MM-DD')
+        : moment.tz('Europe/Rome').format('YYYY-MM-DD')
+      
       const [encodersData, producersData, suitesData, commentatorsData, boothsData, networksData, blocksData] = await Promise.all([
         getResources('encoders'),
         getResources('producers'),
@@ -106,7 +111,7 @@ function BlockEditor({ block, onClose, onUpdate, dark }) {
         getResources('commentators'),
         getResources('booths'),
         getResources('networks'),
-        getBlocks() // Load all blocks to check booth availability
+        getBlocks({ date: blockDate }) // Load blocks near this date for encoder availability
       ])
       setEncoders(encodersData)
       setProducers(producersData)
@@ -122,37 +127,42 @@ function BlockEditor({ block, onClose, onUpdate, dark }) {
 
   // Real-time subscriptions for reference data
   useEffect(() => {
+    // Use block's date for filtering blocks on realtime updates
+    const blockDate = block?.start_time
+      ? moment.utc(block.start_time).tz('Europe/Rome').format('YYYY-MM-DD')
+      : moment.tz('Europe/Rome').format('YYYY-MM-DD')
+    
     const unsubscribers = [
       realtimeManager.subscribe('encoders', () => {
-        getResources('encoders').then(setEncoders).catch(console.error)
+        getResources('encoders', { skipCache: true }).then(setEncoders).catch(console.error)
       }),
       realtimeManager.subscribe('producers', () => {
-        getResources('producers').then(setProducers).catch(console.error)
+        getResources('producers', { skipCache: true }).then(setProducers).catch(console.error)
       }),
       realtimeManager.subscribe('suites', () => {
-        getResources('suites').then(setSuites).catch(console.error)
+        getResources('suites', { skipCache: true }).then(setSuites).catch(console.error)
       }),
       realtimeManager.subscribe('commentators', () => {
-        getResources('commentators').then(setCommentators).catch(console.error)
+        getResources('commentators', { skipCache: true }).then(setCommentators).catch(console.error)
       }),
       realtimeManager.subscribe('booths', () => {
-        getResources('booths').then(setBooths).catch(console.error)
+        getResources('booths', { skipCache: true }).then(setBooths).catch(console.error)
       }),
       realtimeManager.subscribe('networks', () => {
-        getResources('networks').then(setNetworks).catch(console.error)
+        getResources('networks', { skipCache: true }).then(setNetworks).catch(console.error)
       }),
       realtimeManager.subscribe('blocks', () => {
-        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+        getBlocks({ date: blockDate }).then(data => setAllBlocks(data || [])).catch(console.error)
       }),
       realtimeManager.subscribe('block_booths', () => {
-        getBlocks().then(data => setAllBlocks(data || [])).catch(console.error)
+        getBlocks({ date: blockDate }).then(data => setAllBlocks(data || [])).catch(console.error)
       }),
     ]
     
     return () => {
       unsubscribers.forEach(unsub => unsub())
     }
-  }, [])
+  }, [block])
 
   // Real-time subscriptions for block relationships (when block is selected)
   useEffect(() => {

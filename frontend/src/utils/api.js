@@ -44,10 +44,20 @@ export async function deleteResource(resourceType, id) {
 }
 
 // Blocks API
-export async function getBlocks(blockId = null) {
-  const url = blockId 
-    ? `${API_BASE}/api/blocks?id=${blockId}`
-    : `${API_BASE}/api/blocks`;
+export async function getBlocks(blockIdOrOptions = null) {
+  let url;
+  if (typeof blockIdOrOptions === 'string' || typeof blockIdOrOptions === 'number') {
+    // Single block by ID
+    url = `${API_BASE}/api/blocks?id=${blockIdOrOptions}`;
+  } else if (blockIdOrOptions && typeof blockIdOrOptions === 'object') {
+    // Options object: { date: 'YYYY-MM-DD' }
+    const params = new URLSearchParams();
+    if (blockIdOrOptions.date) params.set('date', blockIdOrOptions.date);
+    const qs = params.toString();
+    url = `${API_BASE}/api/blocks${qs ? '?' + qs : ''}`;
+  } else {
+    url = `${API_BASE}/api/blocks`;
+  }
   const response = await fetch(url);
   if (!response.ok) {
     const text = await response.text();
