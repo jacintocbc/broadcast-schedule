@@ -793,6 +793,25 @@ app.get('/api/iho-live', (req, res) => {
     const { mtime, data } = fileResult;
     data.lastUpdated = mtime.toISOString();
     res.json(data);
+
+    // Sync to Supabase for deployed viewing (non-blocking)
+    if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
+      supabase
+        .from('iho_game_data')
+        .upsert(
+          {
+            home_team_code: data.homeTeam.code,
+            away_team_code: data.awayTeam.code,
+            game_date: data.date,
+            data,
+            last_updated: mtime.toISOString()
+          },
+          { onConflict: 'home_team_code,away_team_code,game_date' }
+        )
+        .then(({ error }) => {
+          if (error) console.error('IHO Supabase sync error:', error.message);
+        });
+    }
   } catch (err) {
     console.error('IHO live error:', err);
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;

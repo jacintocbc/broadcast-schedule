@@ -90,3 +90,12 @@ CREATE POLICY "Allow all (authenticated)" ON planning FOR ALL TO authenticated U
 -- DROP POLICY IF EXISTS "Allow all (authenticated)" ON live_event_data;
 -- CREATE POLICY "Allow all (anon)" ON live_event_data FOR ALL TO anon USING (true) WITH CHECK (true);
 -- CREATE POLICY "Allow all (authenticated)" ON live_event_data FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- IHO game data (for deployed app viewing)
+-- ============================================
+ALTER TABLE iho_game_data ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON iho_game_data;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON iho_game_data;
+CREATE POLICY "Allow all (anon)" ON iho_game_data FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON iho_game_data FOR ALL TO authenticated USING (true) WITH CHECK (true);

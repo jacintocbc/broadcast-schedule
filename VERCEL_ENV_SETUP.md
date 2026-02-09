@@ -24,6 +24,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here
 - ✅ Must use `VITE_` prefix (Vite requirement for client-side variables)
 - ✅ Set for all environments (Production, Preview, Development)
 - ✅ Use the same values as your backend `SUPABASE_URL` and `SUPABASE_ANON_KEY`
+- ✅ `SUPABASE_URL` and `SUPABASE_ANON_KEY` (without `VITE_`) are also needed for server-side API routes (blocks, planning, IHO live, etc.)
 
 ### Step 2: Redeploy
 

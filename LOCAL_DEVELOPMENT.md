@@ -68,7 +68,16 @@ cd frontend
 npm run dev
 ```
 
-### 4. Verify Setup
+### 4. Run IHO Supabase Migration (Optional)
+
+To enable IHO live data on the deployed app, run the migration in Supabase SQL Editor:
+
+1. Open `supabase-iho-game-data.sql` and run its contents
+2. Run the RLS section for `iho_game_data` from `supabase-enable-rls-permissive.sql`
+
+Then when the local backend fetches IHO data from the network drive, it syncs to Supabase. Deployed users can view that data via `/api/iho-live` (Vercel serverless reads from Supabase).
+
+### 5. Verify Setup
 
 1. Backend should start on `http://localhost:3001`
 2. Frontend should start on `http://localhost:3004` (or 3000)
@@ -80,7 +89,7 @@ npm run dev
 
 ### CSV/Events Routes
 - `GET /api/health` - Health check
-- `GET /api/iho-live` - Live IHO DT_RESULT data (parses newest XML from network drive)
+- `GET /api/iho-live` - Live IHO DT_RESULT data (parses newest XML from network drive; syncs to Supabase for deployed viewing)
 - `GET /api/events` - Get all events (from CSV)
 - `GET /api/events/dates` - Get available dates
 - `POST /api/upload` - Upload CSV (if needed)
