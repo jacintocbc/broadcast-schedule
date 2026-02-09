@@ -2,8 +2,9 @@ import { useMemo, useRef, useEffect, useState } from 'react'
 import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
+import { detectSport, extractTeamCodes } from '../utils/liveDataUtils'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup, editingBlockDraft, onOnAirResize, onOpenLiveDataSidebar }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup, editingBlockDraft, onOnAirResize, onOpenLiveDataSidebar, liveHasResults = {} }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
@@ -1215,7 +1216,15 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
                           {/* Top right: maple leaf (if Canadian), live circle (if live), graph icon (if live IHO/CUR), archive icon (if past IHO/CUR) */}
-                          {(block.canadian_content || isLive || (!isLive && onOpenLiveDataSidebar && /iho|ice hockey|cur|curling/.test((block.name || event.title || '').toLowerCase()))) && (
+                          {(block.canadian_content || isLive || (!isLive && onOpenLiveDataSidebar && (() => {
+                                const title = (block.name || event.title || '').toLowerCase();
+                                const hasLiveData = /iho|ice hockey|cur|curling/.test(title);
+                                if (!hasLiveData) return false;
+                                const sport = detectSport(block);
+                                const codes = extractTeamCodes(block);
+                                const key = sport && codes ? `${sport}-${codes.home}-${codes.away}` : null;
+                                return key && liveHasResults[key] === true;
+                              })())) && (
                             <div className="absolute top-2 right-2 z-20 flex items-center justify-end gap-2">
                               {block.canadian_content && (
                                 <span className="text-red-600 text-lg leading-none shrink-0" style={{ lineHeight: '1' }}>
@@ -1249,7 +1258,12 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               {!isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
                                 const hasLiveData = /iho|ice hockey|cur|curling/.test(title);
-                                return hasLiveData ? (
+                                if (!hasLiveData) return null;
+                                const sport = detectSport(block);
+                                const codes = extractTeamCodes(block);
+                                const key = sport && codes ? `${sport}-${codes.home}-${codes.away}` : null;
+                                if (!key || liveHasResults[key] !== true) return null;
+                                return (
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); onOpenLiveDataSidebar(block || event); }}
@@ -1261,7 +1275,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
                                   </button>
-                                ) : null;
+                                );
                               })()}
                             </div>
                           )}

@@ -1,5 +1,16 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
+/** Check which IHO/CUR events have results in Supabase. Returns { results: { 'IHO-ITA-USA': true, ... } } */
+export async function getLiveHasResults(events) {
+  const response = await fetch(`${API_BASE}/api/live-has-results`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ events })
+  });
+  if (!response.ok) throw new Error('Failed to check live results');
+  return response.json();
+}
+
 // Reference tables API - now uses consolidated /api/resources/[type] endpoint
 export async function getResources(resourceType) {
   const response = await fetch(`${API_BASE}/api/resources/${resourceType}`);

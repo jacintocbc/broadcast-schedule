@@ -103,6 +103,8 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
   useEffect(() => {
     if (!open || !sport) return
 
+    setData(null)
+    setError(null)
     setLoading(true)
 
     const fetchData = async () => {
@@ -133,7 +135,7 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
     fetchData()
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
-  }, [open, sport, apiPath, teamCodes?.home, teamCodes?.away])
+  }, [open, sport, apiPath, teamCodes?.home, teamCodes?.away, block?.id])
 
   if (!open) return null
 
@@ -167,7 +169,10 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
         </div>
         <div className="flex-1 overflow-auto p-4 space-y-6">
           {loading && !data && (
-            <div className="flex items-center justify-center py-12 text-gray-400">Loading…</div>
+            <div className="flex flex-col items-center justify-center py-16 gap-4">
+              <div className="w-10 h-10 border-2 border-gray-500 border-t-amber-400 rounded-full animate-spin" aria-hidden />
+              <p className="text-sm text-gray-400">Loading…</p>
+            </div>
           )}
           {error && !data && (
             <div className="rounded-lg bg-gray-700 p-4 text-red-400 border border-red-500/30">

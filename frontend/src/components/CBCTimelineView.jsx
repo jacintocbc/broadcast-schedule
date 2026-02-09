@@ -4,7 +4,8 @@ import IHOLiveSidebar from './IHOLiveSidebar'
 import DateNavigator from './DateNavigator'
 import BlockEditor from './BlockEditor'
 import CreateBlockForm from './CreateBlockForm'
-import { getBlocks, getResources } from '../utils/api'
+import { getBlocks, getResources, getLiveHasResults } from '../utils/api'
+import { detectSport, extractTeamCodes } from '../utils/liveDataUtils'
 import { realtimeManager } from '../utils/realtimeManager'
 import { BLOCK_TYPES, BLOCK_TYPE_COLORS, DEFAULT_BLOCK_COLOR, darkenColor, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 import moment from 'moment-timezone'
@@ -35,6 +36,7 @@ function CBCTimelineView() {
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
   const [liveDataSidebarOpen, setLiveDataSidebarOpen] = useState(false)
   const [liveDataBlock, setLiveDataBlock] = useState(null)
+  const [liveHasResults, setLiveHasResults] = useState({})
   const hasInitializedDate = useRef(false) // Track if we've initialized the date from localStorage
   const previousDatesStr = useRef('') // Track previous dates string to detect actual changes
   const hasLoadedOnce = useRef(false) // Only show loading spinner on initial load, not on real-time refresh
@@ -336,6 +338,26 @@ function CBCTimelineView() {
     return eventsList
   }, [filteredBlocks, encoders, selectedDate, blocksHash])
 
+  // Fetch which IHO/CUR events have results in Supabase (for archive icon visibility)
+  useEffect(() => {
+    const blockEvents = events.filter(e => e.block && !e.isEmpty)
+    const toCheck = blockEvents
+      .map(e => {
+        const sport = detectSport(e.block)
+        const codes = extractTeamCodes(e.block)
+        if (!sport || !codes) return null
+        return { sport, home: codes.home, away: codes.away }
+      })
+      .filter(Boolean)
+    if (toCheck.length === 0) {
+      setLiveHasResults({})
+      return
+    }
+    getLiveHasResults(toCheck)
+      .then(({ results }) => setLiveHasResults(results || {}))
+      .catch(() => setLiveHasResults({}))
+  }, [events])
+
   const loadBlocks = async (dateOverride) => {
     try {
       setError(null)
@@ -560,6 +582,7 @@ function CBCTimelineView() {
                 onNewBlockRange={handleNewBlockRange}
                 editingBlockDraft={newBlockDraft}
                 onOpenLiveDataSidebar={(block) => { setLiveDataBlock(block); setLiveDataSidebarOpen(true); }}
+                liveHasResults={liveHasResults}
               />
             </div>
             {newBlockDraft && (

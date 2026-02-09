@@ -549,40 +549,42 @@ const IHO_BASE_PATH = process.env.IHO_BASE_PATH || 'M:\\Incoming\\IHO';
 const CUR_BASE_PATH = process.env.CUR_BASE_PATH || 'M:\\Incoming\\CUR';
 
 /**
- * Resolve path to newest date folder, then newest holder folder.
- * Returns full path to holder folder or null if not found.
+ * Resolve up to N holder folder paths (newest first). Searches recent hour folders.
+ * If current hour has no results, searches previous hour. Returns [] if none found.
  */
-function resolveIHOHolderPath() {
-  if (!fs.existsSync(IHO_BASE_PATH)) {
-    return null;
-  }
-  const dateDirs = fs.readdirSync(IHO_BASE_PATH, { withFileTypes: true })
+function resolveHolderPaths(basePath, maxFolders = 2) {
+  if (!fs.existsSync(basePath)) return [];
+  const dateDirs = fs.readdirSync(basePath, { withFileTypes: true })
     .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
     .sort((a, b) => b.name.localeCompare(a.name));
-  if (dateDirs.length === 0) return null;
-  const datePath = path.join(IHO_BASE_PATH, dateDirs[0].name);
+  if (dateDirs.length === 0) return [];
+  const datePath = path.join(basePath, dateDirs[0].name);
   const holderDirs = fs.readdirSync(datePath, { withFileTypes: true })
     .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
     .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
-  if (holderDirs.length === 0) return null;
-  return path.join(datePath, holderDirs[0].name);
+  return holderDirs.slice(0, maxFolders).map(d => path.join(datePath, d.name));
 }
 
-/**
- * Resolve path to newest date folder, then newest holder folder for Curling.
- */
+/** Resolve IHO holder paths (up to 2 folders, newest first). */
+function resolveIHOHolderPaths() {
+  return resolveHolderPaths(IHO_BASE_PATH, 2);
+}
+
+/** Resolve CUR holder paths (up to 2 folders, newest first). */
+function resolveCURHolderPaths() {
+  return resolveHolderPaths(CUR_BASE_PATH, 2);
+}
+
+/** @deprecated Use resolveIHOHolderPaths */
+function resolveIHOHolderPath() {
+  const paths = resolveIHOHolderPaths();
+  return paths.length > 0 ? paths[0] : null;
+}
+
+/** @deprecated Use resolveCURHolderPaths */
 function resolveCURHolderPath() {
-  if (!fs.existsSync(CUR_BASE_PATH)) return null;
-  const dateDirs = fs.readdirSync(CUR_BASE_PATH, { withFileTypes: true })
-    .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
-    .sort((a, b) => b.name.localeCompare(a.name));
-  if (dateDirs.length === 0) return null;
-  const datePath = path.join(CUR_BASE_PATH, dateDirs[0].name);
-  const holderDirs = fs.readdirSync(datePath, { withFileTypes: true })
-    .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
-    .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
-  if (holderDirs.length === 0) return null;
-  return path.join(datePath, holderDirs[0].name);
+  const paths = resolveCURHolderPaths();
+  return paths.length > 0 ? paths[0] : null;
 }
 
 /**
@@ -623,6 +625,7 @@ function findDTResultFile(dirPath, homeCode, awayCode) {
       continue;
     }
   }
+  if (wantMatch) return null;
   const { path: filePath, mtime } = files[0];
   const xmlStr = fs.readFileSync(filePath, 'utf-8');
   const data = parseDTResultXml(xmlStr);
@@ -631,6 +634,7 @@ function findDTResultFile(dirPath, homeCode, awayCode) {
 
 /**
  * Find Curling DT_RESULT file. If home/away provided, find first file whose parsed data matches.
+ * When wantMatch and no match found, returns null (don't return wrong game).
  */
 function findDTResultFileCurling(dirPath, homeCode, awayCode) {
   const files = listDTResultFiles(dirPath);
@@ -652,6 +656,7 @@ function findDTResultFileCurling(dirPath, homeCode, awayCode) {
       continue;
     }
   }
+  if (wantMatch) return null;
   const { path: filePath, mtime } = files[0];
   const xmlStr = fs.readFileSync(filePath, 'utf-8');
   const data = parseDTResultXmlCurling(xmlStr);
@@ -1065,10 +1070,11 @@ app.get('/api/iho-live', async (req, res) => {
   try {
     const home = req.query.home;
     const away = req.query.away;
-    const holderPath = resolveIHOHolderPath();
+    const holderPaths = resolveIHOHolderPaths();
     let fileResult = null;
-    if (holderPath) {
+    for (const holderPath of holderPaths) {
       fileResult = findDTResultFile(holderPath, home, away);
+      if (fileResult) break;
     }
     if (fileResult) {
       const { mtime, data } = fileResult;
@@ -1101,7 +1107,7 @@ app.get('/api/iho-live', async (req, res) => {
     }
     res.status(404).json({
       error: 'No DT_RESULT file found',
-      details: holderPath ? `Searched in: ${holderPath}` : `Base path: ${IHO_BASE_PATH}`
+      details: holderPaths.length > 0 ? `Searched in: ${holderPaths.join(', ')}` : `Base path: ${IHO_BASE_PATH}`
     });
   } catch (err) {
     console.error('IHO live error:', err);
@@ -1117,10 +1123,11 @@ app.get('/api/cur-live', async (req, res) => {
   try {
     const home = req.query.home;
     const away = req.query.away;
-    const holderPath = resolveCURHolderPath();
+    const holderPaths = resolveCURHolderPaths();
     let fileResult = null;
-    if (holderPath) {
+    for (const holderPath of holderPaths) {
       fileResult = findDTResultFileCurling(holderPath, home, away);
+      if (fileResult) break;
     }
     if (fileResult) {
       const { mtime, data } = fileResult;
@@ -1152,7 +1159,7 @@ app.get('/api/cur-live', async (req, res) => {
     }
     res.status(404).json({
       error: 'No Curling DT_RESULT file found',
-      details: holderPath ? `Searched in: ${holderPath}` : `Base path: ${CUR_BASE_PATH}`
+      details: holderPaths.length > 0 ? `Searched in: ${holderPaths.join(', ')}` : `Base path: ${CUR_BASE_PATH}`
     });
   } catch (err) {
     console.error('CUR live error:', err);
@@ -1161,6 +1168,39 @@ app.get('/api/cur-live', async (req, res) => {
       error: 'Failed to load Curling live data',
       details: err.message
     });
+  }
+});
+
+/** Check which events have results in Supabase. Used to show archive icon only when data exists. */
+app.post('/api/live-has-results', async (req, res) => {
+  try {
+    const { events } = req.body || {};
+    if (!Array.isArray(events) || events.length === 0) {
+      return res.json({ results: {} });
+    }
+    const results = {};
+    if (!supabase) {
+      events.forEach(e => { results[`${e.sport || ''}-${e.home || ''}-${e.away || ''}`] = false; });
+      return res.json({ results });
+    }
+    for (const ev of events) {
+      const sport = (ev.sport || '').toUpperCase();
+      const h = (ev.home || '').trim().toUpperCase();
+      const a = (ev.away || '').trim().toUpperCase();
+      const key = `${sport}-${h}-${a}`;
+      if (!h || !a || (sport !== 'IHO' && sport !== 'CUR')) {
+        results[key] = false;
+        continue;
+      }
+      const table = sport === 'CUR' ? 'cur_game_data' : 'iho_game_data';
+      const { data: d1 } = await supabase.from(table).select('id').eq('home_team_code', h).eq('away_team_code', a).limit(1);
+      const { data: d2 } = await supabase.from(table).select('id').eq('home_team_code', a).eq('away_team_code', h).limit(1);
+      results[key] = (d1 && d1.length > 0) || (d2 && d2.length > 0);
+    }
+    res.json({ results });
+  } catch (err) {
+    console.error('live-has-results error:', err);
+    res.status(500).json({ error: 'Failed to check results', details: err.message });
   }
 });
 
@@ -1193,36 +1233,40 @@ if (supabaseUrl && supabaseAnonKey) {
 function syncLiveDataToSupabase() {
   if (!supabase) return;
   try {
-    const holderPathIHO = resolveIHOHolderPath();
-    if (holderPathIHO) {
-      const fileResult = findDTResultFile(holderPathIHO, null, null);
-      if (fileResult) {
-        const { mtime, data } = fileResult;
-        data.lastUpdated = mtime.toISOString();
-        if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
-          supabase.from('iho_game_data').upsert(
-            { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
-            { onConflict: 'home_team_code,away_team_code,game_date' }
-          ).then(({ error }) => { if (error) console.error('IHO background sync error:', error.message); });
-        }
+    const holderPathsIHO = resolveIHOHolderPaths();
+    let fileResult = null;
+    for (const p of holderPathsIHO) {
+      fileResult = findDTResultFile(p, null, null);
+      if (fileResult) break;
+    }
+    if (fileResult) {
+      const { mtime, data } = fileResult;
+      data.lastUpdated = mtime.toISOString();
+      if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
+        supabase.from('iho_game_data').upsert(
+          { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
+          { onConflict: 'home_team_code,away_team_code,game_date' }
+        ).then(({ error }) => { if (error) console.error('IHO background sync error:', error.message); });
       }
     }
   } catch (err) {
     console.error('IHO background sync error:', err.message);
   }
   try {
-    const holderPathCUR = resolveCURHolderPath();
-    if (holderPathCUR) {
-      const fileResult = findDTResultFileCurling(holderPathCUR, null, null);
-      if (fileResult) {
-        const { mtime, data } = fileResult;
-        data.lastUpdated = mtime.toISOString();
-        if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
-          supabase.from('cur_game_data').upsert(
-            { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
-            { onConflict: 'home_team_code,away_team_code,game_date' }
-          ).then(({ error }) => { if (error) console.error('CUR background sync error:', error.message); });
-        }
+    const holderPathsCUR = resolveCURHolderPaths();
+    let fileResult = null;
+    for (const p of holderPathsCUR) {
+      fileResult = findDTResultFileCurling(p, null, null);
+      if (fileResult) break;
+    }
+    if (fileResult) {
+      const { mtime, data } = fileResult;
+      data.lastUpdated = mtime.toISOString();
+      if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
+        supabase.from('cur_game_data').upsert(
+          { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
+          { onConflict: 'home_team_code,away_team_code,game_date' }
+        ).then(({ error }) => { if (error) console.error('CUR background sync error:', error.message); });
       }
     }
   } catch (err) {
