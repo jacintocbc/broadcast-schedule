@@ -1236,7 +1236,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); onOpenLiveDataSidebar(block || event); }}
-                                    className="p-1 rounded hover:bg-white/20 shrink-0 text-gray-200 hover:text-white transition-colors"
+                                    className="p-1 rounded hover:bg-white/20 shrink-0 text-black transition-colors"
                                     title="Live stats"
                                     aria-label="Open live stats"
                                   >

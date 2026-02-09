@@ -201,10 +201,12 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                         )}
                       </span>
                     )}
-                    {data.timeRemainingGame != null && (
+                    {(data.timeRemainingGame != null || data.resultStatus === 'OFFICIAL') && (
                       <span className="text-amber-200 font-semibold text-base">
-                        {data.timeRemainingGame === 0 ? (
+                        {data.resultStatus === 'OFFICIAL' ? (
                           <span className="text-white">Final</span>
+                        ) : (data.period || '').toUpperCase() === 'OT' ? (
+                          <span className="text-white">OT</span>
                         ) : (
                           <span className="text-white font-mono">{formatGameTime(data.timeRemainingGame)} game remaining</span>
                         )}

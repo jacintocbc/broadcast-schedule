@@ -624,6 +624,80 @@ function getStatValue(statsItems, code, pos = 'TOT') {
 }
 
 /**
+ * Extract MINS value from StatsItem with Type="GAME" Code="MINS" Pos="TOT".
+ * Returns value string like "27:26" or null.
+ */
+function getGoalieMinsStat(statsItems) {
+  if (!statsItems || !Array.isArray(statsItems)) return null;
+  const item = statsItems.find(s => {
+    const t = s['@_Type'] ?? s.Type;
+    const c = s['@_Code'] ?? s.Code;
+    const p = s['@_Pos'] ?? s.Pos;
+    return (t === 'GAME' || !t) && c === 'MINS' && (p === 'TOT' || p == null);
+  });
+  if (!item) return null;
+  const v = item['@_Value'] ?? item.Value;
+  return v !== undefined && v !== null ? String(v) : null;
+}
+
+/**
+ * Parse "MM:SS" or "M:SS" to total seconds.
+ */
+function parseMinsToSeconds(minsStr) {
+  if (!minsStr || typeof minsStr !== 'string') return null;
+  const m = minsStr.trim().match(/^(\d+):(\d{2})$/);
+  if (!m) return null;
+  const min = parseInt(m[1], 10);
+  const sec = parseInt(m[2], 10);
+  if (isNaN(min) || isNaN(sec) || sec >= 60) return null;
+  return min * 60 + sec;
+}
+
+/**
+ * Check if athlete is a goalkeeper (ODF EventUnitEntry Role/Position or SVS stat).
+ */
+function isGoalkeeper(athlete) {
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const eue = athlete?.EventUnitEntry;
+  const entries = Array.isArray(eue) ? eue : (eue ? [eue] : []);
+  for (const e of entries) {
+    const code = (attr(e, 'Code') || '').toUpperCase();
+    const value = (attr(e, 'Value') || '').toUpperCase();
+    if ((code === 'ROLE' || code === 'POSITION' || code === 'ATHLETE_ROLE') &&
+        (value === 'GK' || value === 'G' || value === 'GOALKEEPER' || value.includes('GOAL'))) {
+      return true;
+    }
+  }
+  const stats = athlete?.StatsItems?.StatsItem;
+  const sArr = Array.isArray(stats) ? stats : (stats ? [stats] : []);
+  const svs = parseInt(getStatValue(sArr, 'SVS'), 10);
+  if (svs > 0) return true;
+  return false;
+}
+
+/**
+ * Sum MINS (Type="GAME" Code="MINS" Pos="TOT") from all goalkeepers on a competitor.
+ * Handles goalie changes by adding times together. Hockey periods are 20 minutes.
+ */
+function getElapsedSecondsFromGoalieMins(competitor) {
+  const comp = competitor?.Composition;
+  const athletes = comp?.Athlete;
+  const arr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+  let totalSec = 0;
+  for (const a of arr) {
+    if (!isGoalkeeper(a)) continue;
+    const stats = a.StatsItems?.StatsItem;
+    const sArr = Array.isArray(stats) ? stats : (stats ? [stats] : []);
+    const minsVal = getGoalieMinsStat(sArr);
+    if (minsVal) {
+      const sec = parseMinsToSeconds(minsVal);
+      if (sec != null) totalSec += sec;
+    }
+  }
+  return totalSec > 0 ? totalSec : null;
+}
+
+/**
  * Parse DT_RESULT XML and return normalized payload.
  */
 function parseDTResultXml(xmlStr) {
@@ -712,24 +786,44 @@ function parseDTResultXml(xmlStr) {
   const homeScorers = getScorers(homeComp);
   const awayScorers = getScorers(awayComp);
 
-  /** Compute game time remaining from UnitDateTime and BDFTimestamp */
-  const unitDateTime = comp.ExtendedInfos?.UnitDateTime;
-  const startDateStr = attr(unitDateTime, 'StartDate');
+  /** Compute game time from goalkeeper MINS (Type="GAME" Code="MINS" Pos="TOT") or fallback to UnitDateTime */
+  const PERIOD_SEC = 20 * 60;
+  const INTERMISSION_SEC = 15 * 60;
+  const p1End = PERIOD_SEC;
+  const p2Start = p1End + INTERMISSION_SEC;
+  const p2End = p2Start + PERIOD_SEC;
+  const p3Start = p2End + INTERMISSION_SEC;
+  const p3End = p3Start + PERIOD_SEC;
+
+  let elapsedSec = null;
+  const goalieMinsHome = getElapsedSecondsFromGoalieMins(homeComp);
+  const goalieMinsAway = getElapsedSecondsFromGoalieMins(awayComp);
+  if (goalieMinsHome != null && goalieMinsAway != null) {
+    elapsedSec = Math.max(goalieMinsHome, goalieMinsAway);
+  } else if (goalieMinsHome != null) {
+    elapsedSec = goalieMinsHome;
+  } else if (goalieMinsAway != null) {
+    elapsedSec = goalieMinsAway;
+  }
+
+  if (elapsedSec == null) {
+    const unitDateTime = comp.ExtendedInfos?.UnitDateTime;
+    const startDateStr = attr(unitDateTime, 'StartDate');
+    const feedTimestampStr = body['@_BDFTimestamp'];
+    if (startDateStr && feedTimestampStr) {
+      const start = new Date(startDateStr);
+      const feed = new Date(feedTimestampStr);
+      elapsedSec = Math.max(0, Math.floor((feed - start) / 1000));
+    }
+  }
+
+  const startDateStr = attr(comp.ExtendedInfos?.UnitDateTime, 'StartDate');
   const feedTimestampStr = body['@_BDFTimestamp'];
-  const periodCode = periodInfo?.['@_Value'] || 'P1';
+  const rawPeriod = periodInfo?.['@_Value'] || 'P1';
+  const periodCode = String(rawPeriod).replace(/^EP/i, 'P');
   let timeRemainingInPeriod = null;
   let timeRemainingGame = null;
-  if (startDateStr && feedTimestampStr) {
-    const start = new Date(startDateStr);
-    const feed = new Date(feedTimestampStr);
-    const elapsedSec = Math.max(0, Math.floor((feed - start) / 1000));
-    const PERIOD_SEC = 20 * 60;
-    const INTERMISSION_SEC = 15 * 60;
-    const p1End = PERIOD_SEC;
-    const p2Start = p1End + INTERMISSION_SEC;
-    const p2End = p2Start + PERIOD_SEC;
-    const p3Start = p2End + INTERMISSION_SEC;
-    const p3End = p3Start + PERIOD_SEC;
+  if (elapsedSec != null) {
     if (periodCode === 'P1' && elapsedSec < p1End) {
       timeRemainingInPeriod = p1End - elapsedSec;
       timeRemainingGame = timeRemainingInPeriod + 2 * PERIOD_SEC + 2 * INTERMISSION_SEC;
@@ -739,7 +833,7 @@ function parseDTResultXml(xmlStr) {
     } else if (periodCode === 'P3' && elapsedSec >= p3Start && elapsedSec < p3End) {
       timeRemainingInPeriod = p3End - elapsedSec;
       timeRemainingGame = timeRemainingInPeriod;
-    } else if (periodCode === 'OT' || elapsedSec >= p3End) {
+    } else if (/^OT$/i.test(periodCode) || elapsedSec >= p3End) {
       timeRemainingInPeriod = null;
       timeRemainingGame = 0;
     }
