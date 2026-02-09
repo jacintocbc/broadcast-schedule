@@ -338,6 +338,19 @@ function CBCTimelineView() {
     return eventsList
   }, [filteredBlocks, encoders, selectedDate, blocksHash])
 
+  // True if any IHO or CUR block is currently live (red circle) - used for adaptive polling
+  const hasLiveIhoOrCur = useMemo(() => {
+    const now = moment.tz('Europe/Rome')
+    return events.some(e => {
+      if (!e.block || e.isEmpty) return false
+      const title = (e.block?.name || e.title || '').toLowerCase()
+      if (!/cur|curling|iho|ice hockey/.test(title)) return false
+      const start = moment.utc(e.start_time).tz('Europe/Rome')
+      const end = moment.utc(e.end_time).tz('Europe/Rome')
+      return now.isSameOrAfter(start) && now.isBefore(end)
+    })
+  }, [events, currentTime])
+
   // Fetch which IHO/CUR events have results in Supabase (for archive icon visibility)
   useEffect(() => {
     const blockEvents = events.filter(e => e.block && !e.isEmpty)
@@ -617,7 +630,7 @@ function CBCTimelineView() {
           </div>
         )}
       </div>
-      <IHOLiveSidebar open={liveDataSidebarOpen} block={liveDataBlock} onClose={() => { setLiveDataSidebarOpen(false); setLiveDataBlock(null); }} />
+      <IHOLiveSidebar open={liveDataSidebarOpen} block={liveDataBlock} onClose={() => { setLiveDataSidebarOpen(false); setLiveDataBlock(null); }} hasLiveIhoOrCur={hasLiveIhoOrCur} />
     </div>
   )
 }

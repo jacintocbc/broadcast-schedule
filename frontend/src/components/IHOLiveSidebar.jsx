@@ -100,7 +100,7 @@ function ScorersList({ scorers, teamName }) {
   )
 }
 
-export default function IHOLiveSidebar({ open, onClose, block }) {
+export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur = false }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -142,9 +142,10 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
     }
 
     fetchData()
-    const interval = setInterval(fetchData, 5000)
+    const pollMs = hasLiveIhoOrCur ? 30 * 1000 : 30 * 60 * 1000
+    const interval = setInterval(fetchData, pollMs)
     return () => clearInterval(interval)
-  }, [open, sport, apiPath, teamCodes?.home, teamCodes?.away, block?.id])
+  }, [open, sport, apiPath, teamCodes?.home, teamCodes?.away, block?.id, hasLiveIhoOrCur])
 
   if (!open) return null
 
@@ -226,7 +227,7 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                 </div>
                 {(data.timeRemainingInPeriod != null || data.timeRemainingGame != null || data.period || data.resultStatus === 'OFFICIAL') && (
                   <div className="mt-3 pt-3 border-t border-gray-600 flex justify-center items-center gap-4 flex-wrap">
-                    {(data.period || data.resultStatus === 'START_LIST') && !(data.resultStatus === 'OFFICIAL' && effectiveSport === 'CUR') && (
+                    {(data.period || data.resultStatus === 'START_LIST') && data.resultStatus !== 'OFFICIAL' && (
                       <span className="text-amber-200 font-semibold text-base">
                         {data.resultStatus === 'START_LIST' ? 'Pre-Game' : formatPeriod(data.period, effectiveSport)}
                         {data.timeRemainingInPeriod != null && (
