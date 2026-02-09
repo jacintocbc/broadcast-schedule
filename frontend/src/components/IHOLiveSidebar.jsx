@@ -231,19 +231,13 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
                       <span className="text-amber-200 font-semibold text-base">
                         {data.resultStatus === 'START_LIST' ? 'Pre-Game' : formatPeriod(data.period, effectiveSport)}
                         {data.timeRemainingInPeriod != null && (
-                          <span className="text-white font-mono"> · {formatGameTime(data.timeRemainingInPeriod)} left</span>
+                          <span className="text-white font-mono"> · {formatGameTime(data.timeRemainingInPeriod)}</span>
                         )}
                       </span>
                     )}
-                    {(data.timeRemainingGame != null || data.resultStatus === 'OFFICIAL') && effectiveSport !== 'CUR' && (
+                    {data.resultStatus === 'OFFICIAL' && effectiveSport !== 'CUR' && (
                       <span className="text-amber-200 font-semibold text-base">
-                        {data.resultStatus === 'OFFICIAL' ? (
-                          <span className="text-white">Final</span>
-                        ) : (data.period || '').toUpperCase() === 'OT' ? (
-                          <span className="text-white">OT</span>
-                        ) : (
-                          <span className="text-white font-mono">{formatGameTime(data.timeRemainingGame)} game remaining</span>
-                        )}
+                        <span className="text-white">Final</span>
                       </span>
                     )}
                     {data.resultStatus === 'OFFICIAL' && effectiveSport === 'CUR' && (
