@@ -1035,46 +1035,74 @@ function parseDTResultXmlCurling(xmlStr) {
   };
 }
 
-app.get('/api/iho-live', (req, res) => {
+async function fetchIHOFromSupabase(home, away) {
+  if (!supabase || !home || !away) return null;
+  const h = home.trim().toUpperCase();
+  const a = away.trim().toUpperCase();
+  const { data: d1 } = await supabase.from('iho_game_data').select('data, last_updated').eq('home_team_code', h).eq('away_team_code', a).order('last_updated', { ascending: false }).limit(1);
+  const { data: d2 } = await supabase.from('iho_game_data').select('data, last_updated').eq('home_team_code', a).eq('away_team_code', h).order('last_updated', { ascending: false }).limit(1);
+  const row = (d1 && d1.length > 0) ? d1[0] : (d2 && d2.length > 0) ? d2[0] : null;
+  if (!row) return null;
+  const data = row.data;
+  data.lastUpdated = row.last_updated || new Date().toISOString();
+  return data;
+}
+
+async function fetchCURFromSupabase(home, away) {
+  if (!supabase || !home || !away) return null;
+  const h = home.trim().toUpperCase();
+  const a = away.trim().toUpperCase();
+  const { data: d1 } = await supabase.from('cur_game_data').select('data, last_updated').eq('home_team_code', h).eq('away_team_code', a).order('last_updated', { ascending: false }).limit(1);
+  const { data: d2 } = await supabase.from('cur_game_data').select('data, last_updated').eq('home_team_code', a).eq('away_team_code', h).order('last_updated', { ascending: false }).limit(1);
+  const row = (d1 && d1.length > 0) ? d1[0] : (d2 && d2.length > 0) ? d2[0] : null;
+  if (!row) return null;
+  const data = row.data;
+  data.lastUpdated = row.last_updated || new Date().toISOString();
+  return data;
+}
+
+app.get('/api/iho-live', async (req, res) => {
   try {
-    const holderPath = resolveIHOHolderPath();
-    if (!holderPath) {
-      return res.status(503).json({
-        error: 'IHO path not found or not accessible',
-        details: `Base path: ${IHO_BASE_PATH}`
-      });
-    }
     const home = req.query.home;
     const away = req.query.away;
-    const fileResult = findDTResultFile(holderPath, home, away);
-    if (!fileResult) {
-      return res.status(404).json({
-        error: 'No DT_RESULT file found',
-        details: `Searched in: ${holderPath}`
-      });
+    const holderPath = resolveIHOHolderPath();
+    let fileResult = null;
+    if (holderPath) {
+      fileResult = findDTResultFile(holderPath, home, away);
     }
-    const { mtime, data } = fileResult;
-    data.lastUpdated = mtime.toISOString();
-    res.json(data);
+    if (fileResult) {
+      const { mtime, data } = fileResult;
+      data.lastUpdated = mtime.toISOString();
+      res.json(data);
 
-    // Sync to Supabase for deployed viewing (non-blocking)
-    if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
-      supabase
-        .from('iho_game_data')
-        .upsert(
-          {
-            home_team_code: data.homeTeam.code,
-            away_team_code: data.awayTeam.code,
-            game_date: data.date,
-            data,
-            last_updated: mtime.toISOString()
-          },
-          { onConflict: 'home_team_code,away_team_code,game_date' }
-        )
-        .then(({ error }) => {
-          if (error) console.error('IHO Supabase sync error:', error.message);
-        });
+      // Sync to Supabase for deployed viewing (non-blocking)
+      if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
+        supabase
+          .from('iho_game_data')
+          .upsert(
+            {
+              home_team_code: data.homeTeam.code,
+              away_team_code: data.awayTeam.code,
+              game_date: data.date,
+              data,
+              last_updated: mtime.toISOString()
+            },
+            { onConflict: 'home_team_code,away_team_code,game_date' }
+          )
+          .then(({ error }) => {
+            if (error) console.error('IHO Supabase sync error:', error.message);
+          });
+      }
+      return;
     }
+    const supabaseData = await fetchIHOFromSupabase(home, away);
+    if (supabaseData) {
+      return res.json(supabaseData);
+    }
+    res.status(404).json({
+      error: 'No DT_RESULT file found',
+      details: holderPath ? `Searched in: ${holderPath}` : `Base path: ${IHO_BASE_PATH}`
+    });
   } catch (err) {
     console.error('IHO live error:', err);
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
@@ -1085,45 +1113,47 @@ app.get('/api/iho-live', (req, res) => {
   }
 });
 
-app.get('/api/cur-live', (req, res) => {
+app.get('/api/cur-live', async (req, res) => {
   try {
-    const holderPath = resolveCURHolderPath();
-    if (!holderPath) {
-      return res.status(503).json({
-        error: 'CUR path not found or not accessible',
-        details: `Base path: ${CUR_BASE_PATH}`
-      });
-    }
     const home = req.query.home;
     const away = req.query.away;
-    const fileResult = findDTResultFileCurling(holderPath, home, away);
-    if (!fileResult) {
-      return res.status(404).json({
-        error: 'No Curling DT_RESULT file found',
-        details: `Searched in: ${holderPath}`
-      });
+    const holderPath = resolveCURHolderPath();
+    let fileResult = null;
+    if (holderPath) {
+      fileResult = findDTResultFileCurling(holderPath, home, away);
     }
-    const { mtime, data } = fileResult;
-    data.lastUpdated = mtime.toISOString();
-    res.json(data);
+    if (fileResult) {
+      const { mtime, data } = fileResult;
+      data.lastUpdated = mtime.toISOString();
+      res.json(data);
 
-    if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
-      supabase
-        .from('cur_game_data')
-        .upsert(
-          {
-            home_team_code: data.homeTeam.code,
-            away_team_code: data.awayTeam.code,
-            game_date: data.date,
-            data,
-            last_updated: mtime.toISOString()
-          },
-          { onConflict: 'home_team_code,away_team_code,game_date' }
-        )
-        .then(({ error }) => {
-          if (error) console.error('CUR Supabase sync error:', error.message);
-        });
+      if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
+        supabase
+          .from('cur_game_data')
+          .upsert(
+            {
+              home_team_code: data.homeTeam.code,
+              away_team_code: data.awayTeam.code,
+              game_date: data.date,
+              data,
+              last_updated: mtime.toISOString()
+            },
+            { onConflict: 'home_team_code,away_team_code,game_date' }
+          )
+          .then(({ error }) => {
+            if (error) console.error('CUR Supabase sync error:', error.message);
+          });
+      }
+      return;
     }
+    const supabaseData = await fetchCURFromSupabase(home, away);
+    if (supabaseData) {
+      return res.json(supabaseData);
+    }
+    res.status(404).json({
+      error: 'No Curling DT_RESULT file found',
+      details: holderPath ? `Searched in: ${holderPath}` : `Base path: ${CUR_BASE_PATH}`
+    });
   } catch (err) {
     console.error('CUR live error:', err);
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;

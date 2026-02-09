@@ -1214,8 +1214,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           className={`flex flex-col ${isNarrowBlock ? 'text-[10px] leading-tight' : 'text-[14.6px] leading-tight'} ${textColor} relative ${hasMinimalContent && !isShortBlock ? 'p-1' : (isNarrowBlock && !isShortBlock ? 'p-0.5' : isShortBlock ? 'p-1' : 'p-2')}`}
                           style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
-                          {/* Top right: maple leaf (if Canadian), live circle (if live), graph icon (if live IHO) */}
-                          {(block.canadian_content || isLive) && (
+                          {/* Top right: maple leaf (if Canadian), live circle (if live), graph icon (if live IHO/CUR), archive icon (if past IHO/CUR) */}
+                          {(block.canadian_content || isLive || (!isLive && onOpenLiveDataSidebar && /iho|ice hockey|cur|curling/.test((block.name || event.title || '').toLowerCase()))) && (
                             <div className="absolute top-2 right-2 z-20 flex items-center justify-end gap-2">
                               {block.canadian_content && (
                                 <span className="text-red-600 text-lg leading-none shrink-0" style={{ lineHeight: '1' }}>
@@ -1242,6 +1242,23 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                                   >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                  </button>
+                                ) : null;
+                              })()}
+                              {!isLive && onOpenLiveDataSidebar && (() => {
+                                const title = (block.name || event.title || '').toLowerCase();
+                                const hasLiveData = /iho|ice hockey|cur|curling/.test(title);
+                                return hasLiveData ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); onOpenLiveDataSidebar(block || event); }}
+                                    className="p-1 rounded hover:bg-white/20 shrink-0 text-gray-400 hover:text-gray-200 transition-colors"
+                                    title="View results"
+                                    aria-label="View game results"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
                                   </button>
                                 ) : null;

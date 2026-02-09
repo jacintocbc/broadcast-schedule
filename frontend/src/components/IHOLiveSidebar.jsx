@@ -137,7 +137,9 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
 
   if (!open) return null
 
-  const title = sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey'
+  const isLive = data?.resultStatus === 'LIVE'
+  const isUpcoming = !isLive && data?.resultStatus !== 'OFFICIAL'
+  const title = isLive ? (sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey') : (sport === 'CUR' ? 'Curling' : 'Ice Hockey')
 
   return (
     <>
@@ -208,9 +210,9 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                 </div>
                 {(data.timeRemainingInPeriod != null || data.timeRemainingGame != null || data.period || data.resultStatus === 'OFFICIAL') && (
                   <div className="mt-3 pt-3 border-t border-gray-600 flex justify-center items-center gap-4 flex-wrap">
-                    {data.period && !(data.resultStatus === 'OFFICIAL' && effectiveSport === 'CUR') && (
+                    {(data.period || data.resultStatus === 'START_LIST') && !(data.resultStatus === 'OFFICIAL' && effectiveSport === 'CUR') && (
                       <span className="text-amber-200 font-semibold text-base">
-                        {formatPeriod(data.period, effectiveSport)}
+                        {data.resultStatus === 'START_LIST' ? 'Pre-Game' : formatPeriod(data.period, effectiveSport)}
                         {data.timeRemainingInPeriod != null && (
                           <span className="text-white font-mono"> · {formatGameTime(data.timeRemainingInPeriod)} left</span>
                         )}
@@ -238,7 +240,8 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
 
               {/* Team stats */}
               <div className="rounded-lg bg-gray-700 p-4 border border-gray-600">
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Team Stats</p>
+                <p className={`text-xs font-medium text-gray-400 uppercase tracking-wide ${isUpcoming ? 'mb-1' : 'mb-3'}`}>Team Stats</p>
+                {isUpcoming && <p className="text-xs text-gray-500 mb-3">From rest of tournament</p>}
                 <div className="grid grid-cols-2 gap-4">
                   {[data.homeTeam, data.awayTeam].filter(Boolean).map((team, i) => (
                     <div key={team.code || i} className="space-y-2">
@@ -273,7 +276,8 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
               {/* Scoring summary (hockey only) */}
               {effectiveSport !== 'CUR' && (data.homeScorers?.length > 0 || data.awayScorers?.length > 0) && (
                 <div className="rounded-lg bg-gray-700 p-4 border border-gray-600">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Scoring Summary</p>
+                  <p className={`text-xs font-medium text-gray-400 uppercase tracking-wide ${isUpcoming ? 'mb-1' : 'mb-3'}`}>Scoring Summary</p>
+                  {isUpcoming && <p className="text-xs text-gray-500 mb-3">From rest of tournament</p>}
                   <div className="grid grid-cols-2 gap-4">
                     <ScorersList scorers={data.homeScorers} teamName={data.homeTeam?.name} />
                     <ScorersList scorers={data.awayScorers} teamName={data.awayTeam?.name} />
