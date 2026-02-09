@@ -977,11 +977,16 @@ function parseDTResultXmlCurling(xmlStr) {
 
   const periods = comp.Periods;
   const periodList = Array.isArray(periods?.Period) ? periods.Period : (periods?.Period ? [periods.Period] : []);
-  const currentPeriodCode = periodInfo?.['@_Value'] || '1';
+  const resultStatus = body['@_ResultStatus'] || '';
+  const isOfficial = resultStatus === 'OFFICIAL';
+
+  const currentPeriodCode = isOfficial
+    ? (periodList.length > 0 ? String(periodList[periodList.length - 1]['@_Code'] ?? periodList[periodList.length - 1].Code) : '1')
+    : (periodInfo?.['@_Value'] || '1');
   const currentPeriod = periodList.find(p => String(p['@_Code'] ?? p.Code) === String(currentPeriodCode));
 
   let timeRemainingInPeriod = null;
-  if (currentPeriod?.ExtendedPeriods) {
+  if (!isOfficial && currentPeriod?.ExtendedPeriods) {
     const extPeriods = currentPeriod.ExtendedPeriods;
     const epList = Array.isArray(extPeriods?.ExtendedPeriod) ? extPeriods.ExtendedPeriod : (extPeriods?.ExtendedPeriod ? [extPeriods.ExtendedPeriod] : []);
     const homeRemain = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'HOME_REMAIN');
@@ -999,7 +1004,7 @@ function parseDTResultXmlCurling(xmlStr) {
 
   return {
     sport: 'CUR',
-    resultStatus: body['@_ResultStatus'] || '',
+    resultStatus,
     date: body['@_Date'] || '',
     timestamp: body['@_BDFTimestamp'] || '',
     period: currentPeriodCode,
@@ -1010,11 +1015,23 @@ function parseDTResultXmlCurling(xmlStr) {
     homeTeam,
     awayTeam,
     timeRemainingInPeriod: timeRemainingInPeriod != null ? timeRemainingInPeriod : null,
-    periods: periodList.map(p => ({
-      code: String(p['@_Code'] ?? p.Code),
-      homeScore: parseInt(attr(p, 'HomeScore'), 10) ?? parseInt(attr(p, 'HomePeriodScore'), 10) ?? 0,
-      awayScore: parseInt(attr(p, 'AwayScore'), 10) ?? parseInt(attr(p, 'AwayPeriodScore'), 10) ?? 0
-    }))
+    periods: periodList.map(p => {
+      const extPeriods = p.ExtendedPeriods;
+      const epList = Array.isArray(extPeriods?.ExtendedPeriod) ? extPeriods.ExtendedPeriod : (extPeriods?.ExtendedPeriod ? [extPeriods.ExtendedPeriod] : []);
+      const lsce = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'LSCE');
+      const homePP = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'HOME_POWERPLAY');
+      const awayPP = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'AWAY_POWERPLAY');
+      const lsceVal = lsce ? (lsce['@_Value'] ?? lsce.Value) : null;
+      return {
+        code: String(p['@_Code'] ?? p.Code),
+        homeScore: parseInt(attr(p, 'HomeScore'), 10) ?? parseInt(attr(p, 'HomePeriodScore'), 10) ?? 0,
+        awayScore: parseInt(attr(p, 'AwayScore'), 10) ?? parseInt(attr(p, 'AwayPeriodScore'), 10) ?? 0,
+        homeEarned: parseInt(attr(p, 'HomePeriodScore'), 10) ?? 0,
+        awayEarned: parseInt(attr(p, 'AwayPeriodScore'), 10) ?? 0,
+        hammer: lsceVal === '1' ? 'home' : lsceVal === '2' ? 'away' : null,
+        powerPlay: (homePP && (homePP['@_Value'] ?? homePP.Value) === 'Y') ? 'home' : (awayPP && (awayPP['@_Value'] ?? awayPP.Value) === 'Y') ? 'away' : null
+      };
+    })
   };
 }
 
@@ -1140,6 +1157,53 @@ if (supabaseUrl && supabaseAnonKey) {
     urlValue: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'missing',
     keyValue: supabaseAnonKey ? '***' + supabaseAnonKey.slice(-4) : 'missing'
   });
+}
+
+/** Background sync: fetch IHO and CUR live data and upsert to Supabase. Runs every 30s. */
+function syncLiveDataToSupabase() {
+  if (!supabase) return;
+  try {
+    const holderPathIHO = resolveIHOHolderPath();
+    if (holderPathIHO) {
+      const fileResult = findDTResultFile(holderPathIHO, null, null);
+      if (fileResult) {
+        const { mtime, data } = fileResult;
+        data.lastUpdated = mtime.toISOString();
+        if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
+          supabase.from('iho_game_data').upsert(
+            { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
+            { onConflict: 'home_team_code,away_team_code,game_date' }
+          ).then(({ error }) => { if (error) console.error('IHO background sync error:', error.message); });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('IHO background sync error:', err.message);
+  }
+  try {
+    const holderPathCUR = resolveCURHolderPath();
+    if (holderPathCUR) {
+      const fileResult = findDTResultFileCurling(holderPathCUR, null, null);
+      if (fileResult) {
+        const { mtime, data } = fileResult;
+        data.lastUpdated = mtime.toISOString();
+        if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
+          supabase.from('cur_game_data').upsert(
+            { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
+            { onConflict: 'home_team_code,away_team_code,game_date' }
+          ).then(({ error }) => { if (error) console.error('CUR background sync error:', error.message); });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('CUR background sync error:', err.message);
+  }
+}
+
+if (supabase) {
+  syncLiveDataToSupabase();
+  setInterval(syncLiveDataToSupabase, 30 * 1000);
+  console.log('   Live data background sync: every 30s (IHO + CUR)');
 }
 
 // Valid resource types

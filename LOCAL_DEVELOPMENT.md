@@ -78,7 +78,9 @@ To enable live data on the deployed app, run the migrations in Supabase SQL Edit
 2. **Curling:** `supabase-cur-game-data.sql`
 3. Run the RLS sections for `iho_game_data` and `cur_game_data` from `supabase-enable-rls-permissive.sql`
 
-When the local backend fetches from the network drive, it syncs to Supabase. Deployed users can view via `/api/iho-live` and `/api/cur-live`.
+The local backend syncs live data to Supabase in two ways:
+- **Background sync:** Every 30 seconds, syncs the newest IHO and CUR game from the network drive (even when no one has the sidebar open).
+- **On demand:** When the sidebar is open, each poll also syncs. Deployed users view via `/api/iho-live` and `/api/cur-live`.
 
 ### 5. Verify Setup
 

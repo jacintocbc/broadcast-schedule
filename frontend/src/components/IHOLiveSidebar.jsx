@@ -208,7 +208,7 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                 </div>
                 {(data.timeRemainingInPeriod != null || data.timeRemainingGame != null || data.period || data.resultStatus === 'OFFICIAL') && (
                   <div className="mt-3 pt-3 border-t border-gray-600 flex justify-center items-center gap-4 flex-wrap">
-                    {data.period && (
+                    {data.period && !(data.resultStatus === 'OFFICIAL' && effectiveSport === 'CUR') && (
                       <span className="text-amber-200 font-semibold text-base">
                         {formatPeriod(data.period, effectiveSport)}
                         {data.timeRemainingInPeriod != null && (
@@ -287,13 +287,36 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
                     {effectiveSport === 'CUR' ? 'End Scores' : 'Period Scores'}
                   </p>
-                  <div className="flex gap-4 flex-wrap">
-                    {data.periods.map((p, i) => (
-                      <span key={i} className="text-sm text-gray-300">
-                        {effectiveSport === 'CUR' ? `E${p.code}` : p.code}: {p.homeScore}–{p.awayScore}
-                      </span>
-                    ))}
-                  </div>
+                  {effectiveSport === 'CUR' ? (
+                    <div className="text-sm">
+                      <div className="flex gap-4 mb-2 text-gray-400 font-medium">
+                        <span className="w-8">End</span>
+                        <span className="w-10 text-right">{data.homeTeam?.code ?? 'Home'}</span>
+                        <span className="w-10 text-right">{data.awayTeam?.code ?? 'Away'}</span>
+                        <span className="w-14 text-right">Earned</span>
+                        <span className="w-8 text-center">H</span>
+                        <span className="w-6 text-center">PP</span>
+                      </div>
+                      {data.periods.map((p, i) => (
+                        <div key={i} className="flex gap-4 text-gray-300">
+                          <span className="w-8 font-medium">E{p.code}</span>
+                          <span className="w-10 text-right tabular-nums">{p.homeScore}</span>
+                          <span className="w-10 text-right tabular-nums">{p.awayScore}</span>
+                          <span className="w-14 text-right tabular-nums text-gray-400">{p.homeEarned != null && p.awayEarned != null ? `${p.homeEarned}–${p.awayEarned}` : '—'}</span>
+                          <span className="w-8 text-center text-xs" title="Hammer">{p.hammer === 'home' ? (data.homeTeam?.code ?? 'H') : p.hammer === 'away' ? (data.awayTeam?.code ?? 'A') : '—'}</span>
+                          <span className="w-6 text-center text-amber-400 text-xs font-medium" title={p.powerPlay === 'home' ? `${data.homeTeam?.code ?? 'Home'} power play` : p.powerPlay === 'away' ? `${data.awayTeam?.code ?? 'Away'} power play` : ''}>{p.powerPlay ? 'PP' : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex gap-4 flex-wrap">
+                      {data.periods.map((p, i) => (
+                        <span key={i} className="text-sm text-gray-300">
+                          {p.code}: {p.homeScore}–{p.awayScore}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </>
