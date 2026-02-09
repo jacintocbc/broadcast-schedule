@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { XMLParser } from 'fast-xml-parser';
 
 dotenv.config();
 
@@ -535,6 +536,271 @@ app.get('/api/events/dates', (req, res) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ============================================
+// IHO DT_RESULT Live Feed
+// ============================================
+const IHO_BASE_PATH = process.env.IHO_BASE_PATH || 'M:\\Incoming\\IHO';
+
+/**
+ * Resolve path to newest date folder, then newest holder folder.
+ * Returns full path to holder folder or null if not found.
+ */
+function resolveIHOHolderPath() {
+  if (!fs.existsSync(IHO_BASE_PATH)) {
+    return null;
+  }
+  const dateDirs = fs.readdirSync(IHO_BASE_PATH, { withFileTypes: true })
+    .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+    .sort((a, b) => b.name.localeCompare(a.name));
+  if (dateDirs.length === 0) return null;
+  const datePath = path.join(IHO_BASE_PATH, dateDirs[0].name);
+  const holderDirs = fs.readdirSync(datePath, { withFileTypes: true })
+    .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+    .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
+  if (holderDirs.length === 0) return null;
+  return path.join(datePath, holderDirs[0].name);
+}
+
+/**
+ * List all DT_RESULT_* files in folder, sorted by mtime newest first.
+ * Returns array of { path, mtime }.
+ */
+function listDTResultFiles(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs.readdirSync(dirPath)
+    .filter(f => f.includes('DT_RESULT_'))
+    .map(f => ({ name: f, path: path.join(dirPath, f) }))
+    .filter(f => fs.statSync(f.path).isFile())
+    .map(f => ({ ...f, mtime: fs.statSync(f.path).mtime }))
+    .sort((a, b) => b.mtime - a.mtime);
+}
+
+/**
+ * Find file matching *DT_RESULT_* in folder. If home/away provided, find first file
+ * whose parsed data matches those team codes. Otherwise return newest.
+ */
+function findDTResultFile(dirPath, homeCode, awayCode) {
+  const files = listDTResultFiles(dirPath);
+  if (files.length === 0) return null;
+  const home = homeCode?.trim()?.toUpperCase();
+  const away = awayCode?.trim()?.toUpperCase();
+  const wantMatch = home && away;
+  for (const { path: filePath, mtime } of files) {
+    try {
+      const xmlStr = fs.readFileSync(filePath, 'utf-8');
+      const data = parseDTResultXml(xmlStr);
+      const dataHome = data.homeTeam?.code?.toUpperCase();
+      const dataAway = data.awayTeam?.code?.toUpperCase();
+      if (!wantMatch) return { path: filePath, mtime, data };
+      if ((dataHome === home && dataAway === away) || (dataHome === away && dataAway === home)) {
+        return { path: filePath, mtime, data };
+      }
+    } catch (_) {
+      continue;
+    }
+  }
+  const { path: filePath, mtime } = files[0];
+  const xmlStr = fs.readFileSync(filePath, 'utf-8');
+  const data = parseDTResultXml(xmlStr);
+  return { path: filePath, mtime, data };
+}
+
+/**
+ * Extract stat value from StatsItems by Code and Pos.
+ * StatsItem attributes come from fast-xml-parser as @_Code, @_Pos, @_Value.
+ */
+function getStatValue(statsItems, code, pos = 'TOT') {
+  if (!statsItems || !Array.isArray(statsItems)) return null;
+  const item = statsItems.find(s => {
+    const c = s['@_Code'] ?? s.Code;
+    const p = s['@_Pos'] ?? s.Pos;
+    return c === code && (p === pos || (p == null && pos === 'TOT'));
+  });
+  if (!item) return null;
+  const v = item['@_Value'] ?? item.Value;
+  return v !== undefined && v !== null ? v : null;
+}
+
+/**
+ * Parse DT_RESULT XML and return normalized payload.
+ */
+function parseDTResultXml(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) throw new Error('Invalid OdfBody structure');
+
+  const comp = body.Competition;
+  if (!comp) throw new Error('Missing Competition');
+
+  const extInfos = comp.ExtendedInfos;
+  const extInfo = Array.isArray(extInfos?.ExtendedInfo) ? extInfos.ExtendedInfo : (extInfos?.ExtendedInfo ? [extInfos.ExtendedInfo] : []);
+  const periodInfo = extInfo.find(e => e['@_Code'] === 'PERIOD');
+  const extInfosObj = comp.ExtendedInfos || {};
+  const sportDesc = extInfosObj.SportDescription || comp.SportDescription || {};
+  const venueDesc = extInfosObj.VenueDescription || comp.VenueDescription || {};
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const periods = comp.Periods;
+  const periodList = Array.isArray(periods?.Period) ? periods.Period : (periods?.Period ? [periods.Period] : []);
+
+  const results = comp.Result;
+  const resultList = Array.isArray(results) ? results : (results ? [results] : []);
+  const competitors = resultList.flatMap(r => Array.isArray(r.Competitor) ? r.Competitor : (r.Competitor ? [r.Competitor] : []));
+
+  const homeComp = competitors.find(c => {
+    const eue = c.EventUnitEntry || [];
+    const entries = Array.isArray(eue) ? eue : [eue];
+    return entries.some(e => e['@_Code'] === 'HOME_AWAY' && e['@_Value'] === 'HOME');
+  });
+  const awayComp = competitors.find(c => {
+    const eue = c.EventUnitEntry || [];
+    const entries = Array.isArray(eue) ? eue : [eue];
+    return entries.some(e => e['@_Code'] === 'HOME_AWAY' && e['@_Value'] === 'AWAY');
+  });
+
+  const toTeam = (c, sortOrder) => {
+    if (!c) return null;
+    const desc = c.Description || {};
+    const teamName = desc['@_TeamName'] ?? desc.TeamName ?? '';
+    const stats = c.StatsItems?.StatsItem;
+    const statsArr = Array.isArray(stats) ? stats : (stats ? [stats] : []);
+    const result = resultList.find(r => String(r['@_SortOrder']) === String(sortOrder)) || {};
+    const periodEntry = periodList.find(p => (p['@_Code'] ?? p.Code) === (periodInfo?.['@_Value'] || 'P1'));
+    return {
+      name: teamName || '',
+      code: c['@_Organisation'] || '',
+      score: parseInt(result['@_Result'], 10) ?? 0,
+      periodScore: parseInt(attr(periodEntry, sortOrder === 1 ? 'HomePeriodScore' : 'AwayPeriodScore'), 10) ?? 0,
+      sog: parseInt(getStatValue(statsArr, 'SOG'), 10) ?? 0,
+      gf: parseInt(getStatValue(statsArr, 'GF'), 10) ?? 0,
+      fo: getStatValue(statsArr, 'FO'),
+      foPercent: (() => { const item = statsArr.find(s => (s['@_Code'] ?? s.Code) === 'FO'); return item?.['@_Percent']; })(),
+      ppg: parseInt(getStatValue(statsArr, 'PPG'), 10) ?? 0,
+      pim: parseInt(getStatValue(statsArr, 'PIM'), 10) ?? 0,
+      pk: getStatValue(statsArr, 'PK'),
+      svs: parseInt(getStatValue(statsArr, 'SVS'), 10) ?? 0
+    };
+  };
+
+  const homeTeam = toTeam(homeComp, 1);
+  const awayTeam = toTeam(awayComp, 2);
+
+  /** Extract scorers (goals + assists) from Competitor Composition */
+  function getScorers(competitor) {
+    const comp = competitor?.Composition;
+    const athletes = comp?.Athlete;
+    const arr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+    const scorers = [];
+    for (const a of arr) {
+      const d = a.Description || {};
+      const name = [attr(d, 'GivenName'), attr(d, 'FamilyName')].filter(Boolean).join(' ').trim();
+      if (!name) continue;
+      const s = a.StatsItems?.StatsItem;
+      const sArr = Array.isArray(s) ? s : (s ? [s] : []);
+      const gf = parseInt(getStatValue(sArr, 'GF'), 10) ?? 0;
+      const ast = parseInt(getStatValue(sArr, 'ASSIST'), 10) ?? 0;
+      const pts = parseInt(getStatValue(sArr, 'PTS'), 10) ?? (gf + ast);
+      if (gf > 0 || ast > 0) {
+        scorers.push({ name, goals: gf, assists: ast, points: pts });
+      }
+    }
+    return scorers.sort((a, b) => b.points - a.points);
+  }
+
+  const homeScorers = getScorers(homeComp);
+  const awayScorers = getScorers(awayComp);
+
+  /** Compute game time remaining from UnitDateTime and BDFTimestamp */
+  const unitDateTime = comp.ExtendedInfos?.UnitDateTime;
+  const startDateStr = attr(unitDateTime, 'StartDate');
+  const feedTimestampStr = body['@_BDFTimestamp'];
+  const periodCode = periodInfo?.['@_Value'] || 'P1';
+  let timeRemainingInPeriod = null;
+  let timeRemainingGame = null;
+  if (startDateStr && feedTimestampStr) {
+    const start = new Date(startDateStr);
+    const feed = new Date(feedTimestampStr);
+    const elapsedSec = Math.max(0, Math.floor((feed - start) / 1000));
+    const PERIOD_SEC = 20 * 60;
+    const INTERMISSION_SEC = 15 * 60;
+    const p1End = PERIOD_SEC;
+    const p2Start = p1End + INTERMISSION_SEC;
+    const p2End = p2Start + PERIOD_SEC;
+    const p3Start = p2End + INTERMISSION_SEC;
+    const p3End = p3Start + PERIOD_SEC;
+    if (periodCode === 'P1' && elapsedSec < p1End) {
+      timeRemainingInPeriod = p1End - elapsedSec;
+      timeRemainingGame = timeRemainingInPeriod + 2 * PERIOD_SEC + 2 * INTERMISSION_SEC;
+    } else if (periodCode === 'P2' && elapsedSec >= p2Start && elapsedSec < p2End) {
+      timeRemainingInPeriod = p2End - elapsedSec;
+      timeRemainingGame = timeRemainingInPeriod + PERIOD_SEC + INTERMISSION_SEC;
+    } else if (periodCode === 'P3' && elapsedSec >= p3Start && elapsedSec < p3End) {
+      timeRemainingInPeriod = p3End - elapsedSec;
+      timeRemainingGame = timeRemainingInPeriod;
+    } else if (periodCode === 'OT' || elapsedSec >= p3End) {
+      timeRemainingInPeriod = null;
+      timeRemainingGame = 0;
+    }
+  }
+
+  return {
+    resultStatus: body['@_ResultStatus'] || '',
+    date: body['@_Date'] || '',
+    timestamp: body['@_BDFTimestamp'] || '',
+    version: body['@_Version'] || '',
+    period: periodInfo?.['@_Value'] || 'P1',
+    discipline: attr(sportDesc, 'DisciplineName') || '',
+    eventName: attr(sportDesc, 'EventName') || '',
+    subEvent: attr(sportDesc, 'SubEventName') || '',
+    unitNum: attr(sportDesc, 'UnitNum') || '',
+    venueName: attr(venueDesc, 'VenueName') || attr(venueDesc, 'LocationName') || '',
+    homeTeam,
+    awayTeam,
+    homeScorers,
+    awayScorers,
+    gameStartDate: startDateStr || null,
+    feedTimestamp: feedTimestampStr || null,
+    timeRemainingInPeriod: timeRemainingInPeriod != null ? timeRemainingInPeriod : null,
+    timeRemainingGame: timeRemainingGame != null ? timeRemainingGame : null,
+    periods: periodList.map(p => ({
+      code: p['@_Code'] ?? p.Code,
+      homeScore: parseInt(attr(p, 'HomePeriodScore'), 10) ?? 0,
+      awayScore: parseInt(attr(p, 'AwayPeriodScore'), 10) ?? 0
+    }))
+  };
+}
+
+app.get('/api/iho-live', (req, res) => {
+  try {
+    const holderPath = resolveIHOHolderPath();
+    if (!holderPath) {
+      return res.status(503).json({
+        error: 'IHO path not found or not accessible',
+        details: `Base path: ${IHO_BASE_PATH}`
+      });
+    }
+    const home = req.query.home;
+    const away = req.query.away;
+    const fileResult = findDTResultFile(holderPath, home, away);
+    if (!fileResult) {
+      return res.status(404).json({
+        error: 'No DT_RESULT file found',
+        details: `Searched in: ${holderPath}`
+      });
+    }
+    const { mtime, data } = fileResult;
+    data.lastUpdated = mtime.toISOString();
+    res.json(data);
+  } catch (err) {
+    console.error('IHO live error:', err);
+    const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
+    res.status(status).json({
+      error: 'Failed to load IHO live data',
+      details: err.message
+    });
+  }
 });
 
 // ============================================
@@ -1492,6 +1758,7 @@ app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log('Available routes:');
   console.log('  GET  /api/health');
+  console.log('  GET  /api/iho-live');
   console.log('  GET  /api/events');
   console.log('  GET  /api/events/dates');
   console.log('  POST /api/upload');

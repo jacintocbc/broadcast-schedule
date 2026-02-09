@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import ModernTimeline from './ModernTimeline'
+import IHOLiveSidebar from './IHOLiveSidebar'
 import DateNavigator from './DateNavigator'
 import BlockEditor from './BlockEditor'
 import CreateBlockForm from './CreateBlockForm'
@@ -32,6 +33,8 @@ function CBCTimelineView() {
   const [zoomHours, setZoomHours] = useState(24) // 24, 36, or 48 hours
   const [scrollPosition, setScrollPosition] = useState(0) // Current scroll position in hours
   const [currentTime, setCurrentTime] = useState(() => moment.tz('America/New_York'))
+  const [liveDataSidebarOpen, setLiveDataSidebarOpen] = useState(false)
+  const [liveDataBlock, setLiveDataBlock] = useState(null)
   const hasInitializedDate = useRef(false) // Track if we've initialized the date from localStorage
   const previousDatesStr = useRef('') // Track previous dates string to detect actual changes
   const hasLoadedOnce = useRef(false) // Only show loading spinner on initial load, not on real-time refresh
@@ -556,6 +559,7 @@ function CBCTimelineView() {
                 scrollPosition={scrollPosition}
                 onNewBlockRange={handleNewBlockRange}
                 editingBlockDraft={newBlockDraft}
+                onOpenLiveDataSidebar={(block) => { setLiveDataBlock(block); setLiveDataSidebarOpen(true); }}
               />
             </div>
             {newBlockDraft && (
@@ -590,6 +594,7 @@ function CBCTimelineView() {
           </div>
         )}
       </div>
+      <IHOLiveSidebar open={liveDataSidebarOpen} block={liveDataBlock} onClose={() => { setLiveDataSidebarOpen(false); setLiveDataBlock(null); }} />
     </div>
   )
 }

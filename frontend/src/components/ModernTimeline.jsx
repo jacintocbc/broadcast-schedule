@@ -3,7 +3,7 @@ import moment from 'moment'
 import 'moment-timezone'
 import { getBlockTypeColor, darkenColor, inferOBSEventDisplayType, LEGEND_LIGHT_BACKGROUNDS } from '../utils/blockTypes'
 
-function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup, editingBlockDraft, onOnAirResize }) {
+function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick, datePickerHeight = 0, navbarHeight = 73, zoomHours = 24, scrollPosition = 0, scheduledOnCBCEventIds, onNewBlockRange, onBlockDropOnGroup, editingBlockDraft, onOnAirResize, onOpenLiveDataSidebar }) {
   const containerRef = useRef(null)
   const headerRef = useRef(null)
   const scrollableRef = useRef(null)
@@ -1214,7 +1214,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           className={`flex flex-col ${isNarrowBlock ? 'text-[10px] leading-tight' : 'text-[14.6px] leading-tight'} ${textColor} relative ${hasMinimalContent && !isShortBlock ? 'p-1' : (isNarrowBlock && !isShortBlock ? 'p-0.5' : isShortBlock ? 'p-1' : 'p-2')}`}
                           style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
-                          {/* Top right: maple leaf (if Canadian) and live circle (if live), aligned */}
+                          {/* Top right: maple leaf (if Canadian), live circle (if live), graph icon (if live IHO) */}
                           {(block.canadian_content || isLive) && (
                             <div className="absolute top-2 right-2 z-20 flex items-center justify-end gap-2">
                               {block.canadian_content && (
@@ -1229,6 +1229,23 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                                   aria-hidden
                                 />
                               )}
+                              {isLive && onOpenLiveDataSidebar && (() => {
+                                const title = (block.name || event.title || '').toLowerCase();
+                                const isIHO = /iho|ice hockey/.test(title);
+                                return isIHO ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); onOpenLiveDataSidebar(block || event); }}
+                                    className="p-1 rounded hover:bg-white/20 shrink-0 text-gray-200 hover:text-white transition-colors"
+                                    title="Live stats"
+                                    aria-label="Open live stats"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                  </button>
+                                ) : null;
+                              })()}
                             </div>
                           )}
                           

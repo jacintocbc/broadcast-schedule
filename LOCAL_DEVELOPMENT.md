@@ -34,7 +34,11 @@ Create `.env` file with:
 ```env
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key-here
+IHO_BASE_PATH=M:\Incoming\IHO
 ```
+
+**Optional:**
+- `IHO_BASE_PATH` – Base path for IHO DT_RESULT live feed (default: `M:\Incoming\IHO`). Used when the backend is on a machine with access to the network drive.
 
 **To get these values:**
 1. Go to your Supabase Dashboard
@@ -76,6 +80,7 @@ npm run dev
 
 ### CSV/Events Routes
 - `GET /api/health` - Health check
+- `GET /api/iho-live` - Live IHO DT_RESULT data (parses newest XML from network drive)
 - `GET /api/events` - Get all events (from CSV)
 - `GET /api/events/dates` - Get available dates
 - `POST /api/upload` - Upload CSV (if needed)
