@@ -61,6 +61,15 @@ function formatPeriod(period, sport) {
   return period.replace(/^EP/i, 'P')
 }
 
+/** Abbreviate long team names for display (e.g. United States of America -> USA). */
+function formatTeamName(name, code) {
+  if (!name) return code || '—'
+  const n = name.trim()
+  if (/^united states of america$/i.test(n)) return 'USA'
+  if (/^united states$/i.test(n)) return code || 'USA'
+  return name
+}
+
 /** Format seconds as M:SS */
 function formatGameTime(seconds) {
   if (seconds == null || seconds < 0) return null
@@ -184,16 +193,18 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
             const effectiveSport = data.sport || sport;
             return (
             <>
-              {/* Last updated */}
-              <div className="rounded-lg bg-gray-700 px-4 py-3 border border-gray-600">
-                <div className="flex justify-between items-baseline">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Last updated</span>
-                  <span className="text-base font-semibold text-white font-mono">
-                    {data.lastUpdated ? moment(data.lastUpdated).tz('America/New_York').format('h:mm:ss A') : '—'}
-                  </span>
+              {/* Last updated (hide for archived final results) */}
+              {data.resultStatus !== 'OFFICIAL' && (
+                <div className="rounded-lg bg-gray-700 px-4 py-3 border border-gray-600">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Last updated</span>
+                    <span className="text-base font-semibold text-white font-mono">
+                      {data.lastUpdated ? moment(data.lastUpdated).tz('America/New_York').format('h:mm:ss A') : '—'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500">Eastern Time</p>
                 </div>
-                <p className="text-xs text-gray-500">Eastern Time</p>
-              </div>
+              )}
 
               {/* Scoreboard: [GER flag] GER [1] – [0] FRA [FRA flag] + game clock */}
               <div className="rounded-lg bg-gray-700 p-4 border border-gray-600">
@@ -250,7 +261,7 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                 <div className="grid grid-cols-2 gap-4">
                   {[data.homeTeam, data.awayTeam].filter(Boolean).map((team, i) => (
                     <div key={team.code || i} className="space-y-2">
-                      <p className="text-sm font-medium text-white truncate">{team.name}</p>
+                      <p className="text-sm font-medium text-white truncate">{formatTeamName(team.name, team.code)}</p>
                       <div className="space-y-1">
                         {effectiveSport === 'CUR' ? (
                           <>
@@ -284,8 +295,8 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                   <p className={`text-xs font-medium text-gray-400 uppercase tracking-wide ${isUpcoming ? 'mb-1' : 'mb-3'}`}>Scoring Summary</p>
                   {isUpcoming && <p className="text-xs text-gray-500 mb-3">From rest of tournament</p>}
                   <div className="grid grid-cols-2 gap-4">
-                    <ScorersList scorers={data.homeScorers} teamName={data.homeTeam?.name} />
-                    <ScorersList scorers={data.awayScorers} teamName={data.awayTeam?.name} />
+                    <ScorersList scorers={data.homeScorers} teamName={formatTeamName(data.homeTeam?.name, data.homeTeam?.code)} />
+                    <ScorersList scorers={data.awayScorers} teamName={formatTeamName(data.awayTeam?.name, data.awayTeam?.code)} />
                   </div>
                 </div>
               )}
