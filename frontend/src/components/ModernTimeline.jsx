@@ -1231,8 +1231,8 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               )}
                               {isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
-                                const isIHO = /iho|ice hockey/.test(title);
-                                return isIHO ? (
+                                const hasLiveData = /iho|ice hockey|cur|curling/.test(title);
+                                return hasLiveData ? (
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); onOpenLiveDataSidebar(block || event); }}

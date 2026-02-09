@@ -35,20 +35,29 @@ function TeamFlag({ code }) {
   )
 }
 
-/** Extract two IOC team codes from block/event name (e.g. GER-FRA, GER vs FRA). */
+/** Detect sport from block name: IHO (ice hockey) or CUR (curling). */
+function detectSport(block) {
+  const name = (block?.name || block?.title || '').toLowerCase()
+  if (/cur|curling/.test(name)) return 'CUR'
+  if (/iho|ice hockey/.test(name)) return 'IHO'
+  return null
+}
+
+/** Extract two IOC team codes from block/event name (e.g. GER-FRA, ITA-USA). */
 function extractTeamCodes(block) {
   const name = (block?.name || block?.title || '').toUpperCase()
   if (!name) return null
-  const exclude = new Set(['IHO', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA'])
+  const exclude = new Set(['IHO', 'CUR', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA'])
   const matches = name.match(/\b([A-Z]{3})\b/g) || []
   const codes = [...new Set(matches)].filter(c => !exclude.has(c))
   if (codes.length >= 2) return { home: codes[0], away: codes[1] }
   return null
 }
 
-/** Normalize period display: EP2 -> P2, EP1 -> P1, etc. */
-function formatPeriod(period) {
+/** Normalize period display: EP2 -> P2, EP1 -> P1, etc. For curling: "6" -> "End 6". */
+function formatPeriod(period, sport) {
   if (!period || typeof period !== 'string') return period
+  if (sport === 'CUR') return /^\d+$/.test(period) ? `End ${period}` : period
   return period.replace(/^EP/i, 'P')
 }
 
@@ -87,10 +96,12 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const sport = detectSport(block)
   const teamCodes = extractTeamCodes(block)
+  const apiPath = sport === 'CUR' ? '/api/cur-live' : '/api/iho-live'
 
   useEffect(() => {
-    if (!open) return
+    if (!open || !sport) return
 
     setLoading(true)
 
@@ -102,7 +113,7 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
           params.set('home', teamCodes.home)
           params.set('away', teamCodes.away)
         }
-        const url = `${API_BASE}/api/iho-live${params.toString() ? '?' + params.toString() : ''}`
+        const url = `${API_BASE}${apiPath}${params.toString() ? '?' + params.toString() : ''}`
         const res = await fetch(url)
         const json = await res.json()
         if (!res.ok) {
@@ -122,9 +133,11 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
     fetchData()
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
-  }, [open, teamCodes?.home, teamCodes?.away])
+  }, [open, sport, apiPath, teamCodes?.home, teamCodes?.away])
 
   if (!open) return null
+
+  const title = sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey'
 
   return (
     <>
@@ -136,10 +149,10 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
       <aside
         className="fixed top-[73px] right-0 bottom-0 w-[min(28rem,100vw)] bg-gray-800 border-l border-gray-600 z-50 flex flex-col shadow-xl"
         role="dialog"
-        aria-label="Live Ice Hockey"
+        aria-label={title}
       >
         <div className="flex items-center justify-between p-4 border-b border-gray-600 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-white uppercase tracking-wide">Live Ice Hockey</h2>
+          <h2 className="text-lg font-semibold text-white uppercase tracking-wide">{title}</h2>
           <button
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
@@ -160,7 +173,9 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
               <p className="text-sm mt-1">{error}</p>
             </div>
           )}
-          {data && (
+          {data && (() => {
+            const effectiveSport = data.sport || sport;
+            return (
             <>
               {/* Last updated */}
               <div className="rounded-lg bg-gray-700 px-4 py-3 border border-gray-600">
@@ -191,17 +206,17 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                   <span className="font-semibold text-white truncate min-w-0 text-right">{data.awayTeam?.code ?? '—'}</span>
                   <TeamFlag code={data.awayTeam?.code} />
                 </div>
-                {(data.timeRemainingInPeriod != null || data.timeRemainingGame != null || data.period) && (
+                {(data.timeRemainingInPeriod != null || data.timeRemainingGame != null || data.period || data.resultStatus === 'OFFICIAL') && (
                   <div className="mt-3 pt-3 border-t border-gray-600 flex justify-center items-center gap-4 flex-wrap">
                     {data.period && (
                       <span className="text-amber-200 font-semibold text-base">
-                        {formatPeriod(data.period)}
+                        {formatPeriod(data.period, effectiveSport)}
                         {data.timeRemainingInPeriod != null && (
                           <span className="text-white font-mono"> · {formatGameTime(data.timeRemainingInPeriod)} left</span>
                         )}
                       </span>
                     )}
-                    {(data.timeRemainingGame != null || data.resultStatus === 'OFFICIAL') && (
+                    {(data.timeRemainingGame != null || data.resultStatus === 'OFFICIAL') && effectiveSport !== 'CUR' && (
                       <span className="text-amber-200 font-semibold text-base">
                         {data.resultStatus === 'OFFICIAL' ? (
                           <span className="text-white">Final</span>
@@ -210,6 +225,11 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                         ) : (
                           <span className="text-white font-mono">{formatGameTime(data.timeRemainingGame)} game remaining</span>
                         )}
+                      </span>
+                    )}
+                    {data.resultStatus === 'OFFICIAL' && effectiveSport === 'CUR' && (
+                      <span className="text-amber-200 font-semibold text-base">
+                        <span className="text-white">Final</span>
                       </span>
                     )}
                   </div>
@@ -224,20 +244,34 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                     <div key={team.code || i} className="space-y-2">
                       <p className="text-sm font-medium text-white truncate">{team.name}</p>
                       <div className="space-y-1">
-                        <StatRow label="SOG" value={team.sog} />
-                        <StatRow label="GF" value={team.gf} />
-                        {team.foPercent != null && <StatRow label="FO%" value={`${team.foPercent}%`} />}
-                        {team.ppg != null && team.ppg > 0 && <StatRow label="PPG" value={team.ppg} />}
-                        {team.pim != null && team.pim > 0 && <StatRow label="PIM" value={team.pim} />}
-                        {team.svs != null && team.svs > 0 && <StatRow label="SVS" value={team.svs} />}
+                        {effectiveSport === 'CUR' ? (
+                          <>
+                            {team.gameSuccessPercent != null && <StatRow label="Success%" value={`${team.gameSuccessPercent}%`} />}
+                            <StatRow label="Draw" value={team.draw} />
+                            <StatRow label="Takeout" value={team.takeout} />
+                            <StatRow label="CW" value={team.cw} />
+                            <StatRow label="CCW" value={team.ccw} />
+                            {team.stolenEnds != null && parseInt(team.stolenEnds, 10) > 0 && <StatRow label="Stolen Ends" value={team.stolenEnds} />}
+                            {team.stolenPoints != null && parseInt(team.stolenPoints, 10) > 0 && <StatRow label="Stolen Pts" value={team.stolenPoints} />}
+                          </>
+                        ) : (
+                          <>
+                            <StatRow label="SOG" value={team.sog} />
+                            <StatRow label="GF" value={team.gf} />
+                            {team.foPercent != null && <StatRow label="FO%" value={`${team.foPercent}%`} />}
+                            {team.ppg != null && team.ppg > 0 && <StatRow label="PPG" value={team.ppg} />}
+                            {team.pim != null && team.pim > 0 && <StatRow label="PIM" value={team.pim} />}
+                            {team.svs != null && team.svs > 0 && <StatRow label="SVS" value={team.svs} />}
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Scoring summary */}
-              {(data.homeScorers?.length > 0 || data.awayScorers?.length > 0) && (
+              {/* Scoring summary (hockey only) */}
+              {effectiveSport !== 'CUR' && (data.homeScorers?.length > 0 || data.awayScorers?.length > 0) && (
                 <div className="rounded-lg bg-gray-700 p-4 border border-gray-600">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Scoring Summary</p>
                   <div className="grid grid-cols-2 gap-4">
@@ -247,21 +281,24 @@ export default function IHOLiveSidebar({ open, onClose, block }) {
                 </div>
               )}
 
-              {/* Period scores */}
+              {/* Period / End scores */}
               {data.periods && data.periods.length > 0 && (
                 <div className="rounded-lg bg-gray-700/60 px-4 py-3 border border-gray-600">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Period Scores</p>
-                  <div className="flex gap-4">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
+                    {effectiveSport === 'CUR' ? 'End Scores' : 'Period Scores'}
+                  </p>
+                  <div className="flex gap-4 flex-wrap">
                     {data.periods.map((p, i) => (
                       <span key={i} className="text-sm text-gray-300">
-                        {p.code}: {p.homeScore}–{p.awayScore}
+                        {effectiveSport === 'CUR' ? `E${p.code}` : p.code}: {p.homeScore}–{p.awayScore}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
             </>
-          )}
+          );
+          })()}
         </div>
       </aside>
     </>

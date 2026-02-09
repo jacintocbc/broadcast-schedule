@@ -99,3 +99,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON iho_game_data;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON iho_game_data;
 CREATE POLICY "Allow all (anon)" ON iho_game_data FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON iho_game_data FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Curling game data (for deployed app viewing)
+-- ============================================
+ALTER TABLE cur_game_data ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON cur_game_data;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON cur_game_data;
+CREATE POLICY "Allow all (anon)" ON cur_game_data FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON cur_game_data FOR ALL TO authenticated USING (true) WITH CHECK (true);

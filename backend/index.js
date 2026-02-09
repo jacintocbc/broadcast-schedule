@@ -543,6 +543,11 @@ app.get('/api/health', (req, res) => {
 // ============================================
 const IHO_BASE_PATH = process.env.IHO_BASE_PATH || 'M:\\Incoming\\IHO';
 
+// ============================================
+// CUR DT_RESULT Live Feed (Curling)
+// ============================================
+const CUR_BASE_PATH = process.env.CUR_BASE_PATH || 'M:\\Incoming\\CUR';
+
 /**
  * Resolve path to newest date folder, then newest holder folder.
  * Returns full path to holder folder or null if not found.
@@ -556,6 +561,23 @@ function resolveIHOHolderPath() {
     .sort((a, b) => b.name.localeCompare(a.name));
   if (dateDirs.length === 0) return null;
   const datePath = path.join(IHO_BASE_PATH, dateDirs[0].name);
+  const holderDirs = fs.readdirSync(datePath, { withFileTypes: true })
+    .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+    .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
+  if (holderDirs.length === 0) return null;
+  return path.join(datePath, holderDirs[0].name);
+}
+
+/**
+ * Resolve path to newest date folder, then newest holder folder for Curling.
+ */
+function resolveCURHolderPath() {
+  if (!fs.existsSync(CUR_BASE_PATH)) return null;
+  const dateDirs = fs.readdirSync(CUR_BASE_PATH, { withFileTypes: true })
+    .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+    .sort((a, b) => b.name.localeCompare(a.name));
+  if (dateDirs.length === 0) return null;
+  const datePath = path.join(CUR_BASE_PATH, dateDirs[0].name);
   const holderDirs = fs.readdirSync(datePath, { withFileTypes: true })
     .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
     .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
@@ -604,6 +626,35 @@ function findDTResultFile(dirPath, homeCode, awayCode) {
   const { path: filePath, mtime } = files[0];
   const xmlStr = fs.readFileSync(filePath, 'utf-8');
   const data = parseDTResultXml(xmlStr);
+  return { path: filePath, mtime, data };
+}
+
+/**
+ * Find Curling DT_RESULT file. If home/away provided, find first file whose parsed data matches.
+ */
+function findDTResultFileCurling(dirPath, homeCode, awayCode) {
+  const files = listDTResultFiles(dirPath);
+  if (files.length === 0) return null;
+  const home = homeCode?.trim()?.toUpperCase();
+  const away = awayCode?.trim()?.toUpperCase();
+  const wantMatch = home && away;
+  for (const { path: filePath, mtime } of files) {
+    try {
+      const xmlStr = fs.readFileSync(filePath, 'utf-8');
+      const data = parseDTResultXmlCurling(xmlStr);
+      const dataHome = data.homeTeam?.code?.toUpperCase();
+      const dataAway = data.awayTeam?.code?.toUpperCase();
+      if (!wantMatch) return { path: filePath, mtime, data };
+      if ((dataHome === home && dataAway === away) || (dataHome === away && dataAway === home)) {
+        return { path: filePath, mtime, data };
+      }
+    } catch (_) {
+      continue;
+    }
+  }
+  const { path: filePath, mtime } = files[0];
+  const xmlStr = fs.readFileSync(filePath, 'utf-8');
+  const data = parseDTResultXmlCurling(xmlStr);
   return { path: filePath, mtime, data };
 }
 
@@ -866,6 +917,107 @@ function parseDTResultXml(xmlStr) {
   };
 }
 
+/**
+ * Parse Curling DT_RESULT XML and return normalized payload.
+ */
+function parseDTResultXmlCurling(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) throw new Error('Invalid OdfBody structure');
+
+  const comp = body.Competition;
+  if (!comp) throw new Error('Missing Competition');
+
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const extInfos = comp.ExtendedInfos;
+  const extInfo = Array.isArray(extInfos?.ExtendedInfo) ? extInfos.ExtendedInfo : (extInfos?.ExtendedInfo ? [extInfos.ExtendedInfo] : []);
+  const periodInfo = extInfo.find(e => e['@_Code'] === 'PERIOD');
+  const sportDesc = extInfos?.SportDescription || comp.SportDescription || {};
+  const venueDesc = extInfos?.VenueDescription || comp.VenueDescription || {};
+
+  const results = comp.Result;
+  const resultList = Array.isArray(results) ? results : (results ? [results] : []);
+  const homeResult = resultList.find(r => {
+    const c = r.Competitor;
+    const eue = c?.EventUnitEntry;
+    const entries = Array.isArray(eue) ? eue : (eue ? [eue] : []);
+    return entries.some(e => (e['@_Code'] ?? e.Code) === 'HOME_AWAY' && (e['@_Value'] ?? e.Value) === 'HOME');
+  });
+  const awayResult = resultList.find(r => {
+    const c = r.Competitor;
+    const eue = c?.EventUnitEntry;
+    const entries = Array.isArray(eue) ? eue : (eue ? [eue] : []);
+    return entries.some(e => (e['@_Code'] ?? e.Code) === 'HOME_AWAY' && (e['@_Value'] ?? e.Value) === 'AWAY');
+  });
+
+  const toTeam = (r) => {
+    if (!r) return null;
+    const c = r.Competitor;
+    const desc = c?.Description || {};
+    const stats = c?.StatsItems?.StatsItem;
+    const statsArr = Array.isArray(stats) ? stats : (stats ? [stats] : []);
+    return {
+      name: desc['@_TeamName'] ?? desc.TeamName ?? '',
+      code: c?.['@_Organisation'] ?? '',
+      score: parseInt(r['@_Result'], 10) ?? 0,
+      gameSuccess: getStatValue(statsArr, 'GAME_SUCCESS'),
+      gameSuccessPercent: (() => { const item = statsArr.find(s => (s['@_Code'] ?? s.Code) === 'GAME_SUCCESS'); return item?.['@_Percent']; })(),
+      cw: getStatValue(statsArr, 'CW'),
+      ccw: getStatValue(statsArr, 'CCW'),
+      draw: getStatValue(statsArr, 'DRAW'),
+      takeout: getStatValue(statsArr, 'TAKEOUT'),
+      stolenEnds: getStatValue(statsArr, 'STOLENENDS'),
+      stolenPoints: getStatValue(statsArr, 'STOLENPOINTS')
+    };
+  };
+
+  const homeTeam = toTeam(homeResult);
+  const awayTeam = toTeam(awayResult);
+
+  const periods = comp.Periods;
+  const periodList = Array.isArray(periods?.Period) ? periods.Period : (periods?.Period ? [periods.Period] : []);
+  const currentPeriodCode = periodInfo?.['@_Value'] || '1';
+  const currentPeriod = periodList.find(p => String(p['@_Code'] ?? p.Code) === String(currentPeriodCode));
+
+  let timeRemainingInPeriod = null;
+  if (currentPeriod?.ExtendedPeriods) {
+    const extPeriods = currentPeriod.ExtendedPeriods;
+    const epList = Array.isArray(extPeriods?.ExtendedPeriod) ? extPeriods.ExtendedPeriod : (extPeriods?.ExtendedPeriod ? [extPeriods.ExtendedPeriod] : []);
+    const homeRemain = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'HOME_REMAIN');
+    const awayRemain = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'AWAY_REMAIN');
+    const homeSec = homeRemain ? parseMinsToSeconds(String(homeRemain['@_Value'] ?? homeRemain.Value ?? '')) : null;
+    const awaySec = awayRemain ? parseMinsToSeconds(String(awayRemain['@_Value'] ?? awayRemain.Value ?? '')) : null;
+    if (homeSec != null && awaySec != null) {
+      timeRemainingInPeriod = Math.min(homeSec, awaySec);
+    } else if (homeSec != null) {
+      timeRemainingInPeriod = homeSec;
+    } else if (awaySec != null) {
+      timeRemainingInPeriod = awaySec;
+    }
+  }
+
+  return {
+    sport: 'CUR',
+    resultStatus: body['@_ResultStatus'] || '',
+    date: body['@_Date'] || '',
+    timestamp: body['@_BDFTimestamp'] || '',
+    period: currentPeriodCode,
+    discipline: attr(sportDesc, 'DisciplineName') || '',
+    eventName: attr(sportDesc, 'EventName') || '',
+    subEvent: attr(sportDesc, 'SubEventName') || '',
+    venueName: attr(venueDesc, 'VenueName') ?? attr(venueDesc, 'LocationName') ?? '',
+    homeTeam,
+    awayTeam,
+    timeRemainingInPeriod: timeRemainingInPeriod != null ? timeRemainingInPeriod : null,
+    periods: periodList.map(p => ({
+      code: String(p['@_Code'] ?? p.Code),
+      homeScore: parseInt(attr(p, 'HomeScore'), 10) ?? parseInt(attr(p, 'HomePeriodScore'), 10) ?? 0,
+      awayScore: parseInt(attr(p, 'AwayScore'), 10) ?? parseInt(attr(p, 'AwayPeriodScore'), 10) ?? 0
+    }))
+  };
+}
+
 app.get('/api/iho-live', (req, res) => {
   try {
     const holderPath = resolveIHOHolderPath();
@@ -911,6 +1063,55 @@ app.get('/api/iho-live', (req, res) => {
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
     res.status(status).json({
       error: 'Failed to load IHO live data',
+      details: err.message
+    });
+  }
+});
+
+app.get('/api/cur-live', (req, res) => {
+  try {
+    const holderPath = resolveCURHolderPath();
+    if (!holderPath) {
+      return res.status(503).json({
+        error: 'CUR path not found or not accessible',
+        details: `Base path: ${CUR_BASE_PATH}`
+      });
+    }
+    const home = req.query.home;
+    const away = req.query.away;
+    const fileResult = findDTResultFileCurling(holderPath, home, away);
+    if (!fileResult) {
+      return res.status(404).json({
+        error: 'No Curling DT_RESULT file found',
+        details: `Searched in: ${holderPath}`
+      });
+    }
+    const { mtime, data } = fileResult;
+    data.lastUpdated = mtime.toISOString();
+    res.json(data);
+
+    if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
+      supabase
+        .from('cur_game_data')
+        .upsert(
+          {
+            home_team_code: data.homeTeam.code,
+            away_team_code: data.awayTeam.code,
+            game_date: data.date,
+            data,
+            last_updated: mtime.toISOString()
+          },
+          { onConflict: 'home_team_code,away_team_code,game_date' }
+        )
+        .then(({ error }) => {
+          if (error) console.error('CUR Supabase sync error:', error.message);
+        });
+    }
+  } catch (err) {
+    console.error('CUR live error:', err);
+    const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
+    res.status(status).json({
+      error: 'Failed to load Curling live data',
       details: err.message
     });
   }

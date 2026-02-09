@@ -35,10 +35,12 @@ Create `.env` file with:
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key-here
 IHO_BASE_PATH=M:\Incoming\IHO
+CUR_BASE_PATH=M:\Incoming\CUR
 ```
 
 **Optional:**
 - `IHO_BASE_PATH` – Base path for IHO DT_RESULT live feed (default: `M:\Incoming\IHO`). Used when the backend is on a machine with access to the network drive.
+- `CUR_BASE_PATH` – Base path for Curling DT_RESULT live feed (default: `M:\Incoming\CUR`).
 
 **To get these values:**
 1. Go to your Supabase Dashboard
@@ -68,14 +70,15 @@ cd frontend
 npm run dev
 ```
 
-### 4. Run IHO Supabase Migration (Optional)
+### 4. Run Live Data Migrations (Optional)
 
-To enable IHO live data on the deployed app, run the migration in Supabase SQL Editor:
+To enable live data on the deployed app, run the migrations in Supabase SQL Editor:
 
-1. Open `supabase-iho-game-data.sql` and run its contents
-2. Run the RLS section for `iho_game_data` from `supabase-enable-rls-permissive.sql`
+1. **IHO:** `supabase-iho-game-data.sql`
+2. **Curling:** `supabase-cur-game-data.sql`
+3. Run the RLS sections for `iho_game_data` and `cur_game_data` from `supabase-enable-rls-permissive.sql`
 
-Then when the local backend fetches IHO data from the network drive, it syncs to Supabase. Deployed users can view that data via `/api/iho-live` (Vercel serverless reads from Supabase).
+When the local backend fetches from the network drive, it syncs to Supabase. Deployed users can view via `/api/iho-live` and `/api/cur-live`.
 
 ### 5. Verify Setup
 
@@ -90,6 +93,7 @@ Then when the local backend fetches IHO data from the network drive, it syncs to
 ### CSV/Events Routes
 - `GET /api/health` - Health check
 - `GET /api/iho-live` - Live IHO DT_RESULT data (parses newest XML from network drive; syncs to Supabase for deployed viewing)
+- `GET /api/cur-live` - Live Curling DT_RESULT data (parses newest XML from network drive; syncs to Supabase for deployed viewing)
 - `GET /api/events` - Get all events (from CSV)
 - `GET /api/events/dates` - Get available dates
 - `POST /api/upload` - Upload CSV (if needed)
