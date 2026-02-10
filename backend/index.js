@@ -9,10 +9,12 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import { XMLParser } from 'fast-xml-parser';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load .env from project root first, then backend (so backend/.env can override)
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+dotenv.config();
 
 const app = express();
 const PORT = 3001;
@@ -32,6 +34,13 @@ app.options('*', cors());
 
 // In-memory storage for events (can be replaced with events.json file)
 let eventsData = [];
+
+/** Normalize parsed JSON to events array: accept raw array or { events: [...] }. */
+function normalizeEventsArray(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && Array.isArray(parsed.events)) return parsed.events;
+  return [];
+}
 
 // Configure multer for file uploads
 const upload = multer({ dest: 'uploads/' });
@@ -465,18 +474,18 @@ app.get('/api/events', (req, res) => {
         try {
           const fileContent = fs.readFileSync(eventsJsonPath, 'utf-8');
           if (fileContent.trim()) {
-            eventsData = JSON.parse(fileContent);
+            eventsData = normalizeEventsArray(JSON.parse(fileContent));
           }
         } catch (error) {
           console.error('Error reading events.json:', error);
-          // If events.json is corrupted, reset it
           eventsData = [];
         }
       }
     }
-    
+    const safeEvents = Array.isArray(eventsData) ? eventsData : [];
+
     // Filter by date if provided
-    let filteredEvents = eventsData;
+    let filteredEvents = safeEvents;
     if (req.query.date) {
       const filterDate = new Date(req.query.date);
       filterDate.setUTCHours(0, 0, 0, 0);
@@ -508,7 +517,7 @@ app.get('/api/events/dates', (req, res) => {
         try {
           const fileContent = fs.readFileSync(eventsJsonPath, 'utf-8');
           if (fileContent.trim()) {
-            eventsData = JSON.parse(fileContent);
+            eventsData = normalizeEventsArray(JSON.parse(fileContent));
           }
         } catch (error) {
           console.error('Error reading events.json:', error);
@@ -516,10 +525,11 @@ app.get('/api/events/dates', (req, res) => {
         }
       }
     }
-    
+    const safeEvents = Array.isArray(eventsData) ? eventsData : [];
+
     // Extract unique dates from events
     const dates = new Set();
-    eventsData.forEach(event => {
+    safeEvents.forEach(event => {
       const eventDate = new Date(event.start_time);
       eventDate.setUTCHours(0, 0, 0, 0);
       dates.add(eventDate.toISOString().split('T')[0]);
@@ -527,9 +537,9 @@ app.get('/api/events/dates', (req, res) => {
     
     const sortedDates = Array.from(dates).sort();
     res.json(sortedDates);
-  } catch (error) {
-    console.error('Error in /api/events/dates:', error);
-    res.status(500).json({ error: 'Error fetching dates', details: error.message });
+  } catch (err) {
+    console.error('Error in /api/events/dates:', err);
+    res.status(500).json({ error: 'Error fetching dates', details: err.message });
   }
 });
 
@@ -583,6 +593,41 @@ function resolveCURHolderPaths() {
 /** Resolve LUG holder paths (up to 4 hour folders, newest first). */
 function resolveLUGHolderPaths() {
   return resolveHolderPaths(LUG_BASE_PATH, 4);
+}
+
+/** True if req has source=db or archived=1 (skip file scan, use DB only). */
+function wantsDbOnly(req) {
+  const s = (req.query.source || '').toLowerCase();
+  const a = (req.query.archived || '').toString();
+  return s === 'db' || a === '1' || a === 'true';
+}
+
+/** Fast check: does dir contain any filename including DT_RESULT_? (readdir only, no stat/read). */
+function hasAnyDTResultInDir(dirPath) {
+  if (!fs.existsSync(dirPath)) return false;
+  try {
+    const names = fs.readdirSync(dirPath);
+    return names.some(n => n.includes('DT_RESULT_'));
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Fast check: does dir contain any Luge result filename? (readdir only). */
+function hasAnyLugeResultInDir(dirPath) {
+  if (!fs.existsSync(dirPath)) return false;
+  try {
+    const names = fs.readdirSync(dirPath);
+    return names.some(n => n.includes('DT_CUMULATIVE_RESULT_') || n.includes('DT_RESULT_'));
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Fast check: do any holder paths have Luge result files? (first path only). */
+function hasAnyLugeFiles() {
+  const paths = resolveLUGHolderPaths();
+  return paths.length > 0 && hasAnyLugeResultInDir(paths[0]);
 }
 
 /** @deprecated Use resolveIHOHolderPaths */
@@ -1283,36 +1328,50 @@ app.get('/api/iho-live', async (req, res) => {
   try {
     const home = req.query.home;
     const away = req.query.away;
-    const holderPaths = resolveIHOHolderPaths();
-    let fileResult = null;
-    for (const holderPath of holderPaths) {
-      fileResult = findDTResultFile(holderPath, home, away);
-      if (fileResult) break;
+    if (wantsDbOnly(req)) {
+      const supabaseData = await fetchIHOFromSupabase(home, away);
+      if (supabaseData) return res.json(supabaseData);
+      return res.status(404).json({ error: 'No IHO game data found', details: 'Database only (source=db)' });
     }
-    if (fileResult) {
-      const { mtime, data } = fileResult;
-      data.lastUpdated = mtime.toISOString();
-      res.json(data);
-
-      // Sync to Supabase for deployed viewing (non-blocking)
-      if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
-        supabase
-          .from('iho_game_data')
-          .upsert(
-            {
-              home_team_code: data.homeTeam.code,
-              away_team_code: data.awayTeam.code,
-              game_date: data.date,
-              data,
-              last_updated: mtime.toISOString()
-            },
-            { onConflict: 'home_team_code,away_team_code,game_date' }
-          )
-          .then(({ error }) => {
-            if (error) console.error('IHO Supabase sync error:', error.message);
-          });
+    const holderPaths = resolveIHOHolderPaths();
+    if (holderPaths.length > 0 && !hasAnyDTResultInDir(holderPaths[0])) {
+      const supabaseData = await fetchIHOFromSupabase(home, away);
+      if (supabaseData) return res.json(supabaseData);
+      return res.status(404).json({
+        error: 'No DT_RESULT file found',
+        details: 'No files in holder path; no game data in database'
+      });
+    } else {
+      let fileResult = null;
+      for (const holderPath of holderPaths) {
+        fileResult = findDTResultFile(holderPath, home, away);
+        if (fileResult) break;
       }
-      return;
+      if (fileResult) {
+        const { mtime, data } = fileResult;
+        data.lastUpdated = mtime.toISOString();
+        res.json(data);
+
+        // Sync to Supabase for deployed viewing (non-blocking)
+        if (supabase && data.homeTeam?.code && data.awayTeam?.code && data.date) {
+          supabase
+            .from('iho_game_data')
+            .upsert(
+              {
+                home_team_code: data.homeTeam.code,
+                away_team_code: data.awayTeam.code,
+                game_date: data.date,
+                data,
+                last_updated: mtime.toISOString()
+              },
+              { onConflict: 'home_team_code,away_team_code,game_date' }
+            )
+            .then(({ error }) => {
+              if (error) console.error('IHO Supabase sync error:', error.message);
+            });
+        }
+        return;
+      }
     }
     const supabaseData = await fetchIHOFromSupabase(home, away);
     if (supabaseData) {
@@ -1336,7 +1395,20 @@ app.get('/api/cur-live', async (req, res) => {
   try {
     const home = req.query.home;
     const away = req.query.away;
+    if (wantsDbOnly(req)) {
+      const supabaseData = await fetchCURFromSupabase(home, away);
+      if (supabaseData) return res.json(supabaseData);
+      return res.status(404).json({ error: 'No Curling game data found', details: 'Database only (source=db)' });
+    }
     const holderPaths = resolveCURHolderPaths();
+    if (holderPaths.length > 0 && !hasAnyDTResultInDir(holderPaths[0])) {
+      const supabaseData = await fetchCURFromSupabase(home, away);
+      if (supabaseData) return res.json(supabaseData);
+      return res.status(404).json({
+        error: 'No Curling DT_RESULT file found',
+        details: 'No files in holder path; no game data in database'
+      });
+    }
     let fileResult = null;
     for (const holderPath of holderPaths) {
       fileResult = findDTResultFileCurling(holderPath, home, away);
@@ -1386,17 +1458,75 @@ app.get('/api/cur-live', async (req, res) => {
 
 app.get('/api/lug-live', async (req, res) => {
   try {
+    const eventCode = (req.query.event_code || req.query.eventCode || 'LUG').toString().trim().toUpperCase() || 'LUG';
+
+    if (wantsDbOnly(req)) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('lug_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) {
+          const stored = rows[0].data;
+          return res.json({
+            eventCode: eventCode,
+            eventName: stored?.eventName,
+            lastUpdated: stored?.lastUpdated,
+            runs: Array.isArray(stored?.runs) ? stored.runs : []
+          });
+        }
+        const { data: anyRows } = await supabase.from('lug_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) {
+          const stored = anyRows[0].data;
+          return res.json({ eventCode, eventName: stored?.eventName, lastUpdated: stored?.lastUpdated, runs: stored?.runs || [] });
+        }
+      }
+      return res.status(404).json({ error: 'No Luge live data found', details: 'Database only (source=db)' });
+    }
+
     const now = Date.now();
     if (lugCache.payload && now < lugCache.expires) {
       return res.json(lugCache.payload);
     }
+
+    if (!hasAnyLugeFiles()) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('lug_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) {
+          const stored = rows[0].data;
+          return res.json({
+            eventCode: eventCode,
+            eventName: stored?.eventName,
+            lastUpdated: stored?.lastUpdated,
+            runs: Array.isArray(stored?.runs) ? stored.runs : []
+          });
+        }
+        const { data: anyRows } = await supabase.from('lug_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) {
+          const stored = anyRows[0].data;
+          return res.json({ eventCode, eventName: stored?.eventName, lastUpdated: stored?.lastUpdated, runs: stored?.runs || [] });
+        }
+      }
+      return res.status(404).json({
+        error: 'No Luge DT_RESULT file found',
+        details: `Base path: ${LUG_BASE_PATH}; no files; no data in database`
+      });
+    }
+
     const payload = await findAllLugeRuns();
-    const eventCode = payload.eventCode || 'LUG';
+    const code = payload.eventCode || 'LUG';
     if (payload.runs.length > 0) {
       lugCache = { payload, expires: now + LUG_CACHE_TTL_MS };
       if (supabase) {
         const row = {
-          event_code: eventCode,
+          event_code: code,
           data: { eventName: payload.eventName, lastUpdated: payload.lastUpdated, runs: payload.runs },
           last_updated: payload.lastUpdated || new Date().toISOString()
         };
@@ -1405,7 +1535,6 @@ app.get('/api/lug-live', async (req, res) => {
       return res.json(payload);
     }
     if (supabase) {
-      const code = (req.query.event_code || req.query.eventCode || eventCode).toString().trim().toUpperCase() || 'LUG';
       const { data: rows, error } = await supabase
         .from('lug_live_data')
         .select('data')
