@@ -1215,12 +1215,13 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           className={`flex flex-col ${isNarrowBlock ? 'text-[10px] leading-tight' : 'text-[14.6px] leading-tight'} ${textColor} relative ${hasMinimalContent && !isShortBlock ? 'p-1' : (isNarrowBlock && !isShortBlock ? 'p-0.5' : isShortBlock ? 'p-1' : 'p-2')}`}
                           style={{ minHeight: hasMinimalContent ? 'auto' : '100%' }}
                         >
-                          {/* Top right: maple leaf (if Canadian), live circle (if live), graph icon (if live IHO/CUR), archive icon (if past IHO/CUR) */}
+                          {/* Top right: maple leaf (if Canadian), live circle (if live), graph icon (if live IHO/CUR/LUG), archive icon (if past IHO/CUR or LUG) */}
                           {(block.canadian_content || isLive || (!isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
-                                const hasLiveData = /iho|ice hockey|cur|curling/.test(title);
+                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge/.test(title);
                                 if (!hasLiveData) return false;
                                 const sport = detectSport(block);
+                                if (sport === 'LUG') return true;
                                 const codes = extractTeamCodes(block);
                                 const key = sport && codes ? `${sport}-${codes.home}-${codes.away}` : null;
                                 return key && liveHasResults[key] === true;
@@ -1240,7 +1241,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               )}
                               {isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
-                                const hasLiveData = /iho|ice hockey|cur|curling/.test(title);
+                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge/.test(title);
                                 return hasLiveData ? (
                                   <button
                                     type="button"
@@ -1257,9 +1258,24 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               })()}
                               {!isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
-                                const hasLiveData = /iho|ice hockey|cur|curling/.test(title);
+                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge/.test(title);
                                 if (!hasLiveData) return null;
                                 const sport = detectSport(block);
+                                if (sport === 'LUG') {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); onOpenLiveDataSidebar(block || event); }}
+                                      className="p-1 rounded hover:bg-white/20 shrink-0 text-gray-400 hover:text-gray-200 transition-colors"
+                                      title="View results"
+                                      aria-label="View results"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                    </button>
+                                  );
+                                }
                                 const codes = extractTeamCodes(block);
                                 const key = sport && codes ? `${sport}-${codes.home}-${codes.away}` : null;
                                 if (!key || liveHasResults[key] !== true) return null;

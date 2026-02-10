@@ -548,6 +548,11 @@ const IHO_BASE_PATH = process.env.IHO_BASE_PATH || 'M:\\Incoming\\IHO';
 // ============================================
 const CUR_BASE_PATH = process.env.CUR_BASE_PATH || 'M:\\Incoming\\CUR';
 
+// ============================================
+// LUG DT_RESULT Live Feed (Luge)
+// ============================================
+const LUG_BASE_PATH = process.env.LUG_BASE_PATH || 'M:\\Incoming\\LUG';
+
 /**
  * Resolve up to N holder folder paths (newest first). Searches recent hour folders.
  * If current hour has no results, searches previous hour. Returns [] if none found.
@@ -575,6 +580,11 @@ function resolveCURHolderPaths() {
   return resolveHolderPaths(CUR_BASE_PATH, 2);
 }
 
+/** Resolve LUG holder paths (up to 4 hour folders, newest first). */
+function resolveLUGHolderPaths() {
+  return resolveHolderPaths(LUG_BASE_PATH, 4);
+}
+
 /** @deprecated Use resolveIHOHolderPaths */
 function resolveIHOHolderPath() {
   const paths = resolveIHOHolderPaths();
@@ -589,16 +599,44 @@ function resolveCURHolderPath() {
 
 /**
  * List all DT_RESULT_* files in folder, sorted by mtime newest first.
- * Returns array of { path, mtime }.
+ * Returns array of { path, mtime }. Uses one stat per file.
  */
 function listDTResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
     .filter(f => f.includes('DT_RESULT_'))
-    .map(f => ({ name: f, path: path.join(dirPath, f) }))
-    .filter(f => fs.statSync(f.path).isFile())
-    .map(f => ({ ...f, mtime: fs.statSync(f.path).mtime }))
+    .map(f => {
+      const filePath = path.join(dirPath, f);
+      let stat;
+      try { stat = fs.statSync(filePath); } catch (_) { return null; }
+      if (!stat.isFile()) return null;
+      return { name: f, path: filePath, mtime: stat.mtime };
+    })
+    .filter(Boolean)
     .sort((a, b) => b.mtime - a.mtime);
+}
+
+/**
+ * List Luge result files: DT_CUMULATIVE_RESULT_* (medals/final standings) and DT_RESULT_* (per-run).
+ * Returns array of { path, mtime, cumulative }. Sorted: cumulative first, then by mtime newest first.
+ */
+function listLugeResultFiles(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs.readdirSync(dirPath)
+    .filter(f => f.includes('DT_CUMULATIVE_RESULT_') || f.includes('DT_RESULT_'))
+    .map(f => {
+      const filePath = path.join(dirPath, f);
+      let stat;
+      try { stat = fs.statSync(filePath); } catch (_) { return null; }
+      if (!stat.isFile()) return null;
+      const cumulative = f.includes('DT_CUMULATIVE_RESULT_');
+      return { name: f, path: filePath, mtime: stat.mtime, cumulative };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.cumulative !== b.cumulative) return a.cumulative ? -1 : 1;
+      return b.mtime - a.mtime;
+    });
 }
 
 /**
@@ -661,6 +699,181 @@ function findDTResultFileCurling(dirPath, homeCode, awayCode) {
   const xmlStr = fs.readFileSync(filePath, 'utf-8');
   const data = parseDTResultXmlCurling(xmlStr);
   return { path: filePath, mtime, data };
+}
+
+/**
+ * Parse Luge DT_RESULT XML. Returns run number (from DocumentCode FNL-000N00), resultStatus, eventName, subEventName, results (top 10).
+ * For START_LIST, Result has no Rank/Result - use SortOrder as rank and empty result.
+ */
+function parseDTResultXmlLuge(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const parsed = parser.parse(xmlStr);
+  const body = parsed?.OdfBody;
+  if (!body) throw new Error('Invalid Luge DT_RESULT: no OdfBody');
+  const comp = body.Competition;
+  if (!comp) throw new Error('Invalid Luge DT_RESULT: no Competition');
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const resultStatus = attr(body, 'ResultStatus') || '';
+  const date = attr(body, 'Date') || '';
+  let run = null;
+  let eventCode = '';
+  const docCode = attr(body, 'DocumentCode') || '';
+  const runMatch = docCode.match(/FNL-000(\d)00/);
+  if (runMatch) run = parseInt(runMatch[1], 10);
+  const codeMatch = docCode.match(/^([A-Z0-9]+)/);
+  if (codeMatch) eventCode = codeMatch[1];
+  let eventName = '';
+  let subEventName = '';
+  const extInfos = comp.ExtendedInfos;
+  if (extInfos?.SportDescription) {
+    const sd = extInfos.SportDescription;
+    eventName = attr(sd, 'EventName') || attr(sd, 'DisciplineName') || '';
+    subEventName = attr(sd, 'SubEventName') || '';
+  }
+  const rawResults = comp.Result;
+  const resultList = Array.isArray(rawResults) ? rawResults : (rawResults ? [rawResults] : []);
+  const results = resultList.slice(0, 10).map((r) => {
+    const rank = parseInt(attr(r, 'Rank'), 10) || parseInt(attr(r, 'SortOrder'), 10) || 0;
+    const resultTime = attr(r, 'Result') || '';
+    const competitor = r.Competitor;
+    const organisation = competitor ? (attr(competitor, 'Organisation') || '').toUpperCase() : '';
+    let givenName = '';
+    let familyName = '';
+    const composition = competitor?.Composition;
+    const athletes = composition?.Athlete;
+    const athleteArr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+    const firstAthlete = athleteArr[0];
+    if (firstAthlete?.Description) {
+      const desc = firstAthlete.Description;
+      givenName = attr(desc, 'GivenName') || '';
+      familyName = attr(desc, 'FamilyName') || '';
+    }
+    return { rank, organisation, givenName, familyName, result: resultTime };
+  });
+  return {
+    run,
+    eventCode,
+    resultStatus,
+    date,
+    eventName,
+    subEventName,
+    results
+  };
+}
+
+/** In-memory cache for Luge live payload to avoid re-scanning the drive on every request. */
+const LUG_CACHE_TTL_MS = 18 * 1000;
+let lugCache = { payload: null, expires: 0 };
+
+/**
+ * Find all Luge result files across holder paths. Prefers DT_CUMULATIVE_RESULT_* (medals/final standings);
+ * falls back to DT_RESULT_* per run. Returns { eventCode, eventName, lastUpdated, runs }.
+ */
+async function findAllLugeRuns() {
+  const holderPaths = resolveLUGHolderPaths();
+  const allFiles = [];
+  for (const dirPath of holderPaths) {
+    const files = listLugeResultFiles(dirPath);
+    for (const f of files) {
+      allFiles.push({ path: f.path, mtime: f.mtime, cumulative: f.cumulative });
+    }
+  }
+  const cumulativeFiles = allFiles.filter(f => f.cumulative);
+  const perRunFiles = allFiles.filter(f => !f.cumulative);
+  const read = fs.promises.readFile;
+
+  // Prefer cumulative (medals/final standings); one document per event
+  if (cumulativeFiles.length > 0) {
+    const parsed = await Promise.all(
+      cumulativeFiles.map(async ({ path: filePath, mtime }) => {
+        try {
+          const xmlStr = await read(filePath, 'utf-8');
+          const data = parseDTResultXmlLuge(xmlStr);
+          const baseName = path.basename(filePath, path.extname(filePath));
+          const match = baseName.match(/DT_CUMULATIVE_RESULT_([A-Z0-9]+)/i);
+          if (match && !data.eventCode) data.eventCode = match[1].toUpperCase();
+          return { mtime, data };
+        } catch (_) {
+          return null;
+        }
+      })
+    );
+    const byEventCode = new Map();
+    let eventName = '';
+    let eventCode = '';
+    let latestMtime = null;
+    for (const item of parsed) {
+      if (!item || (!item.data.eventCode && !item.data.results?.length)) continue;
+      const { mtime, data } = item;
+      const code = data.eventCode || 'LUG';
+      const existing = byEventCode.get(code);
+      if (!existing || mtime > existing.mtime) {
+        byEventCode.set(code, { mtime, data });
+        if (data.eventName) eventName = data.eventName;
+        if (data.eventCode) eventCode = data.eventCode;
+        if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
+      }
+    }
+    const runs = Array.from(byEventCode.values())
+      .sort((a, b) => (a.data.eventCode || '').localeCompare(b.data.eventCode || ''))
+      .map(({ data }) => ({
+        run: data.run != null ? data.run : 4,
+        subEventName: data.subEventName || (data.run != null ? `Run ${data.run}` : 'Cumulative'),
+        resultStatus: data.resultStatus,
+        results: data.results || []
+      }));
+    if (runs.length > 0) {
+      return {
+        eventCode: eventCode || 'LUG',
+        eventName,
+        lastUpdated: latestMtime ? latestMtime.toISOString() : null,
+        runs
+      };
+    }
+  }
+
+  // Fallback: per-run DT_RESULT_* files
+  const candidates = perRunFiles.map(f => ({ filePath: f.path, mtime: f.mtime }));
+  const parsed = await Promise.all(
+    candidates.map(async ({ filePath, mtime }) => {
+      try {
+        const xmlStr = await read(filePath, 'utf-8');
+        const data = parseDTResultXmlLuge(xmlStr);
+        return data.run != null ? { mtime, data } : null;
+      } catch (_) {
+        return null;
+      }
+    })
+  );
+  const byRun = new Map();
+  let eventName = '';
+  let eventCode = '';
+  let latestMtime = null;
+  for (const item of parsed) {
+    if (!item) continue;
+    const { mtime, data } = item;
+    const existing = byRun.get(data.run);
+    if (!existing || mtime > existing.mtime) {
+      byRun.set(data.run, { mtime, data });
+      if (data.eventName) eventName = data.eventName;
+      if (data.eventCode) eventCode = data.eventCode;
+      if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
+    }
+  }
+  const runs = Array.from(byRun.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, { data }]) => ({
+      run: data.run,
+      subEventName: data.subEventName || `Run ${data.run}`,
+      resultStatus: data.resultStatus,
+      results: data.results || []
+    }));
+  return {
+    eventCode: eventCode || 'LUG',
+    eventName,
+    lastUpdated: latestMtime ? latestMtime.toISOString() : null,
+    runs
+  };
 }
 
 /**
@@ -1166,6 +1379,58 @@ app.get('/api/cur-live', async (req, res) => {
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
     res.status(status).json({
       error: 'Failed to load Curling live data',
+      details: err.message
+    });
+  }
+});
+
+app.get('/api/lug-live', async (req, res) => {
+  try {
+    const now = Date.now();
+    if (lugCache.payload && now < lugCache.expires) {
+      return res.json(lugCache.payload);
+    }
+    const payload = await findAllLugeRuns();
+    const eventCode = payload.eventCode || 'LUG';
+    if (payload.runs.length > 0) {
+      lugCache = { payload, expires: now + LUG_CACHE_TTL_MS };
+      if (supabase) {
+        const row = {
+          event_code: eventCode,
+          data: { eventName: payload.eventName, lastUpdated: payload.lastUpdated, runs: payload.runs },
+          last_updated: payload.lastUpdated || new Date().toISOString()
+        };
+        supabase.from('lug_live_data').upsert(row, { onConflict: 'event_code' }).then(() => {}, () => {});
+      }
+      return res.json(payload);
+    }
+    if (supabase) {
+      const code = (req.query.event_code || req.query.eventCode || eventCode).toString().trim().toUpperCase() || 'LUG';
+      const { data: rows, error } = await supabase
+        .from('lug_live_data')
+        .select('data')
+        .eq('event_code', code)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (!error && rows && rows.length > 0) {
+        const stored = rows[0].data;
+        return res.json({
+          eventCode: code,
+          eventName: stored?.eventName,
+          lastUpdated: stored?.lastUpdated,
+          runs: Array.isArray(stored?.runs) ? stored.runs : []
+        });
+      }
+    }
+    return res.status(404).json({
+      error: 'No Luge DT_RESULT file found',
+      details: `Base path: ${LUG_BASE_PATH}`
+    });
+  } catch (err) {
+    console.error('LUG live error:', err);
+    const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
+    res.status(status).json({
+      error: 'Failed to load Luge live data',
       details: err.message
     });
   }

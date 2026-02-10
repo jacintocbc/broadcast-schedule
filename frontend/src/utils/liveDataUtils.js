@@ -1,8 +1,9 @@
-/** Detect sport from block name: IHO (ice hockey) or CUR (curling). */
+/** Detect sport from block name: IHO (ice hockey), CUR (curling), or LUG (luge). */
 export function detectSport(block) {
   const name = (block?.name || block?.title || '').toLowerCase()
   if (/cur|curling/.test(name)) return 'CUR'
   if (/iho|ice hockey/.test(name)) return 'IHO'
+  if (/lug|luge/.test(name)) return 'LUG'
   return null
 }
 

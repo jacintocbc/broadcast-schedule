@@ -35,11 +35,12 @@ function TeamFlag({ code }) {
   )
 }
 
-/** Detect sport from block name: IHO (ice hockey) or CUR (curling). */
+/** Detect sport from block name: IHO (ice hockey), CUR (curling), or LUG (luge). */
 function detectSport(block) {
   const name = (block?.name || block?.title || '').toLowerCase()
   if (/cur|curling/.test(name)) return 'CUR'
   if (/iho|ice hockey/.test(name)) return 'IHO'
+  if (/lug|luge/.test(name)) return 'LUG'
   return null
 }
 
@@ -107,7 +108,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
 
   const sport = detectSport(block)
   const teamCodes = extractTeamCodes(block)
-  const apiPath = sport === 'CUR' ? '/api/cur-live' : '/api/iho-live'
+  const apiPath = sport === 'LUG' ? '/api/lug-live' : sport === 'CUR' ? '/api/cur-live' : '/api/iho-live'
 
   useEffect(() => {
     if (!open || !sport) return
@@ -120,7 +121,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
       try {
         setError(null)
         const params = new URLSearchParams()
-        if (teamCodes) {
+        if (teamCodes && sport !== 'LUG') {
           params.set('home', teamCodes.home)
           params.set('away', teamCodes.away)
         }
@@ -151,7 +152,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
 
   const isLive = data?.resultStatus === 'LIVE'
   const isUpcoming = !isLive && data?.resultStatus !== 'OFFICIAL'
-  const title = isLive ? (sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey') : (sport === 'CUR' ? 'Curling' : 'Ice Hockey')
+  const title = sport === 'LUG' ? 'Luge' : isLive ? (sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey') : (sport === 'CUR' ? 'Curling' : 'Ice Hockey')
 
   return (
     <>
@@ -192,6 +193,60 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
           )}
           {data && (() => {
             const effectiveSport = data.sport || sport;
+            if (sport === 'LUG') {
+              const runs = data.runs || [];
+              const hasNonOfficial = runs.some(r => r.resultStatus !== 'OFFICIAL');
+              return (
+                <>
+                  {hasNonOfficial && data.lastUpdated && (
+                    <div className="rounded-lg bg-gray-700 px-4 py-3 border border-gray-600">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Last updated</span>
+                        <span className="text-base font-semibold text-white font-mono">
+                          {moment(data.lastUpdated).tz('America/New_York').format('h:mm:ss A')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">Eastern Time</p>
+                    </div>
+                  )}
+                  {data.eventName && (
+                    <div className="text-center text-sm text-gray-300 mb-2">{data.eventName}</div>
+                  )}
+                  {runs.map((runBlock) => (
+                    <div key={runBlock.run} className="rounded-lg bg-gray-700 p-4 border border-gray-600 mb-4 last:mb-0">
+                      <div className="flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 mb-3 text-sm text-gray-300">
+                        {runBlock.resultStatus === 'OFFICIAL' && <span className="text-amber-200 font-semibold">Final</span>}
+                        {runBlock.resultStatus === 'START_LIST' && <span className="text-amber-200 font-semibold">Pre-Run</span>}
+                        {runBlock.resultStatus === 'OFFICIAL' && runBlock.subEventName && <span className="text-gray-500">·</span>}
+                        {runBlock.resultStatus === 'START_LIST' && runBlock.subEventName && <span className="text-gray-500">·</span>}
+                        {runBlock.subEventName && <span>{runBlock.subEventName}</span>}
+                      </div>
+                      <div className="border-b border-gray-600 mb-1" aria-hidden />
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {(runBlock.results || []).map((row, i) => (
+                              <tr key={i} className="border-b border-gray-600/50 text-gray-200">
+                                <td className="py-1.5 pr-2 font-medium text-white">{row.rank}</td>
+                                <td className="py-1.5 pr-2">
+                                  {row.organisation && (
+                                    <img src={getFlagSrc(row.organisation)} alt="" className="h-5 w-7 object-cover rounded-sm" onError={e => { e.target.style.display = 'none' }} />
+                                  )}
+                                </td>
+                                <td className="py-1.5 pr-2 font-medium">{row.organisation || '—'}</td>
+                                <td className="py-1.5 pr-2">{row.givenName || '—'}</td>
+                                <td className="py-1.5 pr-2">{row.familyName || '—'}</td>
+                                <td className="py-1.5 text-right font-mono tabular-nums">{row.result || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              );
+            }
             return (
             <>
               {/* Last updated (hide for archived final results) */}
