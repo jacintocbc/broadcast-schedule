@@ -45,6 +45,34 @@ DROP POLICY IF EXISTS "Allow all (authenticated)" ON networks;
 CREATE POLICY "Allow all (anon)" ON networks FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON networks FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON staff;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON staff;
+CREATE POLICY "Allow all (anon)" ON staff FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON staff FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Scheduling (Venues, Blocks, Block-Staff)
+-- ============================================
+ALTER TABLE schedule_venues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schedule_blocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schedule_block_staff ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all (anon)" ON schedule_venues;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON schedule_venues;
+CREATE POLICY "Allow all (anon)" ON schedule_venues FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON schedule_venues FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all (anon)" ON schedule_blocks;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON schedule_blocks;
+CREATE POLICY "Allow all (anon)" ON schedule_blocks FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON schedule_blocks FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all (anon)" ON schedule_block_staff;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON schedule_block_staff;
+CREATE POLICY "Allow all (anon)" ON schedule_block_staff FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON schedule_block_staff FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
 -- ============================================
 -- Blocks and junction tables
 -- ============================================
