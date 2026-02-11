@@ -4,6 +4,12 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+const CONFIG = {
+  iho: { table: 'iho_game_data', label: 'IHO' },
+  cur: { table: 'cur_game_data', label: 'Curling' },
+  lug: { table: 'lug_live_data', label: 'Luge' }
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -13,11 +19,9 @@ export default async function handler(req, res) {
     res.status(200).end();
     return;
   }
-
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-
   if (!supabase) {
     return res.status(500).json({
       error: 'Database configuration missing',
@@ -25,16 +29,54 @@ export default async function handler(req, res) {
     });
   }
 
+  const type = (req.query.type || 'iho').toLowerCase();
+  const cfg = CONFIG[type] || CONFIG.iho;
+
   try {
+    if (type === 'lug') {
+      const eventCode = (req.query.event_code || req.query.eventCode || 'LUG').toString().trim().toUpperCase() || 'LUG';
+      const { data: rows, error } = await supabase
+        .from(cfg.table)
+        .select('data')
+        .eq('event_code', eventCode)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      if (!rows || rows.length === 0) {
+        const { data: anyRows } = await supabase
+          .from(cfg.table)
+          .select('data')
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (anyRows?.length > 0) {
+          const stored = anyRows[0].data;
+          return res.json({
+            eventName: stored?.eventName,
+            lastUpdated: stored?.lastUpdated,
+            runs: Array.isArray(stored?.runs) ? stored.runs : []
+          });
+        }
+        return res.status(404).json({
+          error: `No ${cfg.label} live data found`,
+          details: 'No data synced yet from local instance'
+        });
+      }
+      const stored = rows[0].data;
+      return res.json({
+        eventName: stored?.eventName,
+        lastUpdated: stored?.lastUpdated,
+        runs: Array.isArray(stored?.runs) ? stored.runs : []
+      });
+    }
+
     const home = req.query.home?.trim()?.toUpperCase();
     const away = req.query.away?.trim()?.toUpperCase();
     const hasTeamFilter = home && away;
 
     let rows = null;
-
     if (hasTeamFilter) {
       const { data: d1, error: e1 } = await supabase
-        .from('cur_game_data')
+        .from(cfg.table)
         .select('data')
         .eq('home_team_code', home)
         .eq('away_team_code', away)
@@ -42,17 +84,17 @@ export default async function handler(req, res) {
         .limit(1);
       if (e1) throw e1;
       const { data: d2, error: e2 } = await supabase
-        .from('cur_game_data')
+        .from(cfg.table)
         .select('data')
         .eq('home_team_code', away)
         .eq('away_team_code', home)
         .order('last_updated', { ascending: false })
         .limit(1);
       if (e2) throw e2;
-      rows = (d1 && d1.length > 0) ? d1 : (d2 && d2.length > 0) ? d2 : null;
+      rows = (d1?.length > 0) ? d1 : (d2?.length > 0) ? d2 : null;
     } else {
       const { data, error } = await supabase
-        .from('cur_game_data')
+        .from(cfg.table)
         .select('data')
         .order('last_updated', { ascending: false })
         .limit(1);
@@ -61,17 +103,15 @@ export default async function handler(req, res) {
     }
     if (!rows || rows.length === 0) {
       return res.status(404).json({
-        error: 'No Curling game data found',
+        error: `No ${cfg.label} game data found`,
         details: hasTeamFilter ? `No data for ${home} vs ${away}` : 'No games synced yet'
       });
     }
-
-    const payload = rows[0].data;
-    res.json(payload);
+    res.json(rows[0].data);
   } catch (err) {
-    console.error('Curling live API error:', err);
+    console.error(`${cfg.label} live API error:`, err);
     res.status(500).json({
-      error: 'Failed to load Curling live data',
+      error: `Failed to load ${cfg.label} live data`,
       details: err.message
     });
   }
