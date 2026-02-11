@@ -247,3 +247,52 @@ export async function getBoothBlocks(boothId) {
   if (!response.ok) throw new Error('Failed to fetch booth blocks');
   return response.json();
 }
+
+// Schedule (Scheduling page) API
+export async function getScheduleVenues() {
+  const response = await fetch(`${API_BASE}/api/schedule-venues`);
+  if (!response.ok) throw new Error('Failed to fetch schedule venues');
+  return response.json();
+}
+
+export async function getScheduleBlocks(date) {
+  const response = await fetch(`${API_BASE}/api/schedule-blocks?date=${encodeURIComponent(date)}`);
+  if (!response.ok) throw new Error('Failed to fetch schedule blocks');
+  return response.json();
+}
+
+export async function createScheduleBlock(payload) {
+  const response = await fetch(`${API_BASE}/api/schedule-blocks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to create schedule block');
+  }
+  return response.json();
+}
+
+export async function updateScheduleBlock(id, payload) {
+  const response = await fetch(`${API_BASE}/api/schedule-blocks`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, ...payload })
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to update schedule block');
+  }
+  return response.json();
+}
+
+export async function deleteScheduleBlock(id) {
+  const response = await fetch(`${API_BASE}/api/schedule-blocks?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to delete schedule block');
+  }
+}

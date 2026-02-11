@@ -9,6 +9,7 @@ import BlockManager from './components/BlockManager'
 import BoothPage from './components/BoothPage'
 import LiveBoothsView from './components/LiveBoothsView'
 import BoothDetailView from './components/BoothDetailView'
+import SchedulingView from './components/SchedulingView'
 
 function Navigation() {
   const location = useLocation()
@@ -62,6 +63,12 @@ function Navigation() {
             Planning
           </Link>
           <Link
+            to="/scheduling"
+            className={`px-4 py-2 rounded ${isActive('/scheduling') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
+          >
+            Scheduling
+          </Link>
+          <Link
             to="/live-booths"
             className={`px-4 py-2 rounded ${isActive('/live-booths') ? 'bg-gray-700' : 'hover:bg-gray-700'}`}
           >
@@ -106,12 +113,14 @@ function AppContent() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/planning" element={<PlanningTimelineView />} />
+        <Route path="/scheduling" element={<SchedulingView />} />
         <Route path="/cbc-timeline" element={<CBCTimelineView />} />
         <Route path="/obs-timeline" element={<OBSTimelineView />} />
         <Route path="/resources" element={
           <div className="h-full bg-gray-900 text-white p-6 space-y-6 overflow-y-auto">
             <ResourceManager resourceType="commentators" displayName="Commentators" />
             <ResourceManager resourceType="producers" displayName="Producers" />
+            <ResourceManager resourceType="staff" displayName="Staff" />
             <ResourceManager resourceType="encoders" displayName="Encoders" />
             <ResourceManager resourceType="booths" displayName="Booths" />
             <ResourceManager resourceType="suites" displayName="Suites" />

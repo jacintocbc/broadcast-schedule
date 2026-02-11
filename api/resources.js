@@ -102,7 +102,7 @@ async function handleCRUD(tableName, req, res) {
 }
 
 // Valid resource types
-const validTypes = ['commentators', 'producers', 'encoders', 'booths', 'suites', 'networks'];
+const validTypes = ['commentators', 'producers', 'encoders', 'booths', 'suites', 'networks', 'staff'];
 
 export default async function handler(req, res) {
   // Parse resource type from URL
