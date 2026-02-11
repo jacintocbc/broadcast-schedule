@@ -613,12 +613,12 @@ function hasAnyDTResultInDir(dirPath) {
   }
 }
 
-/** Fast check: does dir contain any Luge result filename? (readdir only). */
+/** Fast check: does dir contain any Luge cumulative result filename? (readdir only). */
 function hasAnyLugeResultInDir(dirPath) {
   if (!fs.existsSync(dirPath)) return false;
   try {
     const names = fs.readdirSync(dirPath);
-    return names.some(n => n.includes('DT_CUMULATIVE_RESULT_') || n.includes('DT_RESULT_'));
+    return names.some(n => n.includes('DT_CUMULATIVE_RESULT_'));
   } catch (_) {
     return false;
   }
@@ -662,26 +662,22 @@ function listDTResultFiles(dirPath) {
 }
 
 /**
- * List Luge result files: DT_CUMULATIVE_RESULT_* (medals/final standings) and DT_RESULT_* (per-run).
- * Returns array of { path, mtime, cumulative }. Sorted: cumulative first, then by mtime newest first.
+ * List Luge result files: DT_CUMULATIVE_RESULT_* only (medals/cumulative standings).
+ * Per-run DT_RESULT_* files are not used for Luge.
  */
 function listLugeResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
-    .filter(f => f.includes('DT_CUMULATIVE_RESULT_') || f.includes('DT_RESULT_'))
+    .filter(f => f.includes('DT_CUMULATIVE_RESULT_'))
     .map(f => {
       const filePath = path.join(dirPath, f);
       let stat;
       try { stat = fs.statSync(filePath); } catch (_) { return null; }
       if (!stat.isFile()) return null;
-      const cumulative = f.includes('DT_CUMULATIVE_RESULT_');
-      return { name: f, path: filePath, mtime: stat.mtime, cumulative };
+      return { name: f, path: filePath, mtime: stat.mtime };
     })
     .filter(Boolean)
-    .sort((a, b) => {
-      if (a.cumulative !== b.cumulative) return a.cumulative ? -1 : 1;
-      return b.mtime - a.mtime;
-    });
+    .sort((a, b) => b.mtime - a.mtime);
 }
 
 /**
@@ -784,6 +780,11 @@ function parseDTResultXmlLuge(xmlStr) {
     const organisation = competitor ? (attr(competitor, 'Organisation') || '').toUpperCase() : '';
     let givenName = '';
     let familyName = '';
+    let displayName = '';
+    const compDesc = competitor?.Description;
+    if (compDesc && (attr(compDesc, 'TeamName') || compDesc.TeamName)) {
+      displayName = (attr(compDesc, 'TeamName') || compDesc.TeamName || '').trim();
+    }
     const composition = competitor?.Composition;
     const athletes = composition?.Athlete;
     const athleteArr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
@@ -793,7 +794,10 @@ function parseDTResultXmlLuge(xmlStr) {
       givenName = attr(desc, 'GivenName') || '';
       familyName = attr(desc, 'FamilyName') || '';
     }
-    return { rank, organisation, givenName, familyName, result: resultTime };
+    if (!displayName && (givenName || familyName)) {
+      displayName = [givenName, familyName].filter(Boolean).join(' ').trim();
+    }
+    return { rank, organisation, givenName, familyName, displayName: displayName || undefined, result: resultTime };
   });
   return {
     run,
@@ -811,8 +815,8 @@ const LUG_CACHE_TTL_MS = 18 * 1000;
 let lugCache = { payload: null, expires: 0 };
 
 /**
- * Find all Luge result files across holder paths. Prefers DT_CUMULATIVE_RESULT_* (medals/final standings);
- * falls back to DT_RESULT_* per run. Returns { eventCode, eventName, lastUpdated, runs }.
+ * Find all Luge cumulative result files across holder paths. Only DT_CUMULATIVE_RESULT_* files.
+ * Returns { eventCode, eventName, lastUpdated, runs } with one run per event (Men's Doubles, Women's Doubles, etc).
  */
 async function findAllLugeRuns() {
   const holderPaths = resolveLUGHolderPaths();
@@ -820,96 +824,45 @@ async function findAllLugeRuns() {
   for (const dirPath of holderPaths) {
     const files = listLugeResultFiles(dirPath);
     for (const f of files) {
-      allFiles.push({ path: f.path, mtime: f.mtime, cumulative: f.cumulative });
+      allFiles.push({ path: f.path, mtime: f.mtime });
     }
   }
-  const cumulativeFiles = allFiles.filter(f => f.cumulative);
-  const perRunFiles = allFiles.filter(f => !f.cumulative);
   const read = fs.promises.readFile;
-
-  // Prefer cumulative (medals/final standings); one document per event
-  if (cumulativeFiles.length > 0) {
-    const parsed = await Promise.all(
-      cumulativeFiles.map(async ({ path: filePath, mtime }) => {
-        try {
-          const xmlStr = await read(filePath, 'utf-8');
-          const data = parseDTResultXmlLuge(xmlStr);
-          const baseName = path.basename(filePath, path.extname(filePath));
-          const match = baseName.match(/DT_CUMULATIVE_RESULT_([A-Z0-9]+)/i);
-          if (match && !data.eventCode) data.eventCode = match[1].toUpperCase();
-          return { mtime, data };
-        } catch (_) {
-          return null;
-        }
-      })
-    );
-    const byEventCode = new Map();
-    let eventName = '';
-    let eventCode = '';
-    let latestMtime = null;
-    for (const item of parsed) {
-      if (!item || (!item.data.eventCode && !item.data.results?.length)) continue;
-      const { mtime, data } = item;
-      const code = data.eventCode || 'LUG';
-      const existing = byEventCode.get(code);
-      if (!existing || mtime > existing.mtime) {
-        byEventCode.set(code, { mtime, data });
-        if (data.eventName) eventName = data.eventName;
-        if (data.eventCode) eventCode = data.eventCode;
-        if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
-      }
-    }
-    const runs = Array.from(byEventCode.values())
-      .sort((a, b) => (a.data.eventCode || '').localeCompare(b.data.eventCode || ''))
-      .map(({ data }) => ({
-        run: data.run != null ? data.run : 4,
-        subEventName: data.subEventName || (data.run != null ? `Run ${data.run}` : 'Cumulative'),
-        resultStatus: data.resultStatus,
-        results: data.results || []
-      }));
-    if (runs.length > 0) {
-      return {
-        eventCode: eventCode || 'LUG',
-        eventName,
-        lastUpdated: latestMtime ? latestMtime.toISOString() : null,
-        runs
-      };
-    }
-  }
-
-  // Fallback: per-run DT_RESULT_* files
-  const candidates = perRunFiles.map(f => ({ filePath: f.path, mtime: f.mtime }));
   const parsed = await Promise.all(
-    candidates.map(async ({ filePath, mtime }) => {
+    allFiles.map(async ({ path: filePath, mtime }) => {
       try {
         const xmlStr = await read(filePath, 'utf-8');
         const data = parseDTResultXmlLuge(xmlStr);
-        return data.run != null ? { mtime, data } : null;
+        const baseName = path.basename(filePath, path.extname(filePath));
+        const match = baseName.match(/DT_CUMULATIVE_RESULT_([A-Z0-9]+)/i);
+        if (match && !data.eventCode) data.eventCode = match[1].toUpperCase();
+        return { mtime, data };
       } catch (_) {
         return null;
       }
     })
   );
-  const byRun = new Map();
+  const byEventCode = new Map();
   let eventName = '';
   let eventCode = '';
   let latestMtime = null;
   for (const item of parsed) {
-    if (!item) continue;
+    if (!item || (!item.data.eventCode && !item.data.results?.length)) continue;
     const { mtime, data } = item;
-    const existing = byRun.get(data.run);
+    const code = data.eventCode || 'LUG';
+    const existing = byEventCode.get(code);
     if (!existing || mtime > existing.mtime) {
-      byRun.set(data.run, { mtime, data });
+      byEventCode.set(code, { mtime, data });
       if (data.eventName) eventName = data.eventName;
       if (data.eventCode) eventCode = data.eventCode;
       if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
     }
   }
-  const runs = Array.from(byRun.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([, { data }]) => ({
-      run: data.run,
-      subEventName: data.subEventName || `Run ${data.run}`,
+  const runs = Array.from(byEventCode.values())
+    .sort((a, b) => (a.data.eventCode || '').localeCompare(b.data.eventCode || ''))
+    .map(({ data }) => ({
+      run: 1,
+      subEventName: data.eventName || data.subEventName || 'Cumulative',
       resultStatus: data.resultStatus,
       results: data.results || []
     }));
@@ -1689,14 +1642,20 @@ async function handleResourceCRUD(tableName, req, res) {
 
   try {
     switch (req.method) {
-      case 'GET':
+      case 'GET': {
         const { data, error } = await supabase
           .from(tableName)
           .select('*')
           .order('name');
-        if (error) throw error;
+        if (error) {
+          if (error.code === '42P01') {
+            return res.json([]);
+          }
+          throw error;
+        }
         res.json(data || []);
         break;
+      }
 
       case 'POST':
         const { name } = req.body;
@@ -1760,6 +1719,9 @@ async function handleResourceCRUD(tableName, req, res) {
         res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (error) {
+    if (error.code === '42P01' && req.method === 'GET') {
+      return res.json([]);
+    }
     console.error(`Error in ${tableName} CRUD:`, error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
@@ -1783,183 +1745,6 @@ app.all('/api/resources/:type', async (req, res) => {
   }
   
   return handleResourceCRUD(resourceType, req, res);
-});
-
-// Schedule venues (Scheduling page)
-app.get('/api/schedule-venues', async (req, res) => {
-  if (!supabase) {
-    return res.status(500).json({ error: 'Database not configured' });
-  }
-  try {
-    const { data, error } = await supabase
-      .from('schedule_venues')
-      .select('id, key, label, sort_order')
-      .order('sort_order', { ascending: true });
-    if (error) {
-      if (error.code === '42P01') return res.json([]);
-      throw error;
-    }
-    res.json(data || []);
-  } catch (err) {
-    console.error('Error in /api/schedule-venues:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
-  }
-});
-
-// Schedule blocks (Scheduling page)
-app.all('/api/schedule-blocks', async (req, res) => {
-  if (!supabase) {
-    return res.status(500).json({ error: 'Database not configured' });
-  }
-  try {
-    if (req.method === 'GET') {
-      const date = req.query.date;
-      if (!date) {
-        return res.status(400).json({ error: 'Query parameter date (YYYY-MM-DD) is required' });
-      }
-      const { data: blocks, error: blocksError } = await supabase
-        .from('schedule_blocks')
-        .select('*, venue:schedule_venues(id, key, label, sort_order)')
-        .eq('schedule_date', date)
-        .order('start_time');
-      if (blocksError) {
-        if (blocksError.code === '42P01') return res.json([]);
-        throw blocksError;
-      }
-      const blockIds = (blocks || []).map((b) => b.id);
-      let staffLinks = [];
-      if (blockIds.length > 0) {
-        const { data: links, error: linksError } = await supabase
-          .from('schedule_block_staff')
-          .select('schedule_block_id, staff_id, staff:staff(id, name)')
-          .in('schedule_block_id', blockIds);
-        if (!linksError) staffLinks = links || [];
-      }
-      const staffByBlock = {};
-      staffLinks.forEach((link) => {
-        const bid = link.schedule_block_id;
-        if (!staffByBlock[bid]) staffByBlock[bid] = [];
-        if (link.staff && link.staff.id) {
-          staffByBlock[bid].push({ id: link.staff.id, name: link.staff.name });
-        }
-      });
-      const result = (blocks || []).map((b) => {
-        const venue = b.venue || b.schedule_venues;
-        return {
-          ...b,
-          venue_id: b.venue_id,
-          venue_key: venue?.key ?? null,
-          venue_label: venue?.label ?? null,
-          staff: staffByBlock[b.id] || []
-        };
-      });
-      return res.json(result);
-    }
-    if (req.method === 'POST') {
-      const body = req.body || {};
-      const { schedule_date, venue_id, title, start_time, end_time, field_crew, panel_tech, panel_talent, unicamx1, unicamx2, notes, staff_ids } = body;
-      if (!schedule_date || !venue_id || !title) {
-        return res.status(400).json({ error: 'schedule_date, venue_id, and title are required' });
-      }
-      if (!start_time || !end_time) {
-        return res.status(400).json({ error: 'start_time and end_time are required' });
-      }
-      if (new Date(start_time) >= new Date(end_time)) {
-        return res.status(400).json({ error: 'end_time must be after start_time' });
-      }
-      const insertData = {
-        schedule_date,
-        venue_id,
-        title: (title != null ? String(title) : '').trim() || 'Untitled',
-        start_time,
-        end_time,
-        field_crew: Boolean(field_crew),
-        panel_tech: Boolean(panel_tech),
-        panel_talent: Boolean(panel_talent),
-        unicamx1: Boolean(unicamx1),
-        unicamx2: Boolean(unicamx2),
-        notes: notes != null ? String(notes).trim() : null
-      };
-      const { data: newBlock, error: insertError } = await supabase
-        .from('schedule_blocks')
-        .insert([insertData])
-        .select()
-        .single();
-      if (insertError) throw insertError;
-      const sids = Array.isArray(staff_ids) ? staff_ids : [];
-      if (sids.length > 0) {
-        await supabase.from('schedule_block_staff').insert(
-          sids.map((staff_id) => ({ schedule_block_id: newBlock.id, staff_id }))
-        );
-      }
-      const { data: staffRows } = await supabase
-        .from('schedule_block_staff')
-        .select('staff:staff(id, name)')
-        .eq('schedule_block_id', newBlock.id);
-      const staff = (staffRows || []).filter((r) => r.staff?.id).map((r) => ({ id: r.staff.id, name: r.staff.name }));
-      return res.status(201).json({ ...newBlock, staff });
-    }
-    if (req.method === 'PUT') {
-      const id = req.body?.id;
-      if (!id) return res.status(400).json({ error: 'id is required' });
-      const body = req.body || {};
-      const { schedule_date, venue_id, title, start_time, end_time, field_crew, panel_tech, panel_talent, unicamx1, unicamx2, notes, staff_ids } = body;
-      if (!schedule_date || !venue_id || title === undefined) {
-        return res.status(400).json({ error: 'schedule_date, venue_id, and title are required' });
-      }
-      if (!start_time || !end_time) {
-        return res.status(400).json({ error: 'start_time and end_time are required' });
-      }
-      if (new Date(start_time) >= new Date(end_time)) {
-        return res.status(400).json({ error: 'end_time must be after start_time' });
-      }
-      const updateData = {
-        schedule_date,
-        venue_id,
-        title: (title != null ? String(title) : '').trim() || 'Untitled',
-        start_time,
-        end_time,
-        field_crew: Boolean(field_crew),
-        panel_tech: Boolean(panel_tech),
-        panel_talent: Boolean(panel_talent),
-        unicamx1: Boolean(unicamx1),
-        unicamx2: Boolean(unicamx2),
-        notes: notes != null ? String(notes).trim() : null
-      };
-      const { data: updated, error: updateError } = await supabase
-        .from('schedule_blocks')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
-      if (updateError) throw updateError;
-      if (!updated) return res.status(404).json({ error: 'Schedule block not found' });
-      await supabase.from('schedule_block_staff').delete().eq('schedule_block_id', id);
-      const sids = Array.isArray(staff_ids) ? staff_ids : [];
-      if (sids.length > 0) {
-        await supabase.from('schedule_block_staff').insert(
-          sids.map((staff_id) => ({ schedule_block_id: id, staff_id }))
-        );
-      }
-      const { data: staffRows } = await supabase
-        .from('schedule_block_staff')
-        .select('staff:staff(id, name)')
-        .eq('schedule_block_id', id);
-      const staff = (staffRows || []).filter((r) => r.staff?.id).map((r) => ({ id: r.staff.id, name: r.staff.name }));
-      return res.json({ ...updated, staff });
-    }
-    if (req.method === 'DELETE') {
-      const id = req.query.id;
-      if (!id) return res.status(400).json({ error: 'id is required' });
-      const { error: deleteError } = await supabase.from('schedule_blocks').delete().eq('id', id);
-      if (deleteError) throw deleteError;
-      return res.status(204).end();
-    }
-    return res.status(405).json({ error: 'Method not allowed' });
-  } catch (err) {
-    console.error('Error in /api/schedule-blocks:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
-  }
 });
 
 // Blocks CRUD: /api/blocks
@@ -2718,6 +2503,231 @@ app.get('/api/booths/:boothId/blocks', async (req, res) => {
   }
 });
 
+// Schedule venues: GET /api/schedule-venues
+app.get('/api/schedule-venues', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+  try {
+    const { data, error } = await supabase
+      .from('schedule_venues')
+      .select('id, key, label, sort_order')
+      .order('sort_order', { ascending: true });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    if (error.code === '42P01') {
+      return res.json([]);
+    }
+    console.error('Error in /api/schedule-venues:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// Schedule blocks: GET/POST/PUT/DELETE /api/schedule-blocks
+function parseScheduleBlockBody(body) {
+  const b = body || {};
+  return {
+    schedule_date: b.schedule_date,
+    venue_id: b.venue_id,
+    title: b.title != null ? String(b.title).trim() : '',
+    start_time: b.start_time,
+    end_time: b.end_time,
+    field_crew: Boolean(b.field_crew),
+    panel_tech: Boolean(b.panel_tech),
+    panel_talent: Boolean(b.panel_talent),
+    unicamx1: Boolean(b.unicamx1),
+    unicamx2: Boolean(b.unicamx2),
+    notes: b.notes != null ? String(b.notes).trim() : null,
+    staff_ids: Array.isArray(b.staff_ids) ? b.staff_ids : []
+  };
+}
+
+app.get('/api/schedule-blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+  const date = req.query.date;
+  if (!date) {
+    return res.status(400).json({ error: 'Query parameter date (YYYY-MM-DD) is required' });
+  }
+  try {
+    const { data: blocks, error: blocksError } = await supabase
+      .from('schedule_blocks')
+      .select('*, venue:schedule_venues(id, key, label, sort_order)')
+      .eq('schedule_date', date)
+      .order('start_time');
+    if (blocksError) throw blocksError;
+    const blockIds = (blocks || []).map((b) => b.id);
+    let staffLinks = [];
+    if (blockIds.length > 0) {
+      const { data: links, error: linksError } = await supabase
+        .from('schedule_block_staff')
+        .select('schedule_block_id, staff_id, staff:staff(id, name)')
+        .in('schedule_block_id', blockIds);
+      if (!linksError) staffLinks = links || [];
+    }
+    const staffByBlock = {};
+    staffLinks.forEach((link) => {
+      const bid = link.schedule_block_id;
+      if (!staffByBlock[bid]) staffByBlock[bid] = [];
+      if (link.staff && link.staff.id) {
+        staffByBlock[bid].push({ id: link.staff.id, name: link.staff.name });
+      }
+    });
+    const result = (blocks || []).map((b) => {
+      const venue = b.venue || b.schedule_venues;
+      return {
+        ...b,
+        venue_id: b.venue_id,
+        venue_key: venue?.key ?? null,
+        venue_label: venue?.label ?? null,
+        staff: staffByBlock[b.id] || []
+      };
+    });
+    res.json(result);
+  } catch (error) {
+    if (error.code === '42P01') {
+      return res.json([]);
+    }
+    console.error('Error in GET /api/schedule-blocks:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.post('/api/schedule-blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+  const body = parseScheduleBlockBody(req.body);
+  if (!body.schedule_date || !body.venue_id || body.title === undefined) {
+    return res.status(400).json({ error: 'schedule_date, venue_id, and title are required' });
+  }
+  if (!body.start_time || !body.end_time) {
+    return res.status(400).json({ error: 'start_time and end_time are required' });
+  }
+  if (new Date(body.start_time) >= new Date(body.end_time)) {
+    return res.status(400).json({ error: 'end_time must be after start_time' });
+  }
+  try {
+    const { data: newBlock, error: insertError } = await supabase
+      .from('schedule_blocks')
+      .insert([{
+        schedule_date: body.schedule_date,
+        venue_id: body.venue_id,
+        title: body.title,
+        start_time: body.start_time,
+        end_time: body.end_time,
+        field_crew: body.field_crew,
+        panel_tech: body.panel_tech,
+        panel_talent: body.panel_talent,
+        unicamx1: body.unicamx1,
+        unicamx2: body.unicamx2,
+        notes: body.notes || null
+      }])
+      .select()
+      .single();
+    if (insertError) throw insertError;
+    if (body.staff_ids.length > 0) {
+      await supabase.from('schedule_block_staff').insert(
+        body.staff_ids.map((staff_id) => ({ schedule_block_id: newBlock.id, staff_id }))
+      );
+    }
+    const venueRes = await supabase.from('schedule_venues').select('id, key, label, sort_order').eq('id', newBlock.venue_id).single();
+    const { data: staffRows } = await supabase.from('schedule_block_staff').select('staff:staff(id, name)').eq('schedule_block_id', newBlock.id);
+    const staff = (staffRows || []).filter((r) => r.staff && r.staff.id).map((r) => ({ id: r.staff.id, name: r.staff.name }));
+    res.status(201).json({
+      ...newBlock,
+      venue_key: venueRes.data?.key ?? null,
+      venue_label: venueRes.data?.label ?? null,
+      staff
+    });
+  } catch (error) {
+    console.error('Error in POST /api/schedule-blocks:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.put('/api/schedule-blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+  const id = req.body?.id;
+  if (!id) {
+    return res.status(400).json({ error: 'id is required' });
+  }
+  const body = parseScheduleBlockBody(req.body);
+  if (!body.schedule_date || !body.venue_id || body.title === undefined) {
+    return res.status(400).json({ error: 'schedule_date, venue_id, and title are required' });
+  }
+  if (!body.start_time || !body.end_time) {
+    return res.status(400).json({ error: 'start_time and end_time are required' });
+  }
+  if (new Date(body.start_time) >= new Date(body.end_time)) {
+    return res.status(400).json({ error: 'end_time must be after start_time' });
+  }
+  try {
+    const { data: updated, error: updateError } = await supabase
+      .from('schedule_blocks')
+      .update({
+        schedule_date: body.schedule_date,
+        venue_id: body.venue_id,
+        title: body.title,
+        start_time: body.start_time,
+        end_time: body.end_time,
+        field_crew: body.field_crew,
+        panel_tech: body.panel_tech,
+        panel_talent: body.panel_talent,
+        unicamx1: body.unicamx1,
+        unicamx2: body.unicamx2,
+        notes: body.notes || null
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+    if (!updated) {
+      return res.status(404).json({ error: 'Schedule block not found' });
+    }
+    await supabase.from('schedule_block_staff').delete().eq('schedule_block_id', id);
+    if (body.staff_ids.length > 0) {
+      await supabase.from('schedule_block_staff').insert(
+        body.staff_ids.map((staff_id) => ({ schedule_block_id: id, staff_id }))
+      );
+    }
+    const venueRes = await supabase.from('schedule_venues').select('id, key, label, sort_order').eq('id', updated.venue_id).single();
+    const { data: staffRows } = await supabase.from('schedule_block_staff').select('staff:staff(id, name)').eq('schedule_block_id', id);
+    const staff = (staffRows || []).filter((r) => r.staff && r.staff.id).map((r) => ({ id: r.staff.id, name: r.staff.name }));
+    res.json({
+      ...updated,
+      venue_key: venueRes.data?.key ?? null,
+      venue_label: venueRes.data?.label ?? null,
+      staff
+    });
+  } catch (error) {
+    console.error('Error in PUT /api/schedule-blocks:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.delete('/api/schedule-blocks', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+  const id = req.query.id;
+  if (!id) {
+    return res.status(400).json({ error: 'id is required' });
+  }
+  try {
+    const { error: deleteError } = await supabase.from('schedule_blocks').delete().eq('id', id);
+    if (deleteError) throw deleteError;
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error in DELETE /api/schedule-blocks:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 // Auto-load CSV file from data directory on startup
 function loadStaticCSVOnStartup() {
   try {
@@ -2789,10 +2799,12 @@ app.listen(PORT, () => {
   if (supabase) {
     console.log('  Database routes (Supabase):');
     console.log('    GET/POST/PUT/DELETE /api/resources/:type');
-  console.log('    GET/POST/PUT/DELETE /api/blocks');
+    console.log('    GET/POST/PUT/DELETE /api/blocks');
   console.log('    GET/PUT /api/planning');
   console.log('    GET/POST/DELETE /api/blocks/:blockId/relationships');
   console.log('    GET /api/booths/:boothId/blocks');
+  console.log('    GET /api/schedule-venues');
+  console.log('    GET/POST/PUT/DELETE /api/schedule-blocks');
   }
   loadStaticCSVOnStartup();
 });

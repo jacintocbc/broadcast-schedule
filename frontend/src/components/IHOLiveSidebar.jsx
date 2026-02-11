@@ -162,7 +162,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
         aria-hidden
       />
       <aside
-        className="fixed top-[73px] right-0 bottom-0 w-[min(28rem,100vw)] bg-gray-800 border-l border-gray-600 z-50 flex flex-col shadow-xl"
+        className="fixed top-[73px] right-0 bottom-0 w-[min(34rem,100vw)] bg-gray-800 border-l border-gray-600 z-50 flex flex-col shadow-xl"
         role="dialog"
         aria-label={title}
       >
@@ -212,8 +212,8 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
                   {data.eventName && (
                     <div className="text-center text-sm text-gray-300 mb-2">{data.eventName}</div>
                   )}
-                  {runs.map((runBlock) => (
-                    <div key={runBlock.run} className="rounded-lg bg-gray-700 p-4 border border-gray-600 mb-4 last:mb-0">
+                  {runs.map((runBlock, runIdx) => (
+                    <div key={`luge-run-${runIdx}`} className="rounded-lg bg-gray-700 p-4 border border-gray-600 mb-4 last:mb-0">
                       <div className="flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 mb-3 text-sm text-gray-300">
                         {runBlock.resultStatus === 'OFFICIAL' && <span className="text-amber-200 font-semibold">Final</span>}
                         {runBlock.resultStatus === 'START_LIST' && <span className="text-amber-200 font-semibold">Pre-Run</span>}
@@ -223,20 +223,29 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
                       </div>
                       <div className="border-b border-gray-600 mb-1" aria-hidden />
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-sm table-fixed">
                           <tbody>
                             {(runBlock.results || []).map((row, i) => (
-                              <tr key={i} className="border-b border-gray-600/50 text-gray-200">
-                                <td className="py-1.5 pr-2 font-medium text-white">{row.rank}</td>
-                                <td className="py-1.5 pr-2">
+                              <tr key={i} className="border-b border-gray-600/50 text-gray-200 align-top">
+                                <td className="py-1.5 pr-2 w-8 font-medium text-white shrink-0">{row.rank}</td>
+                                <td className="py-1.5 pr-2 w-[2.25rem] shrink-0">
                                   {row.organisation && (
-                                    <img src={getFlagSrc(row.organisation)} alt="" className="h-5 w-7 object-cover rounded-sm" onError={e => { e.target.style.display = 'none' }} />
+                                    <img src={getFlagSrc(row.organisation)} alt="" className="h-5 w-7 object-cover object-center rounded-sm shrink-0" onError={e => { e.target.style.display = 'none' }} />
                                   )}
                                 </td>
-                                <td className="py-1.5 pr-2 font-medium">{row.organisation || '—'}</td>
-                                <td className="py-1.5 pr-2">{row.givenName || '—'}</td>
-                                <td className="py-1.5 pr-2">{row.familyName || '—'}</td>
-                                <td className="py-1.5 text-right font-mono tabular-nums">{row.result || '—'}</td>
+                                <td className="py-1.5 pr-2 w-10 font-medium shrink-0">{row.organisation || '—'}</td>
+                                <td className="py-1.5 pr-2 min-w-0">
+                                  {row.displayName ? (
+                                    <span className="block">
+                                      {row.displayName.split(/\s*\/\s*/).map((name, j) => (
+                                        <span key={j} className="block">{name.trim()}</span>
+                                      ))}
+                                    </span>
+                                  ) : (
+                                    <span>{[row.givenName, row.familyName].filter(Boolean).join(' ') || '—'}</span>
+                                  )}
+                                </td>
+                                <td className="py-1.5 pl-2 text-right font-mono tabular-nums shrink-0">{row.result || '—'}</td>
                               </tr>
                             ))}
                           </tbody>
