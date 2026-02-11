@@ -7,7 +7,8 @@ const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supa
 const CONFIG = {
   iho: { table: 'iho_game_data', label: 'IHO' },
   cur: { table: 'cur_game_data', label: 'Curling' },
-  lug: { table: 'lug_live_data', label: 'Luge' }
+  lug: { table: 'lug_live_data', label: 'Luge' },
+  ssk: { table: 'ssk_live_data', label: 'Speed Skating' }
 };
 
 export default async function handler(req, res) {
@@ -33,8 +34,9 @@ export default async function handler(req, res) {
   const cfg = CONFIG[type] || CONFIG.iho;
 
   try {
-    if (type === 'lug') {
-      const eventCode = (req.query.event_code || req.query.eventCode || 'LUG').toString().trim().toUpperCase() || 'LUG';
+    if (type === 'lug' || type === 'ssk') {
+      const defaultCode = type === 'lug' ? 'LUG' : 'SSK';
+      const eventCode = (req.query.event_code || req.query.eventCode || defaultCode).toString().trim().toUpperCase() || defaultCode;
       const { data: rows, error } = await supabase
         .from(cfg.table)
         .select('data')
@@ -51,6 +53,7 @@ export default async function handler(req, res) {
         if (anyRows?.length > 0) {
           const stored = anyRows[0].data;
           return res.json({
+            eventCode: eventCode,
             eventName: stored?.eventName,
             lastUpdated: stored?.lastUpdated,
             runs: Array.isArray(stored?.runs) ? stored.runs : []
@@ -63,6 +66,7 @@ export default async function handler(req, res) {
       }
       const stored = rows[0].data;
       return res.json({
+        eventCode: eventCode,
         eventName: stored?.eventName,
         lastUpdated: stored?.lastUpdated,
         runs: Array.isArray(stored?.runs) ? stored.runs : []

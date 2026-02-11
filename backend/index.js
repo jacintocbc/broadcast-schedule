@@ -563,6 +563,11 @@ const CUR_BASE_PATH = process.env.CUR_BASE_PATH || 'M:\\Incoming\\CUR';
 // ============================================
 const LUG_BASE_PATH = process.env.LUG_BASE_PATH || 'M:\\Incoming\\LUG';
 
+// ============================================
+// SSK DT_RESULT Live Feed (Speed Skating)
+// ============================================
+const SSK_BASE_PATH = process.env.SSK_BASE_PATH || 'M:\\Incoming\\SSK';
+
 /**
  * Resolve up to N holder folder paths (newest first). Searches recent hour folders.
  * If current hour has no results, searches previous hour. Returns [] if none found.
@@ -593,6 +598,11 @@ function resolveCURHolderPaths() {
 /** Resolve LUG holder paths (up to 4 hour folders, newest first). */
 function resolveLUGHolderPaths() {
   return resolveHolderPaths(LUG_BASE_PATH, 4);
+}
+
+/** Resolve SSK holder paths (up to 4 hour folders, newest first, single latest date). */
+function resolveSSKHolderPaths() {
+  return resolveHolderPaths(SSK_BASE_PATH, 4);
 }
 
 /** True if req has source=db or archived=1 (skip file scan, use DB only). */
@@ -630,6 +640,23 @@ function hasAnyLugeFiles() {
   return paths.length > 0 && hasAnyLugeResultInDir(paths[0]);
 }
 
+/** Fast check: does dir contain any SSK DT_RESULT filename? (readdir only). */
+function hasAnySSKResultInDir(dirPath) {
+  if (!fs.existsSync(dirPath)) return false;
+  try {
+    const names = fs.readdirSync(dirPath);
+    return names.some(n => n.includes('DT_RESULT'));
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Fast check: do any holder paths have SSK result files? (first path only). */
+function hasAnySSKFiles() {
+  const paths = resolveSSKHolderPaths();
+  return paths.length > 0 && paths.some(p => hasAnySSKResultInDir(p));
+}
+
 /** @deprecated Use resolveIHOHolderPaths */
 function resolveIHOHolderPath() {
   const paths = resolveIHOHolderPaths();
@@ -650,6 +677,24 @@ function listDTResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
     .filter(f => f.includes('DT_RESULT_'))
+    .map(f => {
+      const filePath = path.join(dirPath, f);
+      let stat;
+      try { stat = fs.statSync(filePath); } catch (_) { return null; }
+      if (!stat.isFile()) return null;
+      return { name: f, path: filePath, mtime: stat.mtime };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime);
+}
+
+/**
+ * List SSK result files: DT_RESULT_* (finals, semi-finals, etc). FNL in DocumentCode = final.
+ */
+function listSSKResultFiles(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs.readdirSync(dirPath)
+    .filter(f => f.includes('DT_RESULT'))
     .map(f => {
       const filePath = path.join(dirPath, f);
       let stat;
@@ -810,9 +855,75 @@ function parseDTResultXmlLuge(xmlStr) {
   };
 }
 
+/**
+ * Parse Speed Skating DT_RESULT XML. Returns run (from FNL-000N00), eventCode, resultStatus, eventName, subEventName, results (top 10).
+ */
+function parseDTResultXmlSSK(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const parsed = parser.parse(xmlStr);
+  const body = parsed?.OdfBody;
+  if (!body) throw new Error('Invalid SSK DT_RESULT: no OdfBody');
+  const comp = body.Competition;
+  if (!comp) throw new Error('Invalid SSK DT_RESULT: no Competition');
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const resultStatus = attr(body, 'ResultStatus') || '';
+  const date = attr(body, 'Date') || '';
+  let run = null;
+  let eventCode = '';
+  const docCode = attr(body, 'DocumentCode') || '';
+  const runMatch = docCode.match(/FNL-000(\d)00/);
+  if (runMatch) run = parseInt(runMatch[1], 10);
+  const codeMatch = docCode.match(/^([A-Z0-9]+)/);
+  if (codeMatch) eventCode = codeMatch[1];
+  let eventName = '';
+  let subEventName = '';
+  const extInfos = comp.ExtendedInfos;
+  if (extInfos?.SportDescription) {
+    const sd = extInfos.SportDescription;
+    eventName = attr(sd, 'EventName') || attr(sd, 'DisciplineName') || '';
+    subEventName = attr(sd, 'SubEventName') || '';
+  }
+  const rawResults = comp.Result;
+  const resultList = Array.isArray(rawResults) ? rawResults : (rawResults ? [rawResults] : []);
+  const results = resultList.filter(r => attr(r, 'Rank') != null || attr(r, 'SortOrder') != null).slice(0, 10).map((r) => {
+    const rank = parseInt(attr(r, 'Rank'), 10) || parseInt(attr(r, 'SortOrder'), 10) || 0;
+    const resultTime = attr(r, 'Result') || (attr(r, 'IRM') ? attr(r, 'IRM') : '');
+    const competitor = r.Competitor;
+    const organisation = competitor ? (attr(competitor, 'Organisation') || '').toUpperCase() : '';
+    let givenName = '';
+    let familyName = '';
+    const composition = competitor?.Composition;
+    const athletes = composition?.Athlete;
+    const athleteArr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+    const firstAthlete = athleteArr[0];
+    if (firstAthlete?.Description) {
+      const desc = firstAthlete.Description;
+      givenName = attr(desc, 'GivenName') || '';
+      familyName = attr(desc, 'FamilyName') || '';
+    }
+    const displayName = [givenName, familyName].filter(Boolean).join(' ').trim() || undefined;
+    return { rank, organisation, givenName, familyName, displayName, result: resultTime };
+  });
+  const isFinal = docCode.includes('FNL');
+  return {
+    run,
+    eventCode,
+    isFinal,
+    resultStatus,
+    date,
+    eventName,
+    subEventName,
+    results
+  };
+}
+
 /** In-memory cache for Luge live payload to avoid re-scanning the drive on every request. */
 const LUG_CACHE_TTL_MS = 18 * 1000;
 let lugCache = { payload: null, expires: 0 };
+
+/** In-memory cache for SSK live payload. */
+const SSK_CACHE_TTL_MS = 18 * 1000;
+let sskCache = { payload: null, expires: 0 };
 
 /**
  * Find all Luge cumulative result files across holder paths. Only DT_CUMULATIVE_RESULT_* files.
@@ -868,6 +979,70 @@ async function findAllLugeRuns() {
     }));
   return {
     eventCode: eventCode || 'LUG',
+    eventName,
+    lastUpdated: latestMtime ? latestMtime.toISOString() : null,
+    runs
+  };
+}
+
+/**
+ * Find all SSK DT_RESULT files across holder paths. Prefers FNL (final) when multiple files per event.
+ * Returns { eventCode, eventName, lastUpdated, runs } with one run per event (Men's 1000m, Women's 500m, etc).
+ */
+async function findAllSSKRuns() {
+  const holderPaths = resolveSSKHolderPaths();
+  const allFiles = [];
+  for (const dirPath of holderPaths) {
+    const files = listSSKResultFiles(dirPath);
+    for (const f of files) {
+      allFiles.push({ path: f.path, mtime: f.mtime });
+    }
+  }
+  const read = fs.promises.readFile;
+  const parsed = await Promise.all(
+    allFiles.map(async ({ path: filePath, mtime }) => {
+      try {
+        const xmlStr = await read(filePath, 'utf-8');
+        const data = parseDTResultXmlSSK(xmlStr);
+        const baseName = path.basename(filePath, path.extname(filePath));
+        const match = baseName.match(/DT_RESULT[_\-]?([A-Z0-9]+)/i);
+        if (match && !data.eventCode) data.eventCode = match[1].toUpperCase();
+        return { mtime, data };
+      } catch (_) {
+        return null;
+      }
+    })
+  );
+  const byEventCode = new Map();
+  let eventName = '';
+  let eventCode = '';
+  let latestMtime = null;
+  for (const item of parsed) {
+    if (!item || (!item.data.eventCode && !item.data.results?.length)) continue;
+    const { mtime, data } = item;
+    const code = data.eventCode || 'SSK';
+    const existing = byEventCode.get(code);
+    const preferThis = !existing ||
+      (data.isFinal && !existing.data.isFinal) ||
+      (data.isFinal === existing.data.isFinal && mtime > existing.mtime);
+    if (preferThis) {
+      byEventCode.set(code, { mtime, data });
+      if (data.eventName) eventName = data.eventName;
+      if (data.eventCode) eventCode = data.eventCode;
+      if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
+    }
+  }
+  const runs = Array.from(byEventCode.values())
+    .sort((a, b) => (a.data.eventCode || '').localeCompare(b.data.eventCode || ''))
+    .map(({ data }) => ({
+      eventCode: data.eventCode || 'SSK',
+      run: data.run != null ? data.run : 1,
+      subEventName: data.eventName || data.subEventName || 'Results',
+      resultStatus: data.resultStatus,
+      results: data.results || []
+    }));
+  return {
+    eventCode: eventCode || 'SSK',
     eventName,
     lastUpdated: latestMtime ? latestMtime.toISOString() : null,
     runs
@@ -1513,6 +1688,118 @@ app.get('/api/lug-live', async (req, res) => {
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
     res.status(status).json({
       error: 'Failed to load Luge live data',
+      details: err.message
+    });
+  }
+});
+
+app.get('/api/ssk-live', async (req, res) => {
+  try {
+    const eventCode = (req.query.event_code || req.query.eventCode || 'SSK').toString().trim().toUpperCase() || 'SSK';
+
+    if (wantsDbOnly(req)) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('ssk_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) {
+          const stored = rows[0].data;
+          return res.json({
+            eventCode: eventCode,
+            eventName: stored?.eventName,
+            lastUpdated: stored?.lastUpdated,
+            runs: Array.isArray(stored?.runs) ? stored.runs : []
+          });
+        }
+        const { data: anyRows } = await supabase.from('ssk_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) {
+          const stored = anyRows[0].data;
+          return res.json({ eventCode, eventName: stored?.eventName, lastUpdated: stored?.lastUpdated, runs: stored?.runs || [] });
+        }
+      }
+      return res.status(404).json({ error: 'No Speed Skating live data found', details: 'Database only (source=db)' });
+    }
+
+    const now = Date.now();
+    if (sskCache.payload && now < sskCache.expires) {
+      return res.json(sskCache.payload);
+    }
+
+    if (!hasAnySSKFiles()) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('ssk_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) {
+          const stored = rows[0].data;
+          return res.json({
+            eventCode: eventCode,
+            eventName: stored?.eventName,
+            lastUpdated: stored?.lastUpdated,
+            runs: Array.isArray(stored?.runs) ? stored.runs : []
+          });
+        }
+        const { data: anyRows } = await supabase.from('ssk_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) {
+          const stored = anyRows[0].data;
+          return res.json({ eventCode, eventName: stored?.eventName, lastUpdated: stored?.lastUpdated, runs: stored?.runs || [] });
+        }
+      }
+      return res.status(404).json({
+        error: 'No Speed Skating DT_RESULT file found',
+        details: `Base path: ${SSK_BASE_PATH}; no files; no data in database`
+      });
+    }
+
+    const payload = await findAllSSKRuns();
+    const code = payload.eventCode || 'SSK';
+    if (payload.runs.length > 0) {
+      sskCache = { payload, expires: now + SSK_CACHE_TTL_MS };
+      if (supabase) {
+        const lastUpdated = payload.lastUpdated || new Date().toISOString();
+        Promise.all((payload.runs || []).map(run => {
+          const evCode = run.eventCode || code;
+          return supabase.from('ssk_live_data').upsert({
+            event_code: evCode,
+            data: { eventName: run.subEventName || payload.eventName, lastUpdated, runs: [run] },
+            last_updated: lastUpdated
+          }, { onConflict: 'event_code' });
+        })).then(() => {}, () => {});
+      }
+      return res.json(payload);
+    }
+    if (supabase) {
+      const { data: rows, error } = await supabase
+        .from('ssk_live_data')
+        .select('data')
+        .eq('event_code', code)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (!error && rows && rows.length > 0) {
+        const stored = rows[0].data;
+        return res.json({
+          eventCode: code,
+          eventName: stored?.eventName,
+          lastUpdated: stored?.lastUpdated,
+          runs: Array.isArray(stored?.runs) ? stored.runs : []
+        });
+      }
+    }
+    return res.status(404).json({
+      error: 'No Speed Skating DT_RESULT file found',
+      details: `Base path: ${SSK_BASE_PATH}`
+    });
+  } catch (err) {
+    console.error('SSK live error:', err);
+    const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
+    res.status(status).json({
+      error: 'Failed to load Speed Skating live data',
       details: err.message
     });
   }

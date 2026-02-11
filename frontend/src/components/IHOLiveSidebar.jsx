@@ -35,12 +35,13 @@ function TeamFlag({ code }) {
   )
 }
 
-/** Detect sport from block name: IHO (ice hockey), CUR (curling), or LUG (luge). */
+/** Detect sport from block name: IHO (ice hockey), CUR (curling), LUG (luge), or SSK (speed skating). */
 function detectSport(block) {
   const name = (block?.name || block?.title || '').toLowerCase()
   if (/cur|curling/.test(name)) return 'CUR'
   if (/iho|ice hockey/.test(name)) return 'IHO'
   if (/lug|luge/.test(name)) return 'LUG'
+  if (/ssk|speed skating|speed ?skat/.test(name)) return 'SSK'
   return null
 }
 
@@ -48,7 +49,7 @@ function detectSport(block) {
 function extractTeamCodes(block) {
   const name = (block?.name || block?.title || '').toUpperCase()
   if (!name) return null
-  const exclude = new Set(['IHO', 'CUR', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA'])
+  const exclude = new Set(['IHO', 'CUR', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA', 'SSK'])
   const matches = name.match(/\b([A-Z]{3})\b/g) || []
   const codes = [...new Set(matches)].filter(c => !exclude.has(c))
   if (codes.length >= 2) return { home: codes[0], away: codes[1] }
@@ -108,7 +109,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
 
   const sport = detectSport(block)
   const teamCodes = extractTeamCodes(block)
-  const apiPath = sport === 'LUG' ? '/api/lug-live' : sport === 'CUR' ? '/api/cur-live' : '/api/iho-live'
+  const apiPath = sport === 'LUG' ? '/api/lug-live' : sport === 'SSK' ? '/api/ssk-live' : sport === 'CUR' ? '/api/cur-live' : '/api/iho-live'
 
   useEffect(() => {
     if (!open || !sport) return
@@ -121,7 +122,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
       try {
         setError(null)
         const params = new URLSearchParams()
-        if (teamCodes && sport !== 'LUG') {
+        if (teamCodes && sport !== 'LUG' && sport !== 'SSK') {
           params.set('home', teamCodes.home)
           params.set('away', teamCodes.away)
         }
@@ -152,7 +153,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
 
   const isLive = data?.resultStatus === 'LIVE'
   const isUpcoming = !isLive && data?.resultStatus !== 'OFFICIAL'
-  const title = sport === 'LUG' ? 'Luge' : isLive ? (sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey') : (sport === 'CUR' ? 'Curling' : 'Ice Hockey')
+  const title = sport === 'LUG' ? 'Luge' : sport === 'SSK' ? 'Speed Skating' : isLive ? (sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey') : (sport === 'CUR' ? 'Curling' : 'Ice Hockey')
 
   return (
     <>
@@ -193,7 +194,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
           )}
           {data && (() => {
             const effectiveSport = data.sport || sport;
-            if (sport === 'LUG') {
+            if (sport === 'LUG' || sport === 'SSK') {
               const runs = data.runs || [];
               const hasNonOfficial = runs.some(r => r.resultStatus !== 'OFFICIAL');
               return (
@@ -213,39 +214,46 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
                     <div className="text-center text-sm text-gray-300 mb-2">{data.eventName}</div>
                   )}
                   {runs.map((runBlock, runIdx) => (
-                    <div key={`luge-run-${runIdx}`} className="rounded-lg bg-gray-700 p-4 border border-gray-600 mb-4 last:mb-0">
+                    <div key={`${sport}-run-${runIdx}`} className="rounded-lg bg-gray-700 p-4 border border-gray-600 mb-4 last:mb-0">
                       <div className="flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 mb-3 text-sm text-gray-300">
                         {runBlock.resultStatus === 'OFFICIAL' && <span className="text-amber-200 font-semibold">Final</span>}
                         {runBlock.resultStatus === 'START_LIST' && <span className="text-amber-200 font-semibold">Pre-Run</span>}
-                        {runBlock.resultStatus === 'OFFICIAL' && runBlock.subEventName && <span className="text-gray-500">·</span>}
-                        {runBlock.resultStatus === 'START_LIST' && runBlock.subEventName && <span className="text-gray-500">·</span>}
-                        {runBlock.subEventName && <span>{runBlock.subEventName}</span>}
+                        {runBlock.subEventName && runBlock.subEventName !== data.eventName && (
+                          <>
+                            {(runBlock.resultStatus === 'OFFICIAL' || runBlock.resultStatus === 'START_LIST') && <span className="text-gray-500">·</span>}
+                            <span>{runBlock.subEventName}</span>
+                          </>
+                        )}
                       </div>
                       <div className="border-b border-gray-600 mb-1" aria-hidden />
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm table-fixed">
+                        <table className="w-full text-sm">
                           <tbody>
                             {(runBlock.results || []).map((row, i) => (
                               <tr key={i} className="border-b border-gray-600/50 text-gray-200 align-top">
-                                <td className="py-1.5 pr-2 w-8 font-medium text-white shrink-0">{row.rank}</td>
-                                <td className="py-1.5 pr-2 w-[2.25rem] shrink-0">
+                                <td className="py-1.5 pr-2 font-medium text-white whitespace-nowrap">{row.rank}</td>
+                                <td className="py-1.5 pr-2 whitespace-nowrap">
                                   {row.organisation && (
-                                    <img src={getFlagSrc(row.organisation)} alt="" className="h-5 w-7 object-cover object-center rounded-sm shrink-0" onError={e => { e.target.style.display = 'none' }} />
+                                    <img src={getFlagSrc(row.organisation)} alt="" className="h-5 w-7 object-cover object-center rounded-sm" onError={e => { e.target.style.display = 'none' }} />
                                   )}
                                 </td>
-                                <td className="py-1.5 pr-2 w-10 font-medium shrink-0">{row.organisation || '—'}</td>
-                                <td className="py-1.5 pr-2 min-w-0">
+                                <td className="py-1.5 pr-2 font-medium whitespace-nowrap">{row.organisation || '—'}</td>
+                                <td className="py-1.5 pr-2 whitespace-nowrap">
                                   {row.displayName ? (
-                                    <span className="block">
-                                      {row.displayName.split(/\s*\/\s*/).map((name, j) => (
-                                        <span key={j} className="block">{name.trim()}</span>
-                                      ))}
-                                    </span>
+                                    row.displayName.includes('/') ? (
+                                      <span className="block">
+                                        {row.displayName.split(/\s*\/\s*/).map((name, j) => (
+                                          <span key={j} className="block">{name.trim()}</span>
+                                        ))}
+                                      </span>
+                                    ) : (
+                                      <span>{row.displayName}</span>
+                                    )
                                   ) : (
                                     <span>{[row.givenName, row.familyName].filter(Boolean).join(' ') || '—'}</span>
                                   )}
                                 </td>
-                                <td className="py-1.5 pl-2 text-right font-mono tabular-nums shrink-0">{row.result || '—'}</td>
+                                <td className="py-1.5 pl-2 text-right font-mono tabular-nums whitespace-nowrap">{row.result || '—'}</td>
                               </tr>
                             ))}
                           </tbody>
