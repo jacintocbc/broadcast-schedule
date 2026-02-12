@@ -406,6 +406,113 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
                   )}
                 </div>
               )}
+
+              {/* Play-by-Play (hockey only) */}
+              {effectiveSport !== 'CUR' && data.playByPlay && data.playByPlay.length > 0 && (() => {
+                const homeCode = data.homeTeam?.code;
+                const awayCode = data.awayTeam?.code;
+                const actionsByPeriod = {};
+                for (const a of data.playByPlay) {
+                  const p = a.period || '?';
+                  if (!actionsByPeriod[p]) actionsByPeriod[p] = [];
+                  actionsByPeriod[p].push(a);
+                }
+                const periodLabels = { P1: '1st Period', P2: '2nd Period', P3: '3rd Period', OT: 'Overtime', SO: 'Shootout' };
+                const periodKeys = Object.keys(actionsByPeriod).sort((a, b) => {
+                  const order = { P1: 1, P2: 2, P3: 3, OT: 4, SO: 5 };
+                  return (order[a] || 99) - (order[b] || 99);
+                });
+                const actionIcons = {
+                  GOAL: '🚨',
+                  P: '⏱',
+                  GK: '🥅',
+                  STARTP: '▶',
+                  ENDP: '⏸',
+                };
+                const actionLabels = {
+                  GOAL: 'Goal',
+                  P: 'Penalty',
+                  GK: 'Goalie',
+                  STARTP: 'Period Start',
+                  ENDP: 'Period End',
+                };
+                return (
+                  <div className="rounded-lg bg-gray-700 p-4 border border-gray-600">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Play-by-Play</p>
+                    <div className="space-y-4">
+                      {periodKeys.map(pk => (
+                        <div key={pk}>
+                          <p className="text-xs font-semibold text-amber-200 uppercase tracking-wide mb-2">
+                            {periodLabels[pk] || pk}
+                          </p>
+                          <div className="space-y-1.5">
+                            {actionsByPeriod[pk].map((a, i) => {
+                              const isGoal = a.action === 'GOAL';
+                              const isPenalty = a.action === 'P';
+                              const isStructural = a.action === 'STARTP' || a.action === 'ENDP';
+                              const isGK = a.action === 'GK';
+                              const icon = actionIcons[a.action] || '•';
+                              const label = actionLabels[a.action] || a.action;
+                              const scorer = a.players?.find(p => p.role === 'SCR');
+                              const assists = a.players?.filter(p => p.role === 'ASSIST1' || p.role === 'ASSIST2') || [];
+                              const penaltyPlayer = isPenalty && a.players?.[0];
+                              const gkPlayer = isGK && a.players?.[0];
+                              const gkInOut = gkPlayer?.role === 'IN' ? 'In' : gkPlayer?.role === 'OUT' ? 'Out' : '';
+                              const score = (a.scoreH != null && a.scoreA != null) ? `${a.scoreH}-${a.scoreA}` : '';
+                              const teamColor = a.team === homeCode ? 'text-blue-300' : a.team === awayCode ? 'text-red-300' : 'text-gray-400';
+
+                              if (isStructural) {
+                                return (
+                                  <div key={i} className="flex items-center gap-2 text-xs text-gray-500">
+                                    <span className="w-12 text-right font-mono tabular-nums">{a.when}</span>
+                                    <span>{icon}</span>
+                                    <span>{label}</span>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div key={i} className={`flex items-start gap-2 text-sm ${isGoal ? 'bg-gray-600/40 rounded px-2 py-1.5 -mx-2' : ''}`}>
+                                  <span className="w-12 text-right font-mono tabular-nums text-gray-400 text-xs pt-0.5 shrink-0">{a.when}</span>
+                                  <span className="shrink-0 pt-0.5">{icon}</span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {a.team && <span className={`font-semibold text-xs ${teamColor}`}>{a.team}</span>}
+                                      {isGoal && scorer && (
+                                        <span className="text-white font-medium">{scorer.name}{scorer.bib ? ` #${scorer.bib}` : ''}</span>
+                                      )}
+                                      {isGoal && score && (
+                                        <span className="text-amber-200 font-semibold text-xs ml-auto shrink-0">{score}</span>
+                                      )}
+                                      {isPenalty && penaltyPlayer && (
+                                        <span className="text-gray-200">{penaltyPlayer.name}{penaltyPlayer.bib ? ` #${penaltyPlayer.bib}` : ''}</span>
+                                      )}
+                                      {isGK && gkPlayer && (
+                                        <span className="text-gray-300">{gkPlayer.name}{gkPlayer.bib ? ` #${gkPlayer.bib}` : ''} {gkInOut && <span className="text-gray-500">({gkInOut})</span>}</span>
+                                      )}
+                                      {!isGoal && !isPenalty && !isGK && (
+                                        <span className="text-gray-300">{label}</span>
+                                      )}
+                                    </div>
+                                    {isGoal && assists.length > 0 && (
+                                      <p className="text-xs text-gray-400 mt-0.5">
+                                        Assists: {assists.map(a => `${a.name}${a.bib ? ` #${a.bib}` : ''}`).join(', ')}
+                                      </p>
+                                    )}
+                                    {isGoal && a.result && (
+                                      <span className="text-xs text-gray-500">{a.result === 'PP1' ? 'Power Play' : a.result === 'SH1' ? 'Shorthanded' : a.result === 'EQ' ? 'Even Strength' : a.result}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           );
           })()}

@@ -1314,6 +1314,111 @@ function parseDTResultXml(xmlStr) {
 }
 
 /**
+ * Find and parse DT_PLAY_BY_PLAY files for a specific IHO game.
+ * Returns sorted array of actions: { period, when, action, team, score, players[], timestamp }.
+ */
+function findPlayByPlayForGame(holderPaths, homeCode, awayCode) {
+  const home = (homeCode || '').trim().toUpperCase();
+  const away = (awayCode || '').trim().toUpperCase();
+  if (!home || !away) return [];
+
+  const pbpParser = new XMLParser({ ignoreAttributes: false });
+  const pbpAttr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const extractTeamCode = (code) => {
+    if (!code) return '';
+    const m = code.match(/---([A-Z]{3})/);
+    return m ? m[1] : '';
+  };
+
+  const allActions = new Map();
+  for (const dirPath of holderPaths) {
+    if (!fs.existsSync(dirPath)) continue;
+    let names;
+    try { names = fs.readdirSync(dirPath); } catch { continue; }
+    // Only take the newest DT_PLAY_BY_PLAY files (sorted descending by name = newest timestamp first)
+    const pbpFiles = names.filter(f => f.includes('DT_PLAY_BY_PLAY')).sort((a, b) => b.localeCompare(a));
+    // Limit to newest 30 files to avoid scanning hundreds on slow drives
+    for (const fname of pbpFiles.slice(0, 30)) {
+      try {
+        const filePath = path.join(dirPath, fname);
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parsed = pbpParser.parse(xml);
+        const body = parsed?.OdfBody;
+        if (!body) continue;
+        const comp = body.Competition;
+        if (!comp?.Actions) continue;
+        const actions = comp.Actions;
+        const fileHome = extractTeamCode(pbpAttr(actions, 'Home'));
+        const fileAway = extractTeamCode(pbpAttr(actions, 'Away'));
+        if (!((fileHome === home && fileAway === away) || (fileHome === away && fileAway === home))) continue;
+
+        const actionList = Array.isArray(actions.Action) ? actions.Action : (actions.Action ? [actions.Action] : []);
+        for (const a of actionList) {
+          const id = pbpAttr(a, 'Id');
+          if (id == null) continue;
+          const order = parseInt(pbpAttr(a, 'Order'), 10) || 0;
+          const existing = allActions.get(id);
+          if (existing && order < existing._order) continue;
+
+          const competitor = a.Competitor;
+          const compOrg = competitor ? (pbpAttr(competitor, 'Organisation') || extractTeamCode(pbpAttr(competitor, 'Code'))) : '';
+          const players = [];
+          const composition = competitor?.Composition;
+          const athletes = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
+          for (const ath of athletes) {
+            const desc = ath.Description;
+            if (!desc) continue;
+            const given = pbpAttr(desc, 'GivenName') || '';
+            const family = pbpAttr(desc, 'FamilyName') || '';
+            players.push({
+              name: `${given} ${family}`.trim(),
+              role: pbpAttr(ath, 'Role') || '',
+              bib: pbpAttr(ath, 'Bib') || ''
+            });
+          }
+
+          allActions.set(id, {
+            _order: order,
+            period: pbpAttr(a, 'Period') || '',
+            when: pbpAttr(a, 'When') || '',
+            action: pbpAttr(a, 'Action') || '',
+            team: compOrg,
+            scoreH: pbpAttr(a, 'ScoreH') ?? null,
+            scoreA: pbpAttr(a, 'ScoreA') ?? null,
+            result: pbpAttr(a, 'Result') || '',
+            comment: pbpAttr(a, 'Comment') || '',
+            timestamp: pbpAttr(a, 'TimeStamp') || '',
+            players
+          });
+        }
+      } catch {
+        // skip unreadable
+      }
+    }
+  }
+
+  const periodOrder = (p) => {
+    if (!p) return 99;
+    if (/^P(\d)$/i.test(p)) return parseInt(p.slice(1), 10);
+    if (/^OT/i.test(p)) return 4;
+    if (/^SO/i.test(p)) return 5;
+    return 99;
+  };
+  const clockToSec = (w) => {
+    if (!w) return 0;
+    const parts = w.split(':');
+    return parts.length === 2 ? parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10) : 0;
+  };
+
+  return [...allActions.values()]
+    .map(({ _order, ...rest }) => rest)
+    .sort((a, b) => {
+      const pd = periodOrder(a.period) - periodOrder(b.period);
+      return pd !== 0 ? pd : clockToSec(a.when) - clockToSec(b.when);
+    });
+}
+
+/**
  * Parse Curling DT_RESULT XML and return normalized payload.
  */
 function parseDTResultXmlCurling(xmlStr) {
@@ -1467,7 +1572,8 @@ app.get('/api/iho-live', async (req, res) => {
       return res.status(404).json({ error: 'No IHO game data found', details: 'Database only (source=db)' });
     }
     const holderPaths = resolveIHOHolderPaths();
-    if (holderPaths.length > 0 && !hasAnyDTResultInDir(holderPaths[0])) {
+    const hasAnyFiles = holderPaths.some(p => hasAnyDTResultInDir(p));
+    if (holderPaths.length > 0 && !hasAnyFiles) {
       const supabaseData = await fetchIHOFromSupabase(home, away);
       if (supabaseData) return res.json(supabaseData);
       return res.status(404).json({
@@ -1483,6 +1589,16 @@ app.get('/api/iho-live', async (req, res) => {
       if (fileResult) {
         const { mtime, data } = fileResult;
         data.lastUpdated = mtime.toISOString();
+
+        // Attach play-by-play actions if available (only scan the folder that had the match)
+        try {
+          const matchDir = path.dirname(fileResult.path);
+          const pbp = findPlayByPlayForGame([matchDir], home, away);
+          if (pbp.length > 0) data.playByPlay = pbp;
+        } catch (pbpErr) {
+          console.error('Play-by-play parse error:', pbpErr.message);
+        }
+
         res.json(data);
 
         // Sync to Supabase for deployed viewing (non-blocking)

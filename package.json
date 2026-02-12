@@ -8,11 +8,13 @@
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
-    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "scan-iho": "node scripts/scan-iho-shotlists.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
     "csv-parse": "^5.5.2",
-    "@supabase/supabase-js": "^2.39.0"
+    "fast-xml-parser": "^5.3.5"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
