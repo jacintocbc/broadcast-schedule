@@ -154,3 +154,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON ssk_live_data;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON ssk_live_data;
 CREATE POLICY "Allow all (anon)" ON ssk_live_data FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON ssk_live_data FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Short Track Speed Skating live data (for deployed app viewing)
+-- ============================================
+ALTER TABLE stk_live_data ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON stk_live_data;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON stk_live_data;
+CREATE POLICY "Allow all (anon)" ON stk_live_data FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON stk_live_data FOR ALL TO authenticated USING (true) WITH CHECK (true);

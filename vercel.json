@@ -12,6 +12,7 @@
     { "source": "/api/cur-live", "destination": "/api/live?type=cur" },
     { "source": "/api/lug-live", "destination": "/api/live?type=lug" },
     { "source": "/api/ssk-live", "destination": "/api/live?type=ssk" },
+    { "source": "/api/stk-live", "destination": "/api/live?type=stk" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "functions": { "api/**/*.js": { "maxDuration": 30 } }

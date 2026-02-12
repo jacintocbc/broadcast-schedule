@@ -568,6 +568,11 @@ const LUG_BASE_PATH = process.env.LUG_BASE_PATH || 'M:\\Incoming\\LUG';
 // ============================================
 const SSK_BASE_PATH = process.env.SSK_BASE_PATH || 'M:\\Incoming\\SSK';
 
+// ============================================
+// STK DT_RESULT Live Feed (Short Track Speed Skating)
+// ============================================
+const STK_BASE_PATH = process.env.STK_BASE_PATH || 'M:\\Incoming\\STK';
+
 /**
  * Resolve up to N holder folder paths (newest first). Searches recent hour folders.
  * If current hour has no results, searches previous hour. Returns [] if none found.
@@ -603,6 +608,11 @@ function resolveLUGHolderPaths() {
 /** Resolve SSK holder paths (up to 4 hour folders, newest first, single latest date). */
 function resolveSSKHolderPaths() {
   return resolveHolderPaths(SSK_BASE_PATH, 4);
+}
+
+/** Resolve STK holder paths (up to 4 hour folders, newest first, single latest date). */
+function resolveSTKHolderPaths() {
+  return resolveHolderPaths(STK_BASE_PATH, 4);
 }
 
 /** True if req has source=db or archived=1 (skip file scan, use DB only). */
@@ -651,10 +661,27 @@ function hasAnySSKResultInDir(dirPath) {
   }
 }
 
-/** Fast check: do any holder paths have SSK result files? (first path only). */
+/** Fast check: do any holder paths have SSK result files? */
 function hasAnySSKFiles() {
   const paths = resolveSSKHolderPaths();
   return paths.length > 0 && paths.some(p => hasAnySSKResultInDir(p));
+}
+
+/** Fast check: does dir contain any STK DT_RESULT filename? (readdir only). */
+function hasAnySTKResultInDir(dirPath) {
+  if (!fs.existsSync(dirPath)) return false;
+  try {
+    const names = fs.readdirSync(dirPath);
+    return names.some(n => n.includes('DT_RESULT'));
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Fast check: do any holder paths have STK result files? */
+function hasAnySTKFiles() {
+  const paths = resolveSTKHolderPaths();
+  return paths.length > 0 && paths.some(p => hasAnySTKResultInDir(p));
 }
 
 /** @deprecated Use resolveIHOHolderPaths */
@@ -692,6 +719,24 @@ function listDTResultFiles(dirPath) {
  * List SSK result files: DT_RESULT_* (finals, semi-finals, etc). FNL in DocumentCode = final.
  */
 function listSSKResultFiles(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs.readdirSync(dirPath)
+    .filter(f => f.includes('DT_RESULT'))
+    .map(f => {
+      const filePath = path.join(dirPath, f);
+      let stat;
+      try { stat = fs.statSync(filePath); } catch (_) { return null; }
+      if (!stat.isFile()) return null;
+      return { name: f, path: filePath, mtime: stat.mtime };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime);
+}
+
+/**
+ * List STK result files: DT_RESULT_* (quarterfinals, semi-finals, finals).
+ */
+function listSTKResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
     .filter(f => f.includes('DT_RESULT'))
@@ -925,6 +970,73 @@ function parseDTResultXmlSSK(xmlStr) {
   };
 }
 
+/**
+ * Parse a Short Track Speed Skating DT_RESULT XML.
+ * Identical structure to SSK but with QFNL/SFNL/FNL phases.
+ * Phase priority: FNL > SFNL > QFNL (higher = preferred for display).
+ */
+function parseDTResultXmlSTK(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const parsed = parser.parse(xmlStr);
+  const body = parsed?.OdfBody;
+  if (!body) throw new Error('Invalid STK DT_RESULT: no OdfBody');
+  const comp = body.Competition;
+  if (!comp) throw new Error('Invalid STK DT_RESULT: no Competition');
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const resultStatus = attr(body, 'ResultStatus') || '';
+  const date = attr(body, 'Date') || '';
+  const docCode = attr(body, 'DocumentCode') || '';
+  // Extract event code (e.g. STKW500M or STKM1000M)
+  const codeMatch = docCode.match(/^([A-Z0-9]+?)[-\s]*(?:QFNL|SFNL|FNL)/);
+  const eventCode = codeMatch ? codeMatch[1] : (docCode.match(/^([A-Z0-9]+)/)?.[1] || '');
+  // Determine phase: FNL (not preceded by Q or S) = final, SFNL = semifinal, QFNL = quarterfinal
+  let phase = 'UNKNOWN';
+  let phasePriority = 0;
+  if (/(?<![QS])FNL/.test(docCode)) { phase = 'FNL'; phasePriority = 3; }
+  else if (/SFNL/.test(docCode)) { phase = 'SFNL'; phasePriority = 2; }
+  else if (/QFNL/.test(docCode)) { phase = 'QFNL'; phasePriority = 1; }
+  let eventName = '';
+  let subEventName = '';
+  const extInfos = comp.ExtendedInfos;
+  if (extInfos?.SportDescription) {
+    const sd = extInfos.SportDescription;
+    eventName = attr(sd, 'EventName') || attr(sd, 'DisciplineName') || '';
+    subEventName = attr(sd, 'SubEventName') || '';
+  }
+  const rawResults = comp.Result;
+  const resultList = Array.isArray(rawResults) ? rawResults : (rawResults ? [rawResults] : []);
+  const results = resultList.filter(r => attr(r, 'Rank') != null || attr(r, 'SortOrder') != null).slice(0, 10).map((r) => {
+    const rank = parseInt(attr(r, 'Rank'), 10) || parseInt(attr(r, 'SortOrder'), 10) || 0;
+    const resultTime = attr(r, 'Result') || (attr(r, 'IRM') ? attr(r, 'IRM') : '');
+    const competitor = r.Competitor;
+    const organisation = competitor ? (attr(competitor, 'Organisation') || '').toUpperCase() : '';
+    let givenName = '';
+    let familyName = '';
+    const composition = competitor?.Composition;
+    const athletes = composition?.Athlete;
+    const athleteArr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+    const firstAthlete = athleteArr[0];
+    if (firstAthlete?.Description) {
+      const desc = firstAthlete.Description;
+      givenName = attr(desc, 'GivenName') || '';
+      familyName = attr(desc, 'FamilyName') || '';
+    }
+    const displayName = [givenName, familyName].filter(Boolean).join(' ').trim() || undefined;
+    return { rank, organisation, givenName, familyName, displayName, result: resultTime };
+  });
+  return {
+    eventCode,
+    phase,
+    phasePriority,
+    isFinal: phase === 'FNL',
+    resultStatus,
+    date,
+    eventName,
+    subEventName,
+    results
+  };
+}
+
 /** In-memory cache for Luge live payload to avoid re-scanning the drive on every request. */
 const LUG_CACHE_TTL_MS = 18 * 1000;
 let lugCache = { payload: null, expires: 0 };
@@ -932,6 +1044,10 @@ let lugCache = { payload: null, expires: 0 };
 /** In-memory cache for SSK live payload. */
 const SSK_CACHE_TTL_MS = 18 * 1000;
 let sskCache = { payload: null, expires: 0 };
+
+/** In-memory cache for STK live payload. */
+const STK_CACHE_TTL_MS = 18 * 1000;
+let stkCache = { payload: null, expires: 0 };
 
 /**
  * Find all Luge result files across holder paths: DT_CUMULATIVE_RESULT (standings) + DT_RESULT RELAY.
@@ -1049,6 +1165,82 @@ async function findAllSSKRuns() {
   return {
     eventCode: eventCode || 'SSK',
     eventName,
+    lastUpdated: latestMtime ? latestMtime.toISOString() : null,
+    runs
+  };
+}
+
+/**
+ * Find all STK DT_RESULT files across holder paths. Groups by event+phase (subEventName).
+ * Within each event, shows all phases (QF heats, SF heats, Final) as separate runs.
+ * Prefers the highest-phase result per sub-event name (FNL > SFNL > QFNL).
+ * Returns { eventCode: 'STK', eventName, lastUpdated, runs }.
+ */
+async function findAllSTKRuns() {
+  const holderPaths = resolveSTKHolderPaths();
+  const allFiles = [];
+  for (const dirPath of holderPaths) {
+    const files = listSTKResultFiles(dirPath);
+    for (const f of files) {
+      allFiles.push({ path: f.path, mtime: f.mtime });
+    }
+  }
+  const read = fs.promises.readFile;
+  const parsed = await Promise.all(
+    allFiles.map(async ({ path: filePath, mtime }) => {
+      try {
+        const xmlStr = await read(filePath, 'utf-8');
+        const data = parseDTResultXmlSTK(xmlStr);
+        return { mtime, data };
+      } catch (_) {
+        return null;
+      }
+    })
+  );
+  // Group by subEventName (e.g. "Quarterfinal 1", "Semifinal 2", "Final")
+  // Each unique subEventName becomes a run entry
+  const bySubEvent = new Map();
+  let latestMtime = null;
+  for (const item of parsed) {
+    if (!item || !item.data.results?.length) continue;
+    const { mtime, data } = item;
+    // Key by the full subEventName for uniqueness (e.g. "Quarterfinal 1" vs "Quarterfinal 2")
+    const key = `${data.eventCode || 'STK'}::${data.subEventName || data.eventName || 'Results'}`;
+    const existing = bySubEvent.get(key);
+    // Prefer higher phase priority, then newer mtime
+    const preferThis = !existing ||
+      (data.phasePriority > existing.data.phasePriority) ||
+      (data.phasePriority === existing.data.phasePriority && mtime > existing.mtime);
+    if (preferThis) {
+      bySubEvent.set(key, { mtime, data });
+    }
+    if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
+  }
+  // Build runs: sort by event code then phase priority (QF first, FNL last)
+  const runs = Array.from(bySubEvent.values())
+    .sort((a, b) => {
+      const codeComp = (a.data.eventCode || '').localeCompare(b.data.eventCode || '');
+      if (codeComp !== 0) return codeComp;
+      // Within same event, higher phase priority = first in list (FNL→SF→QF)
+      const phaseDiff = b.data.phasePriority - a.data.phasePriority;
+      if (phaseDiff !== 0) return phaseDiff;
+      return (a.data.subEventName || '').localeCompare(b.data.subEventName || '');
+    })
+    .map(({ data }) => ({
+      eventCode: data.eventCode || 'STK',
+      run: 1,
+      subEventName: data.subEventName || data.eventName || 'Results',
+      eventName: data.eventName || '',
+      phase: data.phase,
+      resultStatus: data.resultStatus,
+      results: data.results || []
+    }));
+  // Determine overall event name from the most common eventName
+  const eventNames = parsed.filter(Boolean).map(p => p.data.eventName).filter(Boolean);
+  const overallName = eventNames.length > 0 ? 'Short Track Speed Skating' : '';
+  return {
+    eventCode: 'STK',
+    eventName: overallName,
     lastUpdated: latestMtime ? latestMtime.toISOString() : null,
     runs
   };
@@ -1921,6 +2113,116 @@ app.get('/api/ssk-live', async (req, res) => {
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
     res.status(status).json({
       error: 'Failed to load Speed Skating live data',
+      details: err.message
+    });
+  }
+});
+
+app.get('/api/stk-live', async (req, res) => {
+  try {
+    const eventCode = (req.query.event_code || req.query.eventCode || 'STK').toString().trim().toUpperCase() || 'STK';
+
+    if (wantsDbOnly(req)) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('stk_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) {
+          const stored = rows[0].data;
+          return res.json({
+            eventCode: eventCode,
+            eventName: stored?.eventName,
+            lastUpdated: stored?.lastUpdated,
+            runs: Array.isArray(stored?.runs) ? stored.runs : []
+          });
+        }
+        const { data: anyRows } = await supabase.from('stk_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) {
+          const stored = anyRows[0].data;
+          return res.json({ eventCode, eventName: stored?.eventName, lastUpdated: stored?.lastUpdated, runs: stored?.runs || [] });
+        }
+      }
+      return res.status(404).json({ error: 'No Short Track Speed Skating live data found', details: 'Database only (source=db)' });
+    }
+
+    const now = Date.now();
+    if (stkCache.payload && now < stkCache.expires) {
+      return res.json(stkCache.payload);
+    }
+
+    if (!hasAnySTKFiles()) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('stk_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) {
+          const stored = rows[0].data;
+          return res.json({
+            eventCode: eventCode,
+            eventName: stored?.eventName,
+            lastUpdated: stored?.lastUpdated,
+            runs: Array.isArray(stored?.runs) ? stored.runs : []
+          });
+        }
+        const { data: anyRows } = await supabase.from('stk_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) {
+          const stored = anyRows[0].data;
+          return res.json({ eventCode, eventName: stored?.eventName, lastUpdated: stored?.lastUpdated, runs: stored?.runs || [] });
+        }
+      }
+      return res.status(404).json({
+        error: 'No Short Track Speed Skating DT_RESULT file found',
+        details: `Base path: ${STK_BASE_PATH}; no files; no data in database`
+      });
+    }
+
+    const payload = await findAllSTKRuns();
+    const code = payload.eventCode || 'STK';
+    if (payload.runs.length > 0) {
+      stkCache = { payload, expires: now + STK_CACHE_TTL_MS };
+      if (supabase) {
+        const lastUpdated = payload.lastUpdated || new Date().toISOString();
+        // Upsert the full payload as a single row (all events/phases together)
+        supabase.from('stk_live_data').upsert({
+          event_code: code,
+          data: payload,
+          last_updated: lastUpdated
+        }, { onConflict: 'event_code' }).then(() => {}, () => {});
+      }
+      return res.json(payload);
+    }
+    if (supabase) {
+      const { data: rows, error } = await supabase
+        .from('stk_live_data')
+        .select('data')
+        .eq('event_code', code)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (!error && rows && rows.length > 0) {
+        const stored = rows[0].data;
+        return res.json({
+          eventCode: code,
+          eventName: stored?.eventName,
+          lastUpdated: stored?.lastUpdated,
+          runs: Array.isArray(stored?.runs) ? stored.runs : []
+        });
+      }
+    }
+    return res.status(404).json({
+      error: 'No Short Track Speed Skating DT_RESULT file found',
+      details: `Base path: ${STK_BASE_PATH}`
+    });
+  } catch (err) {
+    console.error('STK live error:', err);
+    const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
+    res.status(status).json({
+      error: 'Failed to load Short Track Speed Skating live data',
       details: err.message
     });
   }

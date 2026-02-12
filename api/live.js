@@ -8,7 +8,8 @@ const CONFIG = {
   iho: { table: 'iho_game_data', label: 'IHO' },
   cur: { table: 'cur_game_data', label: 'Curling' },
   lug: { table: 'lug_live_data', label: 'Luge' },
-  ssk: { table: 'ssk_live_data', label: 'Speed Skating' }
+  ssk: { table: 'ssk_live_data', label: 'Speed Skating' },
+  stk: { table: 'stk_live_data', label: 'Short Track Speed Skating' }
 };
 
 export default async function handler(req, res) {
@@ -34,8 +35,8 @@ export default async function handler(req, res) {
   const cfg = CONFIG[type] || CONFIG.iho;
 
   try {
-    if (type === 'lug' || type === 'ssk') {
-      const defaultCode = type === 'lug' ? 'LUG' : 'SSK';
+    if (type === 'lug' || type === 'ssk' || type === 'stk') {
+      const defaultCode = type === 'lug' ? 'LUG' : type === 'ssk' ? 'SSK' : 'STK';
       const eventCode = (req.query.event_code || req.query.eventCode || defaultCode).toString().trim().toUpperCase() || defaultCode;
       const { data: rows, error } = await supabase
         .from(cfg.table)
