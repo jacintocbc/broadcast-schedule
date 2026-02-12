@@ -2938,8 +2938,17 @@ function syncLiveDataToSupabase() {
       const { mtime, data } = fileResult;
       data.lastUpdated = mtime.toISOString();
       if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
+        const hc = data.homeTeam.code, ac = data.awayTeam.code;
+        // Attach PBP using game code filter (fast: only reads files for this specific game)
+        const resultFileName = path.basename(fileResult.path);
+        const gameCodeMatch = resultFileName.match(/(GP[A-Z]-\d{6})/);
+        const gameCode = gameCodeMatch ? gameCodeMatch[1] : null;
+        try {
+          const pbp = findPlayByPlayForGame(holderPathsIHO, hc, ac, 30, gameCode);
+          if (pbp.length > 0) data.playByPlay = pbp;
+        } catch (_) { /* skip PBP errors */ }
         supabase.from('iho_game_data').upsert(
-          { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
+          { home_team_code: hc, away_team_code: ac, game_date: data.date, data, last_updated: mtime.toISOString() },
           { onConflict: 'home_team_code,away_team_code,game_date' }
         ).then(({ error }) => { if (error) console.error('IHO background sync error:', error.message); });
       }
