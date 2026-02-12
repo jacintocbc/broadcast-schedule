@@ -14,6 +14,7 @@
     { "source": "/api/ssk-live", "destination": "/api/live?type=ssk" },
     { "source": "/api/stk-live", "destination": "/api/live?type=stk" },
     { "source": "/api/sbd-live", "destination": "/api/live?type=sbd" },
+    { "source": "/api/medals", "destination": "/api/live?type=medals" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "functions": { "api/**/*.js": { "maxDuration": 30 } }

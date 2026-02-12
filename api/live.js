@@ -36,6 +36,17 @@ export default async function handler(req, res) {
   const cfg = CONFIG[type] || CONFIG.iho;
 
   try {
+    // Medal alerts: return today's Canadian medals from Supabase
+    if (type === 'medals') {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: rows, error } = await supabase
+        .from('medal_alerts')
+        .select('*')
+        .eq('event_date', today);
+      if (error) throw error;
+      return res.json({ medals: rows || [] });
+    }
+
     if (type === 'lug' || type === 'ssk' || type === 'stk' || type === 'sbd') {
       const defaultCode = type === 'lug' ? 'LUG' : type === 'ssk' ? 'SSK' : type === 'stk' ? 'STK' : 'SBD';
       const eventCode = (req.query.event_code || req.query.eventCode || defaultCode).toString().trim().toUpperCase() || defaultCode;

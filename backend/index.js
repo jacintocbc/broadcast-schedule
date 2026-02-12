@@ -2692,6 +2692,179 @@ app.get('/api/sbd-live', async (req, res) => {
   }
 });
 
+// ============================================
+// Canadian Medal Alerts
+// ============================================
+
+/**
+ * Scan all sport folders for DT_MEDALLISTS_DISCIPLINE files.
+ * Returns array of Canadian medal wins for today's date.
+ */
+const SPORT_NAME_MAP = {
+  ALP: 'Alpine Skiing', ART: 'Art', BOB: 'Bobsled', BTH: 'Biathlon',
+  CCS: 'Cross-Country Skiing', CUR: 'Curling', FRS: 'Freestyle Skiing',
+  FSK: 'Figure Skating', IHO: 'Ice Hockey', LUG: 'Luge', NCB: 'Nordic Combined',
+  SBD: 'Snowboard', SJP: 'Ski Jumping', SKN: 'Skeleton', SMT: 'Short Track',
+  SSK: 'Speed Skating', STK: 'Short Track Speed Skating', TRU: 'Trampoline'
+};
+
+function scanCanadianMedals() {
+  const INCOMING_BASE = process.env.INCOMING_BASE || 'M:\\Incoming';
+  const today = new Date().toISOString().slice(0, 10); // e.g. "2026-02-12"
+  const medalParser = new XMLParser({ ignoreAttributes: false });
+  const mAttr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const medals = [];
+
+  let sportDirs;
+  try {
+    sportDirs = fs.readdirSync(INCOMING_BASE, { withFileTypes: true })
+      .filter(d => d.isDirectory() && /^[A-Z]{2,4}$/.test(d.name))
+      .map(d => d.name);
+  } catch { return medals; }
+
+  for (const sport of sportDirs) {
+    try {
+      const sportPath = path.join(INCOMING_BASE, sport);
+      // Find today's date folder
+      const todayPath = path.join(sportPath, today);
+      if (!fs.existsSync(todayPath)) continue;
+
+      // Get hour folders, newest first
+      let hours;
+      try {
+        hours = fs.readdirSync(todayPath, { withFileTypes: true })
+          .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+          .map(d => d.name)
+          .sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+      } catch { continue; }
+
+      // Find the newest DT_MEDALLISTS_DISCIPLINE file across hour folders
+      let foundFile = null;
+      for (const h of hours) {
+        const hourPath = path.join(todayPath, h);
+        let names;
+        try { names = fs.readdirSync(hourPath); } catch { continue; }
+        const medalFiles = names
+          .filter(f => f.includes('DT_MEDALLISTS_DISCIPLINE'))
+          .sort((a, b) => b.localeCompare(a)); // newest first by filename timestamp
+        if (medalFiles.length > 0) {
+          foundFile = path.join(hourPath, medalFiles[0]);
+          break; // newest file found, no need to check older hour folders
+        }
+      }
+      if (!foundFile) continue;
+
+      // Parse the file
+      const xml = fs.readFileSync(foundFile, 'utf-8');
+      const parsed = medalParser.parse(xml);
+      const body = parsed?.OdfBody;
+      if (!body) continue;
+      const comp = body.Competition;
+      const discipline = comp?.Discipline;
+      if (!discipline) continue;
+      const disciplineName = mAttr(comp?.ExtendedInfos?.SportDescription, 'DisciplineName') || SPORT_NAME_MAP[sport] || sport;
+
+      const events = Array.isArray(discipline.Event) ? discipline.Event : (discipline.Event ? [discipline.Event] : []);
+      for (const ev of events) {
+        const eventName = mAttr(ev, 'EventName') || '';
+        const eventCode = mAttr(ev, 'Code') || '';
+        const eventDate = mAttr(ev, 'Date') || '';
+        // Only include medals from today
+        if (eventDate !== today) continue;
+        const medalNodes = Array.isArray(ev.Medal) ? ev.Medal : (ev.Medal ? [ev.Medal] : []);
+        for (const m of medalNodes) {
+          const medalCode = mAttr(m, 'Code') || ''; // ME_GOLD, ME_SILVER, ME_BRONZE
+          const competitor = m.Competitor;
+          if (!competitor) continue;
+          const org = mAttr(competitor, 'Organisation') || '';
+          if (org !== 'CAN') continue;
+
+          // Extract athlete names
+          const composition = competitor.Composition;
+          const athletes = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
+          const athleteNames = athletes.map(a => {
+            const desc = a.Description;
+            return {
+              givenName: mAttr(desc, 'GivenName') || '',
+              familyName: mAttr(desc, 'FamilyName') || ''
+            };
+          });
+
+          const medalType = medalCode.replace('ME_', ''); // GOLD, SILVER, BRONZE
+          const id = `${sport}-${eventCode}-${medalCode}-${eventDate}`;
+          medals.push({
+            id,
+            sport,
+            disciplineName,
+            eventCode,
+            eventName,
+            medalType,
+            athletes: athleteNames,
+            eventDate
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`Medal scan error for ${sport}:`, err.message);
+      continue;
+    }
+  }
+  return medals;
+}
+
+// Cache medals for 60 seconds (M: drive scan is slow)
+let _medalCache = { data: null, ts: 0 };
+const MEDAL_CACHE_TTL = 60 * 1000;
+
+app.get('/api/medals', async (req, res) => {
+  try {
+    if (wantsDbOnly(req)) {
+      if (!supabase) return res.json({ medals: [] });
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: rows, error } = await supabase
+        .from('medal_alerts')
+        .select('*')
+        .eq('event_date', today);
+      if (error) throw error;
+      return res.json({ medals: rows || [] });
+    }
+
+    // Use cached data if fresh enough
+    const now = Date.now();
+    if (_medalCache.data && (now - _medalCache.ts) < MEDAL_CACHE_TTL) {
+      return res.json({ medals: _medalCache.data });
+    }
+
+    const medals = scanCanadianMedals();
+    _medalCache = { data: medals, ts: now };
+    res.json({ medals });
+
+    // Sync to Supabase (non-blocking)
+    if (supabase && medals.length > 0) {
+      for (const m of medals) {
+        supabase.from('medal_alerts').upsert(
+          {
+            id: m.id,
+            sport: m.sport,
+            discipline_name: m.disciplineName,
+            event_code: m.eventCode,
+            event_name: m.eventName,
+            medal_type: m.medalType,
+            athletes: m.athletes,
+            event_date: m.eventDate
+          },
+          { onConflict: 'id' }
+        ).then(({ error }) => {
+          if (error) console.error('Medal sync error:', error.message);
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Medals API error:', err);
+    res.status(500).json({ error: 'Failed to scan medals', details: err.message });
+  }
+});
+
 /** Check which events have results in Supabase. Used to show archive icon only when data exists. */
 app.post('/api/live-has-results', async (req, res) => {
   try {

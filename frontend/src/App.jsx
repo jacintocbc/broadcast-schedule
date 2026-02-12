@@ -10,6 +10,7 @@ import BoothPage from './components/BoothPage'
 import LiveBoothsView from './components/LiveBoothsView'
 import BoothDetailView from './components/BoothDetailView'
 import SchedulingView from './components/SchedulingView'
+import MedalAlert from './components/MedalAlert'
 
 function Navigation() {
   const location = useLocation()
@@ -109,6 +110,7 @@ function AppContent() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden" style={{ paddingTop: `${paddingTop}px` }}>
+      {!isBoothDetailPage && <MedalAlert />}
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />

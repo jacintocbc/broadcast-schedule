@@ -172,3 +172,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON sbd_live_data;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON sbd_live_data;
 CREATE POLICY "Allow all (anon)" ON sbd_live_data FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON sbd_live_data FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Medal alerts (Canadian medal wins)
+-- ============================================
+ALTER TABLE medal_alerts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON medal_alerts;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON medal_alerts;
+CREATE POLICY "Allow all (anon)" ON medal_alerts FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON medal_alerts FOR ALL TO authenticated USING (true) WITH CHECK (true);
