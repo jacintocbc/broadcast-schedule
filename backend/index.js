@@ -600,6 +600,11 @@ function resolveIHOHolderPaths() {
   return resolveHolderPaths(IHO_BASE_PATH, 2);
 }
 
+/** Wider IHO holder paths for PBP scanning (up to 5 hours to cover full game). */
+function resolveIHOHolderPathsWide() {
+  return resolveHolderPaths(IHO_BASE_PATH, 5);
+}
+
 /** Resolve CUR holder paths (up to 2 folders, newest first). */
 function resolveCURHolderPaths() {
   return resolveHolderPaths(CUR_BASE_PATH, 2);
@@ -2166,9 +2171,10 @@ app.get('/api/iho-live', async (req, res) => {
         const gameCodeMatch = resultFileName.match(/(GP[A-Z]-\d{6})/);
         const gameCode = gameCodeMatch ? gameCodeMatch[1] : null;
         try {
-          // Scan all holder paths for PBP (game spans multiple hour folders)
+          // Use wide holder paths (5 hours) for PBP — games span multiple hour folders
           // Game code filter ensures we only read files for this specific game
-          const pbp = findPlayByPlayForGame(holderPaths, pbpHome, pbpAway, 30, gameCode);
+          const pbpPaths = resolveIHOHolderPathsWide();
+          const pbp = findPlayByPlayForGame(pbpPaths, pbpHome, pbpAway, 30, gameCode);
           if (pbp.length > 0) data.playByPlay = pbp;
         } catch (pbpErr) {
           console.error('Play-by-play parse error:', pbpErr.message);
@@ -2944,7 +2950,8 @@ function syncLiveDataToSupabase() {
         const gameCodeMatch = resultFileName.match(/(GP[A-Z]-\d{6})/);
         const gameCode = gameCodeMatch ? gameCodeMatch[1] : null;
         try {
-          const pbp = findPlayByPlayForGame(holderPathsIHO, hc, ac, 30, gameCode);
+          const pbpPaths = resolveIHOHolderPathsWide();
+          const pbp = findPlayByPlayForGame(pbpPaths, hc, ac, 30, gameCode);
           if (pbp.length > 0) data.playByPlay = pbp;
         } catch (_) { /* skip PBP errors */ }
         supabase.from('iho_game_data').upsert(
