@@ -54,6 +54,8 @@ export default async function handler(req, res) {
           .limit(1);
         if (anyRows?.length > 0) {
           const stored = anyRows[0].data;
+          // SBD needs full blob (phaseResults, runSchedule); others use simplified shape
+          if (type === 'sbd') return res.json(stored);
           return res.json({
             eventCode: eventCode,
             eventName: stored?.eventName,
@@ -67,6 +69,8 @@ export default async function handler(req, res) {
         });
       }
       const stored = rows[0].data;
+      // SBD needs full blob (phaseResults, runSchedule); others use simplified shape
+      if (type === 'sbd') return res.json(stored);
       return res.json({
         eventCode: eventCode,
         eventName: stored?.eventName,
