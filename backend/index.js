@@ -623,21 +623,21 @@ function hasAnyDTResultInDir(dirPath) {
   }
 }
 
-/** Fast check: does dir contain any Luge cumulative result filename? (readdir only). */
+/** Fast check: does dir contain any Luge result filename? Cumulative or relay DT_RESULT. */
 function hasAnyLugeResultInDir(dirPath) {
   if (!fs.existsSync(dirPath)) return false;
   try {
     const names = fs.readdirSync(dirPath);
-    return names.some(n => n.includes('DT_CUMULATIVE_RESULT_'));
+    return names.some(n => n.includes('DT_CUMULATIVE_RESULT_') || (n.includes('DT_RESULT_') && /RELAY/i.test(n)));
   } catch (_) {
     return false;
   }
 }
 
-/** Fast check: do any holder paths have Luge result files? (first path only). */
+/** Fast check: do any holder paths have Luge result files? */
 function hasAnyLugeFiles() {
   const paths = resolveLUGHolderPaths();
-  return paths.length > 0 && hasAnyLugeResultInDir(paths[0]);
+  return paths.length > 0 && paths.some(p => hasAnyLugeResultInDir(p));
 }
 
 /** Fast check: does dir contain any SSK DT_RESULT filename? (readdir only). */
@@ -707,13 +707,13 @@ function listSSKResultFiles(dirPath) {
 }
 
 /**
- * List Luge result files: DT_CUMULATIVE_RESULT_* only (medals/cumulative standings).
- * Per-run DT_RESULT_* files are not used for Luge.
+ * List Luge result files: DT_CUMULATIVE_RESULT_* (cumulative standings) plus
+ * DT_RESULT_*RELAY* (relay uses DT_RESULT, not cumulative).
  */
 function listLugeResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
-    .filter(f => f.includes('DT_CUMULATIVE_RESULT_'))
+    .filter(f => f.includes('DT_CUMULATIVE_RESULT_') || (f.includes('DT_RESULT_') && /RELAY/i.test(f)))
     .map(f => {
       const filePath = path.join(dirPath, f);
       let stat;
@@ -823,24 +823,32 @@ function parseDTResultXmlLuge(xmlStr) {
     const resultTime = attr(r, 'Result') || '';
     const competitor = r.Competitor;
     const organisation = competitor ? (attr(competitor, 'Organisation') || '').toUpperCase() : '';
+    const compType = competitor ? (attr(competitor, 'Type') || '').toUpperCase() : '';
     let givenName = '';
     let familyName = '';
     let displayName = '';
     const compDesc = competitor?.Description;
-    if (compDesc && (attr(compDesc, 'TeamName') || compDesc.TeamName)) {
-      displayName = (attr(compDesc, 'TeamName') || compDesc.TeamName || '').trim();
-    }
-    const composition = competitor?.Composition;
-    const athletes = composition?.Athlete;
-    const athleteArr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
-    const firstAthlete = athleteArr[0];
-    if (firstAthlete?.Description) {
-      const desc = firstAthlete.Description;
-      givenName = attr(desc, 'GivenName') || '';
-      familyName = attr(desc, 'FamilyName') || '';
-    }
-    if (!displayName && (givenName || familyName)) {
-      displayName = [givenName, familyName].filter(Boolean).join(' ').trim();
+    if (compType === 'T') {
+      // Team event (relay): use TeamName as display, skip individual athlete names
+      const teamName = compDesc ? (attr(compDesc, 'TeamName') || compDesc.TeamName || '') : '';
+      displayName = teamName.trim() || organisation;
+    } else {
+      // Individual / doubles: use TeamName (doubles) or athlete names
+      if (compDesc && (attr(compDesc, 'TeamName') || compDesc.TeamName)) {
+        displayName = (attr(compDesc, 'TeamName') || compDesc.TeamName || '').trim();
+      }
+      const composition = competitor?.Composition;
+      const athletes = composition?.Athlete;
+      const athleteArr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+      const firstAthlete = athleteArr[0];
+      if (firstAthlete?.Description) {
+        const desc = firstAthlete.Description;
+        givenName = attr(desc, 'GivenName') || '';
+        familyName = attr(desc, 'FamilyName') || '';
+      }
+      if (!displayName && (givenName || familyName)) {
+        displayName = [givenName, familyName].filter(Boolean).join(' ').trim();
+      }
     }
     return { rank, organisation, givenName, familyName, displayName: displayName || undefined, result: resultTime };
   });
@@ -926,8 +934,8 @@ const SSK_CACHE_TTL_MS = 18 * 1000;
 let sskCache = { payload: null, expires: 0 };
 
 /**
- * Find all Luge cumulative result files across holder paths. Only DT_CUMULATIVE_RESULT_* files.
- * Returns { eventCode, eventName, lastUpdated, runs } with one run per event (Men's Doubles, Women's Doubles, etc).
+ * Find all Luge result files across holder paths: DT_CUMULATIVE_RESULT (standings) + DT_RESULT RELAY.
+ * Returns { eventCode: 'LUG', eventName, lastUpdated, runs } with one run per event.
  */
 async function findAllLugeRuns() {
   const holderPaths = resolveLUGHolderPaths();
@@ -945,7 +953,7 @@ async function findAllLugeRuns() {
         const xmlStr = await read(filePath, 'utf-8');
         const data = parseDTResultXmlLuge(xmlStr);
         const baseName = path.basename(filePath, path.extname(filePath));
-        const match = baseName.match(/DT_CUMULATIVE_RESULT_([A-Z0-9]+)/i);
+        const match = baseName.match(/DT_(?:CUMULATIVE_)?RESULT_([A-Z0-9]+)/i);
         if (match && !data.eventCode) data.eventCode = match[1].toUpperCase();
         return { mtime, data };
       } catch (_) {
@@ -954,8 +962,6 @@ async function findAllLugeRuns() {
     })
   );
   const byEventCode = new Map();
-  let eventName = '';
-  let eventCode = '';
   let latestMtime = null;
   for (const item of parsed) {
     if (!item || (!item.data.eventCode && !item.data.results?.length)) continue;
@@ -964,22 +970,21 @@ async function findAllLugeRuns() {
     const existing = byEventCode.get(code);
     if (!existing || mtime > existing.mtime) {
       byEventCode.set(code, { mtime, data });
-      if (data.eventName) eventName = data.eventName;
-      if (data.eventCode) eventCode = data.eventCode;
       if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
     }
   }
   const runs = Array.from(byEventCode.values())
     .sort((a, b) => (a.data.eventCode || '').localeCompare(b.data.eventCode || ''))
     .map(({ data }) => ({
+      eventCode: data.eventCode || 'LUG',
       run: 1,
-      subEventName: data.eventName || data.subEventName || 'Cumulative',
+      subEventName: data.eventName || data.subEventName || 'Results',
       resultStatus: data.resultStatus,
       results: data.results || []
     }));
   return {
-    eventCode: eventCode || 'LUG',
-    eventName,
+    eventCode: 'LUG',
+    eventName: 'Luge',
     lastUpdated: latestMtime ? latestMtime.toISOString() : null,
     runs
   };
