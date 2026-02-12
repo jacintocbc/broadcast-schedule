@@ -724,22 +724,28 @@ function resolveCURHolderPath() {
 }
 
 /**
- * List all DT_RESULT_* files in folder, sorted by mtime newest first.
- * Returns array of { path, mtime }. Uses one stat per file.
+ * List all DT_RESULT_* files in folder, sorted by filename newest first.
+ * Filenames embed timestamps (e.g. 20260212215958492_...) so sorting by name
+ * gives newest first without expensive stat calls on slow network drives.
+ * Returns array of { name, path, mtime }. mtime is lazy-loaded on first access.
  */
 function listDTResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
     .filter(f => f.includes('DT_RESULT_'))
+    .sort((a, b) => b.localeCompare(a)) // filename = timestamp prefix, so desc = newest
     .map(f => {
       const filePath = path.join(dirPath, f);
-      let stat;
-      try { stat = fs.statSync(filePath); } catch (_) { return null; }
-      if (!stat.isFile()) return null;
-      return { name: f, path: filePath, mtime: stat.mtime };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.mtime - a.mtime);
+      return {
+        name: f,
+        path: filePath,
+        get mtime() {
+          // Lazy stat: only called when mtime is actually accessed
+          try { return fs.statSync(filePath).mtime; }
+          catch { return new Date(); }
+        }
+      };
+    });
 }
 
 /**
@@ -834,6 +840,37 @@ function listLugeResultFiles(dirPath) {
 }
 
 /**
+ * Find all distinct IHO games in a directory. Returns Map of gameKey -> { path, mtime, data }.
+ * Only parses the newest `limit` files to keep M: drive reads fast.
+ */
+function findAllIHOGamesInDir(dirPath, limit = 20) {
+  const files = listDTResultFiles(dirPath);
+  const games = new Map();
+  for (const { path: filePath, mtime } of files.slice(0, limit)) {
+    try {
+      const xmlStr = fs.readFileSync(filePath, 'utf-8');
+      const data = parseDTResultXml(xmlStr);
+      const hc = data.homeTeam?.code?.toUpperCase();
+      const ac = data.awayTeam?.code?.toUpperCase();
+      if (!hc || !ac) continue;
+      const gameKey = `${hc}-${ac}-${data.date || ''}`;
+      const altKey = `${ac}-${hc}-${data.date || ''}`;
+      // Keep the newest file per game (files sorted newest-first, so first hit wins)
+      if (!games.has(gameKey) && !games.has(altKey)) {
+        games.set(gameKey, { path: filePath, mtime, data });
+      }
+    } catch { continue; }
+  }
+  return games;
+}
+
+/**
+ * Cache: maps "HOME-AWAY" -> game code (e.g. "GPC-000200") to speed up file lookups.
+ * Once we learn that LAT-USA = GPC-000200, we can filter filenames without reading XML.
+ */
+const _gameCodeCache = new Map();
+
+/**
  * Find file matching *DT_RESULT_* in folder. If home/away provided, find first file
  * whose parsed data matches those team codes. Otherwise return newest.
  */
@@ -843,12 +880,58 @@ function findDTResultFile(dirPath, homeCode, awayCode) {
   const home = homeCode?.trim()?.toUpperCase();
   const away = awayCode?.trim()?.toUpperCase();
   const wantMatch = home && away;
-  for (const { path: filePath, mtime } of files) {
+
+  // If we know the game code for this matchup, filter files by filename first (much faster)
+  if (wantMatch) {
+    const cacheKey1 = `${home}-${away}`;
+    const cacheKey2 = `${away}-${home}`;
+    const cachedCode = _gameCodeCache.get(cacheKey1) || _gameCodeCache.get(cacheKey2);
+    if (cachedCode) {
+      const filtered = files.filter(f => f.name.includes(cachedCode));
+      if (filtered.length > 0) {
+        const { path: filePath, mtime } = filtered[0];
+        try {
+          const xmlStr = fs.readFileSync(filePath, 'utf-8');
+          const data = parseDTResultXml(xmlStr);
+          return { path: filePath, mtime, data };
+        } catch { /* fall through to full scan */ }
+      }
+    } else {
+      // Pre-populate cache: extract unique game codes from filenames, read one file per code
+      const codeToFile = new Map();
+      for (const f of files) {
+        const m = f.name.match(/(GP[A-Z]-\d{6})/);
+        if (m && !codeToFile.has(m[1])) codeToFile.set(m[1], f);
+      }
+      for (const [code, f] of codeToFile) {
+        try {
+          const xmlStr = fs.readFileSync(f.path, 'utf-8');
+          const data = parseDTResultXml(xmlStr);
+          const dh = data.homeTeam?.code?.toUpperCase();
+          const da = data.awayTeam?.code?.toUpperCase();
+          if (dh && da) _gameCodeCache.set(`${dh}-${da}`, code);
+          if ((dh === home && da === away) || (dh === away && da === home)) {
+            return { path: f.path, mtime: f.mtime, data };
+          }
+        } catch { continue; }
+      }
+      return null; // no match found
+    }
+  }
+
+  for (const { name: fileName, path: filePath, mtime } of files) {
     try {
       const xmlStr = fs.readFileSync(filePath, 'utf-8');
       const data = parseDTResultXml(xmlStr);
       const dataHome = data.homeTeam?.code?.toUpperCase();
       const dataAway = data.awayTeam?.code?.toUpperCase();
+      // Cache game code for this matchup
+      if (dataHome && dataAway) {
+        const codeMatch = fileName.match(/(GP[A-Z]-\d{6})/);
+        if (codeMatch) {
+          _gameCodeCache.set(`${dataHome}-${dataAway}`, codeMatch[1]);
+        }
+      }
       if (!wantMatch) return { path: filePath, mtime, data };
       if ((dataHome === home && dataAway === away) || (dataHome === away && dataAway === home)) {
         return { path: filePath, mtime, data };
@@ -1782,8 +1865,13 @@ function parseDTResultXml(xmlStr) {
 /**
  * Find and parse DT_PLAY_BY_PLAY files for a specific IHO game.
  * Returns sorted array of actions: { period, when, action, team, score, players[], timestamp }.
+ * @param {string[]} holderPaths - directories to scan
+ * @param {string} homeCode - home team code
+ * @param {string} awayCode - away team code
+ * @param {number} maxFiles - max PBP files to read per dir (default 30)
+ * @param {string} [gameCode] - game code to filter PBP filenames (e.g. "GPC-000200") to avoid reading irrelevant files
  */
-function findPlayByPlayForGame(holderPaths, homeCode, awayCode) {
+function findPlayByPlayForGame(holderPaths, homeCode, awayCode, maxFiles = 30, gameCode = null) {
   const home = (homeCode || '').trim().toUpperCase();
   const away = (awayCode || '').trim().toUpperCase();
   if (!home || !away) return [];
@@ -1796,70 +1884,83 @@ function findPlayByPlayForGame(holderPaths, homeCode, awayCode) {
     return m ? m[1] : '';
   };
 
-  const allActions = new Map();
+  // Collect all PBP files across holder paths, grouped by period suffix (e.g. "_P1_ACTION")
+  // For each period, we only read the NEWEST file — it's the authoritative cumulative version.
+  // Older files may contain stale data (e.g. goals that were later rescinded/corrected).
+  const newestPerPeriod = new Map(); // periodSuffix -> { dir, fname }
   for (const dirPath of holderPaths) {
     if (!fs.existsSync(dirPath)) continue;
     let names;
     try { names = fs.readdirSync(dirPath); } catch { continue; }
-    // Only take the newest DT_PLAY_BY_PLAY files (sorted descending by name = newest timestamp first)
-    const pbpFiles = names.filter(f => f.includes('DT_PLAY_BY_PLAY')).sort((a, b) => b.localeCompare(a));
-    // Limit to newest 30 files to avoid scanning hundreds on slow drives
-    for (const fname of pbpFiles.slice(0, 30)) {
-      try {
-        const filePath = path.join(dirPath, fname);
-        const xml = fs.readFileSync(filePath, 'utf-8');
-        const parsed = pbpParser.parse(xml);
-        const body = parsed?.OdfBody;
-        if (!body) continue;
-        const comp = body.Competition;
-        if (!comp?.Actions) continue;
-        const actions = comp.Actions;
-        const fileHome = extractTeamCode(pbpAttr(actions, 'Home'));
-        const fileAway = extractTeamCode(pbpAttr(actions, 'Away'));
-        if (!((fileHome === home && fileAway === away) || (fileHome === away && fileAway === home))) continue;
+    let pbpFiles = names.filter(f => f.includes('DT_PLAY_BY_PLAY'));
+    if (gameCode) pbpFiles = pbpFiles.filter(f => f.includes(gameCode));
+    pbpFiles.sort((a, b) => b.localeCompare(a)); // newest first
+    for (const fname of pbpFiles) {
+      // Extract period suffix like "_P1_ACTION" or "_P2_ACTION"
+      const pm = fname.match(/_P(\d+)_ACTION/i);
+      const periodKey = pm ? pm[0] : '_DEFAULT';
+      if (!newestPerPeriod.has(periodKey)) {
+        newestPerPeriod.set(periodKey, { dir: dirPath, fname });
+      }
+    }
+  }
 
-        const actionList = Array.isArray(actions.Action) ? actions.Action : (actions.Action ? [actions.Action] : []);
-        for (const a of actionList) {
-          const id = pbpAttr(a, 'Id');
-          if (id == null) continue;
-          const order = parseInt(pbpAttr(a, 'Order'), 10) || 0;
-          const existing = allActions.get(id);
-          if (existing && order < existing._order) continue;
+  const allActions = new Map();
+  for (const [, { dir, fname }] of newestPerPeriod) {
+    try {
+      const filePath = path.join(dir, fname);
+      const xml = fs.readFileSync(filePath, 'utf-8');
+      const parsed = pbpParser.parse(xml);
+      const body = parsed?.OdfBody;
+      if (!body) continue;
+      const comp = body.Competition;
+      if (!comp?.Actions) continue;
+      const actions = comp.Actions;
+      const fileHome = extractTeamCode(pbpAttr(actions, 'Home'));
+      const fileAway = extractTeamCode(pbpAttr(actions, 'Away'));
+      if (!((fileHome === home && fileAway === away) || (fileHome === away && fileAway === home))) continue;
 
-          const competitor = a.Competitor;
-          const compOrg = competitor ? (pbpAttr(competitor, 'Organisation') || extractTeamCode(pbpAttr(competitor, 'Code'))) : '';
-          const players = [];
-          const composition = competitor?.Composition;
-          const athletes = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
-          for (const ath of athletes) {
-            const desc = ath.Description;
-            if (!desc) continue;
-            const given = pbpAttr(desc, 'GivenName') || '';
-            const family = pbpAttr(desc, 'FamilyName') || '';
-            players.push({
-              name: `${given} ${family}`.trim(),
-              role: pbpAttr(ath, 'Role') || '',
-              bib: pbpAttr(ath, 'Bib') || ''
-            });
-          }
+      const actionList = Array.isArray(actions.Action) ? actions.Action : (actions.Action ? [actions.Action] : []);
+      for (const a of actionList) {
+        const id = pbpAttr(a, 'Id');
+        if (id == null) continue;
+        const order = parseInt(pbpAttr(a, 'Order'), 10) || 0;
+        const existing = allActions.get(id);
+        if (existing && order < existing._order) continue;
 
-          allActions.set(id, {
-            _order: order,
-            period: pbpAttr(a, 'Period') || '',
-            when: pbpAttr(a, 'When') || '',
-            action: pbpAttr(a, 'Action') || '',
-            team: compOrg,
-            scoreH: pbpAttr(a, 'ScoreH') ?? null,
-            scoreA: pbpAttr(a, 'ScoreA') ?? null,
-            result: pbpAttr(a, 'Result') || '',
-            comment: pbpAttr(a, 'Comment') || '',
-            timestamp: pbpAttr(a, 'TimeStamp') || '',
-            players
+        const competitor = a.Competitor;
+        const compOrg = competitor ? (pbpAttr(competitor, 'Organisation') || extractTeamCode(pbpAttr(competitor, 'Code'))) : '';
+        const players = [];
+        const composition = competitor?.Composition;
+        const athletes = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
+        for (const ath of athletes) {
+          const desc = ath.Description;
+          if (!desc) continue;
+          const given = pbpAttr(desc, 'GivenName') || '';
+          const family = pbpAttr(desc, 'FamilyName') || '';
+          players.push({
+            name: `${given} ${family}`.trim(),
+            role: pbpAttr(ath, 'Role') || '',
+            bib: pbpAttr(ath, 'Bib') || ''
           });
         }
-      } catch {
-        // skip unreadable
+
+        allActions.set(id, {
+          _order: order,
+          period: pbpAttr(a, 'Period') || '',
+          when: pbpAttr(a, 'When') || '',
+          action: pbpAttr(a, 'Action') || '',
+          team: compOrg,
+          scoreH: pbpAttr(a, 'ScoreH') ?? null,
+          scoreA: pbpAttr(a, 'ScoreA') ?? null,
+          result: pbpAttr(a, 'Result') || '',
+          comment: pbpAttr(a, 'Comment') || '',
+          timestamp: pbpAttr(a, 'TimeStamp') || '',
+          players
+        });
       }
+    } catch {
+      // skip unreadable
     }
   }
 
@@ -2056,10 +2157,18 @@ app.get('/api/iho-live', async (req, res) => {
         const { mtime, data } = fileResult;
         data.lastUpdated = mtime.toISOString();
 
-        // Attach play-by-play actions if available (only scan the folder that had the match)
+        // Attach play-by-play actions if available
+        // Use parsed team codes if query params not supplied
+        const pbpHome = home || data.homeTeam?.code;
+        const pbpAway = away || data.awayTeam?.code;
+        // Extract game code from DT_RESULT filename (e.g. "GPC-000200") to filter PBP files
+        const resultFileName = path.basename(fileResult.path);
+        const gameCodeMatch = resultFileName.match(/(GP[A-Z]-\d{6})/);
+        const gameCode = gameCodeMatch ? gameCodeMatch[1] : null;
         try {
-          const matchDir = path.dirname(fileResult.path);
-          const pbp = findPlayByPlayForGame([matchDir], home, away);
+          // Scan all holder paths for PBP (game spans multiple hour folders)
+          // Game code filter ensures we only read files for this specific game
+          const pbp = findPlayByPlayForGame(holderPaths, pbpHome, pbpAway, 30, gameCode);
           if (pbp.length > 0) data.playByPlay = pbp;
         } catch (pbpErr) {
           console.error('Play-by-play parse error:', pbpErr.message);
@@ -2646,6 +2755,7 @@ function syncLiveDataToSupabase() {
   if (!supabase) return;
   try {
     const holderPathsIHO = resolveIHOHolderPaths();
+    // Sync the latest game score/status (PBP is attached via on-demand requests)
     let fileResult = null;
     for (const p of holderPathsIHO) {
       fileResult = findDTResultFile(p, null, null);
@@ -2687,7 +2797,7 @@ function syncLiveDataToSupabase() {
 }
 
 if (supabase) {
-  syncLiveDataToSupabase();
+  // Start background sync after a delay (M: drive sync is blocking/synchronous)
   setInterval(syncLiveDataToSupabase, 30 * 1000);
   console.log('   Live data background sync: every 30s (IHO + CUR)');
 }
