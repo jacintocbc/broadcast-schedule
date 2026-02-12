@@ -4,29 +4,33 @@ import moment from 'moment-timezone'
 const TZ_CET = 'Europe/Rome'
 const TZ_ET = 'America/New_York'
 const SLOT_MINUTES = 15
-const SLOTS_PER_DAY = (24 * 60) / SLOT_MINUTES // 96
-const HOURS_PER_DAY = 24
+const START_HOUR = 7   // Grid starts at 07:00 CET
+const END_HOUR = 27    // Grid ends at 03:00 CET next day (7 + 20 = 27)
+const DISPLAY_HOURS = END_HOUR - START_HOUR // 20 hours shown
+const SLOTS_PER_DAY = (DISPLAY_HOURS * 60) / SLOT_MINUTES // 80
 const TIME_HEADER_HEIGHT = 28
 const VENUE_COL_WIDTH = 100
 const BLOCK_MIN_WIDTH = 100
 const DEFAULT_ROW_HEIGHT = 60
 
+/** Grid origin: 07:00 CET on the selected date */
 function getDayStart(dateStr) {
-  return moment.tz(`${dateStr}T00:00:00`, TZ_CET)
+  return moment.tz(`${dateStr}T00:00:00`, TZ_CET).add(START_HOUR, 'hours')
 }
 
 function timeToSlot(utcIso, dateStr) {
-  const dayStart = getDayStart(dateStr)
+  const gridStart = getDayStart(dateStr)
+  const gridEnd = gridStart.clone().add(DISPLAY_HOURS, 'hours')
   const m = moment.utc(utcIso).tz(TZ_CET)
-  if (m.format('YYYY-MM-DD') !== dateStr) return null
-  const minutesFromMidnight = m.diff(dayStart, 'minutes')
-  const slot = Math.floor(minutesFromMidnight / SLOT_MINUTES)
+  if (m.isBefore(gridStart) || m.isAfter(gridEnd)) return null
+  const minutesFromStart = m.diff(gridStart, 'minutes')
+  const slot = Math.floor(minutesFromStart / SLOT_MINUTES)
   return Math.max(0, Math.min(SLOTS_PER_DAY - 1, slot))
 }
 
 function slotToTime(slotIndex, dateStr) {
-  const dayStart = getDayStart(dateStr)
-  return dayStart.clone().add(slotIndex * SLOT_MINUTES, 'minutes').utc().toISOString()
+  const gridStart = getDayStart(dateStr)
+  return gridStart.clone().add(slotIndex * SLOT_MINUTES, 'minutes').utc().toISOString()
 }
 
 function fmt4(m) {
@@ -256,14 +260,16 @@ function SchedulingGrid({ scheduleDate, venues, blocks, onBlockClick, onNewBlock
 
   const dayStart = getDayStart(scheduleDate)
   const venueList = venues || []
-  const hourWidth = timeAreaWidth / HOURS_PER_DAY
+  const hourWidth = timeAreaWidth / DISPLAY_HOURS
   const slotWidth = hourWidth / 4
 
   const blockPositions = useMemo(() => (blocks || []).map((b) => {
     const startSlot = timeToSlot(b.start_time, scheduleDate)
     const endSlot = timeToSlot(b.end_time, scheduleDate)
+    // Skip blocks entirely outside the visible window
+    if (startSlot == null && endSlot == null) return null
     const start = startSlot != null ? startSlot : 0
-    let end = endSlot != null ? endSlot : start + 1
+    let end = endSlot != null ? endSlot : SLOTS_PER_DAY
     if (end <= start) end = start + 1
     return {
       block: b,
@@ -271,7 +277,7 @@ function SchedulingGrid({ scheduleDate, venues, blocks, onBlockClick, onNewBlock
       endSlot: Math.min(end, SLOTS_PER_DAY),
       venueIndex: venueList.findIndex((v) => v.id === b.venue_id)
     }
-  }).filter((p) => p.venueIndex >= 0), [blocks, scheduleDate, venueList])
+  }).filter((p) => p && p.venueIndex >= 0), [blocks, scheduleDate, venueList])
 
   // Compute per-venue row height: max of default, block content, and venue label height (so no text is cut off)
   const venueRowHeights = useMemo(() => {
@@ -371,7 +377,7 @@ function SchedulingGrid({ scheduleDate, venues, blocks, onBlockClick, onNewBlock
       <div
         className="sticky top-0 z-30 grid border-b border-gray-600"
         style={{
-          gridTemplateColumns: `${VENUE_COL_WIDTH}px repeat(${HOURS_PER_DAY}, minmax(0, 1fr))`,
+          gridTemplateColumns: `${VENUE_COL_WIDTH}px repeat(${DISPLAY_HOURS}, minmax(0, 1fr))`,
           gridTemplateRows: `${TIME_HEADER_HEIGHT}px ${TIME_HEADER_HEIGHT}px`,
           width: '100%'
         }}
@@ -379,7 +385,7 @@ function SchedulingGrid({ scheduleDate, venues, blocks, onBlockClick, onNewBlock
         <div className="bg-gray-800 text-gray-400 text-xs font-semibold flex items-center justify-center border-b border-r border-gray-600" style={{ gridColumn: 1, gridRow: 1 }}>
           Milan (CET)
         </div>
-        {Array.from({ length: HOURS_PER_DAY }, (_, h) => (
+        {Array.from({ length: DISPLAY_HOURS }, (_, h) => (
           <div
             key={`cet-${h}`}
             className="bg-gray-800 text-gray-300 text-sm font-medium flex items-center justify-center border-b border-r border-gray-600"
@@ -391,7 +397,7 @@ function SchedulingGrid({ scheduleDate, venues, blocks, onBlockClick, onNewBlock
         <div className="bg-gray-800 text-gray-400 text-xs font-semibold flex items-center justify-center border-b border-r border-gray-600" style={{ gridColumn: 1, gridRow: 2 }}>
           ET
         </div>
-        {Array.from({ length: HOURS_PER_DAY }, (_, h) => (
+        {Array.from({ length: DISPLAY_HOURS }, (_, h) => (
           <div
             key={`et-${h}`}
             className="bg-gray-800 text-gray-500 text-sm flex items-center justify-center border-b border-r border-gray-600"
