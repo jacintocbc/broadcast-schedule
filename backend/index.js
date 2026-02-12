@@ -573,6 +573,11 @@ const SSK_BASE_PATH = process.env.SSK_BASE_PATH || 'M:\\Incoming\\SSK';
 // ============================================
 const STK_BASE_PATH = process.env.STK_BASE_PATH || 'M:\\Incoming\\STK';
 
+// ============================================
+// SBD DT_RESULT Live Feed (Snowboard – scored events)
+// ============================================
+const SBD_BASE_PATH = process.env.SBD_BASE_PATH || 'M:\\Incoming\\SBD';
+
 /**
  * Resolve up to N holder folder paths (newest first). Searches recent hour folders.
  * If current hour has no results, searches previous hour. Returns [] if none found.
@@ -613,6 +618,11 @@ function resolveSSKHolderPaths() {
 /** Resolve STK holder paths (up to 4 hour folders, newest first, single latest date). */
 function resolveSTKHolderPaths() {
   return resolveHolderPaths(STK_BASE_PATH, 4);
+}
+
+/** Resolve SBD holder paths (up to 4 hour folders, newest first, single latest date). */
+function resolveSBDHolderPaths() {
+  return resolveHolderPaths(SBD_BASE_PATH, 4);
 }
 
 /** True if req has source=db or archived=1 (skip file scan, use DB only). */
@@ -684,6 +694,23 @@ function hasAnySTKFiles() {
   return paths.length > 0 && paths.some(p => hasAnySTKResultInDir(p));
 }
 
+/** Fast check: does dir contain any SBD DT_RESULT filename? */
+function hasAnySBDResultInDir(dirPath) {
+  if (!fs.existsSync(dirPath)) return false;
+  try {
+    const names = fs.readdirSync(dirPath);
+    return names.some(n => n.includes('DT_RESULT') || n.includes('DT_PHASE_RESULT'));
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Fast check: do any holder paths have SBD result files? */
+function hasAnySBDFiles() {
+  const paths = resolveSBDHolderPaths();
+  return paths.length > 0 && paths.some(p => hasAnySBDResultInDir(p));
+}
+
 /** @deprecated Use resolveIHOHolderPaths */
 function resolveIHOHolderPath() {
   const paths = resolveIHOHolderPaths();
@@ -740,6 +767,42 @@ function listSTKResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
     .filter(f => f.includes('DT_RESULT'))
+    .map(f => {
+      const filePath = path.join(dirPath, f);
+      let stat;
+      try { stat = fs.statSync(filePath); } catch (_) { return null; }
+      if (!stat.isFile()) return null;
+      return { name: f, path: filePath, mtime: stat.mtime };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime);
+}
+
+/**
+ * List SBD result files: DT_RESULT (per-run results) and DT_PHASE_RESULT (overall standings).
+ */
+function listSBDResultFiles(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs.readdirSync(dirPath)
+    .filter(f => f.includes('DT_RESULT') || f.includes('DT_PHASE_RESULT'))
+    .map(f => {
+      const filePath = path.join(dirPath, f);
+      let stat;
+      try { stat = fs.statSync(filePath); } catch (_) { return null; }
+      if (!stat.isFile()) return null;
+      return { name: f, path: filePath, mtime: stat.mtime };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime);
+}
+
+/**
+ * List SBD schedule update files.
+ */
+function listSBDScheduleFiles(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs.readdirSync(dirPath)
+    .filter(f => f.includes('DT_SCHEDULE_UPDATE'))
     .map(f => {
       const filePath = path.join(dirPath, f);
       let stat;
@@ -1048,6 +1111,217 @@ let sskCache = { payload: null, expires: 0 };
 /** In-memory cache for STK live payload. */
 const STK_CACHE_TTL_MS = 18 * 1000;
 let stkCache = { payload: null, expires: 0 };
+
+/** In-memory cache for SBD live payload. */
+const SBD_CACHE_TTL_MS = 18 * 1000;
+let sbdCache = { payload: null, expires: 0 };
+
+/**
+ * Parse a Snowboard DT_RESULT XML (scored events – halfpipe, slopestyle, big air).
+ * Results are POINTS (0-100) not TIME.
+ */
+function parseDTResultXmlSBD(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const parsed = parser.parse(xmlStr);
+  const body = parsed?.OdfBody;
+  if (!body) throw new Error('Invalid SBD DT_RESULT: no OdfBody');
+  const comp = body.Competition;
+  if (!comp) throw new Error('Invalid SBD DT_RESULT: no Competition');
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const resultStatus = attr(body, 'ResultStatus') || '';
+  const date = attr(body, 'Date') || '';
+  const docCode = attr(body, 'DocumentCode') || '';
+  const docType = attr(body, 'DocumentType') || '';
+  const isPhaseResult = docType === 'DT_PHASE_RESULT';
+  // Extract event code (e.g. SBDWHP or SBDMHP)
+  const codeMatch = docCode.match(/^([A-Z0-9]+?)[-\s]*(?:FNL|SFNL|QFNL)/);
+  const eventCode = codeMatch ? codeMatch[1] : (docCode.match(/^([A-Z0-9]+)/)?.[1] || '');
+  // Extract run number from FNL-000X00 pattern
+  let runNum = null;
+  const runMatch = docCode.match(/FNL-000(\d)00/);
+  if (runMatch) runNum = parseInt(runMatch[1], 10);
+  let eventName = '';
+  let subEventName = '';
+  const extInfos = comp.ExtendedInfos;
+  if (extInfos?.SportDescription) {
+    const sd = extInfos.SportDescription;
+    eventName = attr(sd, 'EventName') || attr(sd, 'DisciplineName') || '';
+    subEventName = attr(sd, 'SubEventName') || '';
+  }
+  const rawResults = comp.Result;
+  const resultList = Array.isArray(rawResults) ? rawResults : (rawResults ? [rawResults] : []);
+  const results = resultList.filter(r => attr(r, 'Rank') != null || attr(r, 'SortOrder') != null).slice(0, 12).map((r) => {
+    const rank = parseInt(attr(r, 'Rank'), 10) || parseInt(attr(r, 'SortOrder'), 10) || 0;
+    const resultVal = attr(r, 'Result') || (attr(r, 'IRM') ? attr(r, 'IRM') : '');
+    const resultType = attr(r, 'ResultType') || '';
+    const competitor = r.Competitor;
+    const organisation = competitor ? (attr(competitor, 'Organisation') || '').toUpperCase() : '';
+    let givenName = '';
+    let familyName = '';
+    const composition = competitor?.Composition;
+    const athletes = composition?.Athlete;
+    const athleteArr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+    const firstAthlete = athleteArr[0];
+    if (firstAthlete?.Description) {
+      const desc = firstAthlete.Description;
+      givenName = attr(desc, 'GivenName') || '';
+      familyName = attr(desc, 'FamilyName') || '';
+    }
+    const displayName = [givenName, familyName].filter(Boolean).join(' ').trim() || undefined;
+    return { rank, organisation, givenName, familyName, displayName, result: resultVal, resultType };
+  });
+  return {
+    eventCode,
+    runNum,
+    isPhaseResult,
+    resultStatus,
+    date,
+    eventName,
+    subEventName,
+    results
+  };
+}
+
+/**
+ * Parse DT_SCHEDULE_UPDATE XMLs to extract run timing for SBD events.
+ * Aggregates all schedule updates, keeping the latest status per unit code.
+ * Returns array of { code, name, status, startDate, endDate } sorted by start time.
+ */
+function parseSBDScheduleUpdates(holderPaths) {
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const unitMap = new Map();
+  for (const dirPath of holderPaths) {
+    const files = listSBDScheduleFiles(dirPath);
+    // Only read newest 20 schedule update files to limit I/O
+    for (const f of files.slice(0, 20)) {
+      try {
+        const xmlStr = fs.readFileSync(f.path, 'utf-8');
+        const parsed = parser.parse(xmlStr);
+        const units = parsed?.OdfBody?.Competition?.Unit;
+        const unitArr = Array.isArray(units) ? units : (units ? [units] : []);
+        const fileVersion = parseInt(attr(parsed?.OdfBody, 'Version') || '0', 10);
+        for (const u of unitArr) {
+          const code = attr(u, 'Code') || '';
+          // Only include halfpipe/scored SBD units (not general schedule items)
+          if (!code.includes('SBD')) continue;
+          const existing = unitMap.get(code);
+          if (!existing || fileVersion >= existing.version) {
+            const itemName = u.ItemName;
+            const name = typeof itemName === 'string' ? itemName : (attr(itemName, 'Value') || '');
+            unitMap.set(code, {
+              code,
+              name,
+              status: attr(u, 'ScheduleStatus') || '',
+              startDate: attr(u, 'StartDate') || '',
+              endDate: attr(u, 'EndDate') || '',
+              version: fileVersion
+            });
+          }
+        }
+      } catch (_) { /* skip bad files */ }
+    }
+  }
+  // Return only run-level units (containing FNL-000), sorted by start time
+  return Array.from(unitMap.values())
+    .filter(u => /FNL-\d{6}/.test(u.code))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+}
+
+/**
+ * Find all SBD scored results. Groups per-run DT_RESULT files by event+run,
+ * also retrieves DT_PHASE_RESULT for overall standings and DT_SCHEDULE_UPDATE for run timing.
+ * Returns { eventCode: 'SBD', eventName, lastUpdated, runs, runSchedule }.
+ */
+async function findAllSBDRuns() {
+  const holderPaths = resolveSBDHolderPaths();
+  const allFiles = [];
+  for (const dirPath of holderPaths) {
+    const files = listSBDResultFiles(dirPath);
+    for (const f of files) {
+      allFiles.push({ path: f.path, mtime: f.mtime });
+    }
+  }
+  const read = fs.promises.readFile;
+  const parsed = await Promise.all(
+    allFiles.map(async ({ path: filePath, mtime }) => {
+      try {
+        const xmlStr = await read(filePath, 'utf-8');
+        const data = parseDTResultXmlSBD(xmlStr);
+        return { mtime, data };
+      } catch (_) {
+        return null;
+      }
+    })
+  );
+  // Separate phase results (overall) from per-run results
+  const perRunMap = new Map(); // key: "eventCode::runNum" or "eventCode::subEventName"
+  const phaseMap = new Map();  // key: eventCode
+  let latestMtime = null;
+  for (const item of parsed) {
+    if (!item) continue;
+    const { mtime, data } = item;
+    if (!latestMtime || mtime > latestMtime) latestMtime = mtime;
+    if (data.isPhaseResult) {
+      const key = data.eventCode || 'SBD';
+      const existing = phaseMap.get(key);
+      if (!existing || mtime > existing.mtime) {
+        phaseMap.set(key, { mtime, data });
+      }
+    } else if (data.results?.length > 0) {
+      const key = `${data.eventCode || 'SBD'}::${data.subEventName || data.runNum || 'run'}`;
+      const existing = perRunMap.get(key);
+      if (!existing || mtime > existing.mtime) {
+        perRunMap.set(key, { mtime, data });
+      }
+    }
+  }
+  // Build runs from per-run results, sorted by run number (Run 1 → Run 2 → Run 3)
+  const runs = Array.from(perRunMap.values())
+    .sort((a, b) => {
+      const codeComp = (a.data.eventCode || '').localeCompare(b.data.eventCode || '');
+      if (codeComp !== 0) return codeComp;
+      return (a.data.runNum || 0) - (b.data.runNum || 0);
+    })
+    .map(({ data }) => ({
+      eventCode: data.eventCode || 'SBD',
+      runNum: data.runNum,
+      subEventName: data.subEventName || `Run ${data.runNum || '?'}`,
+      eventName: data.eventName || '',
+      resultStatus: data.resultStatus,
+      results: data.results || []
+    }));
+  // Get phase result (overall standings) if available
+  let phaseResults = null;
+  for (const [, { data }] of phaseMap) {
+    if (data.results?.length > 0) {
+      phaseResults = {
+        eventCode: data.eventCode,
+        eventName: data.eventName,
+        subEventName: data.subEventName || 'Overall',
+        resultStatus: data.resultStatus,
+        results: data.results
+      };
+    }
+  }
+  // Get run schedule/timing from DT_SCHEDULE_UPDATE
+  let runSchedule = [];
+  try {
+    runSchedule = parseSBDScheduleUpdates(holderPaths);
+  } catch (_) { /* ignore schedule parse errors */ }
+  // Determine event names
+  const eventNames = parsed.filter(Boolean).map(p => p.data.eventName).filter(Boolean);
+  const uniqueNames = [...new Set(eventNames)];
+  const overallName = uniqueNames.length === 1 ? uniqueNames[0] : (uniqueNames.length > 0 ? 'Snowboard' : '');
+  return {
+    eventCode: 'SBD',
+    eventName: overallName,
+    lastUpdated: latestMtime ? latestMtime.toISOString() : null,
+    runs,
+    phaseResults,
+    runSchedule
+  };
+}
 
 /**
  * Find all Luge result files across holder paths: DT_CUMULATIVE_RESULT (standings) + DT_RESULT RELAY.
@@ -2223,6 +2497,87 @@ app.get('/api/stk-live', async (req, res) => {
     const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
     res.status(status).json({
       error: 'Failed to load Short Track Speed Skating live data',
+      details: err.message
+    });
+  }
+});
+
+app.get('/api/sbd-live', async (req, res) => {
+  try {
+    const eventCode = (req.query.event_code || req.query.eventCode || 'SBD').toString().trim().toUpperCase() || 'SBD';
+
+    if (wantsDbOnly(req)) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('sbd_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) {
+          return res.json(rows[0].data);
+        }
+        const { data: anyRows } = await supabase.from('sbd_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) return res.json(anyRows[0].data);
+      }
+      return res.status(404).json({ error: 'No Snowboard live data found', details: 'Database only (source=db)' });
+    }
+
+    const now = Date.now();
+    if (sbdCache.payload && now < sbdCache.expires) {
+      return res.json(sbdCache.payload);
+    }
+
+    if (!hasAnySBDFiles()) {
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from('sbd_live_data')
+          .select('data')
+          .eq('event_code', eventCode)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (!error && rows && rows.length > 0) return res.json(rows[0].data);
+        const { data: anyRows } = await supabase.from('sbd_live_data').select('data').order('last_updated', { ascending: false }).limit(1);
+        if (anyRows?.length > 0) return res.json(anyRows[0].data);
+      }
+      return res.status(404).json({
+        error: 'No Snowboard DT_RESULT file found',
+        details: `Base path: ${SBD_BASE_PATH}; no files; no data in database`
+      });
+    }
+
+    const payload = await findAllSBDRuns();
+    const code = payload.eventCode || 'SBD';
+    if (payload.runs.length > 0 || payload.phaseResults) {
+      sbdCache = { payload, expires: now + SBD_CACHE_TTL_MS };
+      if (supabase) {
+        const lastUpdated = payload.lastUpdated || new Date().toISOString();
+        supabase.from('sbd_live_data').upsert({
+          event_code: code,
+          data: payload,
+          last_updated: lastUpdated
+        }, { onConflict: 'event_code' }).then(() => {}, () => {});
+      }
+      return res.json(payload);
+    }
+    if (supabase) {
+      const { data: rows, error } = await supabase
+        .from('sbd_live_data')
+        .select('data')
+        .eq('event_code', code)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (!error && rows && rows.length > 0) return res.json(rows[0].data);
+    }
+    return res.status(404).json({
+      error: 'No Snowboard DT_RESULT file found',
+      details: `Base path: ${SBD_BASE_PATH}`
+    });
+  } catch (err) {
+    console.error('SBD live error:', err);
+    const status = err.message?.includes('parse') || err.message?.includes('Invalid') ? 500 : 503;
+    res.status(status).json({
+      error: 'Failed to load Snowboard live data',
       details: err.message
     });
   }

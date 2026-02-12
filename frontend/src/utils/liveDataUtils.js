@@ -1,4 +1,4 @@
-/** Detect sport from block name: IHO (ice hockey), CUR (curling), LUG (luge), SSK (speed skating), or STK (short track). */
+/** Detect sport from block name. */
 export function detectSport(block) {
   const name = (block?.name || block?.title || '').toLowerCase()
   if (/cur|curling/.test(name)) return 'CUR'
@@ -6,6 +6,7 @@ export function detectSport(block) {
   if (/lug|luge/.test(name)) return 'LUG'
   if (/stk|short track/.test(name)) return 'STK'
   if (/ssk|speed skating|speed ?skat/.test(name)) return 'SSK'
+  if (/sbd|snowboard/.test(name)) return 'SBD'
   return null
 }
 
@@ -13,7 +14,7 @@ export function detectSport(block) {
 export function extractTeamCodes(block) {
   const name = (block?.name || block?.title || '').toUpperCase()
   if (!name) return null
-  const exclude = new Set(['IHO', 'CUR', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA', 'SSK', 'STK'])
+  const exclude = new Set(['IHO', 'CUR', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA', 'SSK', 'STK', 'SBD'])
   const matches = name.match(/\b([A-Z]{3})\b/g) || []
   const codes = [...new Set(matches)].filter(c => !exclude.has(c))
   if (codes.length >= 2) return { home: codes[0], away: codes[1] }

@@ -35,7 +35,7 @@ function TeamFlag({ code }) {
   )
 }
 
-/** Detect sport from block name: IHO (ice hockey), CUR (curling), LUG (luge), SSK (speed skating), or STK (short track). */
+/** Detect sport from block name. */
 function detectSport(block) {
   const name = (block?.name || block?.title || '').toLowerCase()
   if (/cur|curling/.test(name)) return 'CUR'
@@ -43,6 +43,7 @@ function detectSport(block) {
   if (/lug|luge/.test(name)) return 'LUG'
   if (/stk|short track/.test(name)) return 'STK'
   if (/ssk|speed skating|speed ?skat/.test(name)) return 'SSK'
+  if (/sbd|snowboard/.test(name)) return 'SBD'
   return null
 }
 
@@ -50,7 +51,7 @@ function detectSport(block) {
 function extractTeamCodes(block) {
   const name = (block?.name || block?.title || '').toUpperCase()
   if (!name) return null
-  const exclude = new Set(['IHO', 'CUR', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA', 'SSK', 'STK'])
+  const exclude = new Set(['IHO', 'CUR', 'OBS', 'CBC', 'TV', 'RC', 'GPB', 'GPA', 'SSK', 'STK', 'SBD'])
   const matches = name.match(/\b([A-Z]{3})\b/g) || []
   const codes = [...new Set(matches)].filter(c => !exclude.has(c))
   if (codes.length >= 2) return { home: codes[0], away: codes[1] }
@@ -110,7 +111,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
 
   const sport = detectSport(block)
   const teamCodes = extractTeamCodes(block)
-  const apiPath = sport === 'LUG' ? '/api/lug-live' : sport === 'SSK' ? '/api/ssk-live' : sport === 'STK' ? '/api/stk-live' : sport === 'CUR' ? '/api/cur-live' : '/api/iho-live'
+  const apiPath = sport === 'LUG' ? '/api/lug-live' : sport === 'SSK' ? '/api/ssk-live' : sport === 'STK' ? '/api/stk-live' : sport === 'SBD' ? '/api/sbd-live' : sport === 'CUR' ? '/api/cur-live' : '/api/iho-live'
 
   useEffect(() => {
     if (!open || !sport) return
@@ -123,7 +124,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
       try {
         setError(null)
         const params = new URLSearchParams()
-        if (teamCodes && sport !== 'LUG' && sport !== 'SSK' && sport !== 'STK') {
+        if (teamCodes && sport !== 'LUG' && sport !== 'SSK' && sport !== 'STK' && sport !== 'SBD') {
           params.set('home', teamCodes.home)
           params.set('away', teamCodes.away)
         }
@@ -154,7 +155,7 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
 
   const isLive = data?.resultStatus === 'LIVE'
   const isUpcoming = !isLive && data?.resultStatus !== 'OFFICIAL'
-  const title = sport === 'LUG' ? 'Luge' : sport === 'SSK' ? 'Speed Skating' : sport === 'STK' ? 'Short Track' : isLive ? (sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey') : (sport === 'CUR' ? 'Curling' : 'Ice Hockey')
+  const title = sport === 'LUG' ? 'Luge' : sport === 'SSK' ? 'Speed Skating' : sport === 'STK' ? 'Short Track' : sport === 'SBD' ? 'Snowboard' : isLive ? (sport === 'CUR' ? 'Live Curling' : 'Live Ice Hockey') : (sport === 'CUR' ? 'Curling' : 'Ice Hockey')
 
   return (
     <>
@@ -195,6 +196,122 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
           )}
           {data && (() => {
             const effectiveSport = data.sport || sport;
+            if (sport === 'SBD') {
+              const runs = data.runs || [];
+              const runSchedule = data.runSchedule || [];
+              const hasNonOfficial = runs.some(r => r.resultStatus !== 'OFFICIAL');
+              return (
+                <>
+                  {hasNonOfficial && data.lastUpdated && (
+                    <div className="rounded-lg bg-gray-700 px-4 py-3 border border-gray-600">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Last updated</span>
+                        <span className="text-base font-semibold text-white font-mono">
+                          {moment(data.lastUpdated).tz('America/New_York').format('h:mm:ss A')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">Eastern Time</p>
+                    </div>
+                  )}
+                  {data.eventName && (
+                    <div className="text-center text-sm font-semibold text-gray-200 mt-1 mb-2">{data.eventName}</div>
+                  )}
+                  {/* Run schedule/timing */}
+                  {runSchedule.length > 0 && (
+                    <div className="rounded-lg bg-gray-700 p-3 border border-gray-600 mb-4">
+                      <div className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Run Schedule</div>
+                      <div className="space-y-1.5">
+                        {runSchedule.map((rs, i) => {
+                          const start = rs.startDate ? moment(rs.startDate).tz('America/New_York').format('h:mm A') : '';
+                          const end = rs.endDate ? moment(rs.endDate).tz('America/New_York').format('h:mm A') : '';
+                          const statusColor = rs.status === 'RUNNING' ? 'text-green-400' : rs.status === 'FINISHED' ? 'text-gray-400' : 'text-yellow-400';
+                          const statusLabel = rs.status === 'RUNNING' ? 'Live' : rs.status === 'FINISHED' ? 'Done' : rs.status === 'GETTING_READY' ? 'Next' : rs.status || '';
+                          return (
+                            <div key={i} className="flex items-center justify-between text-xs">
+                              <span className="text-gray-200">{rs.name || `Run ${i + 1}`}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-mono">{start}{end ? ` – ${end}` : ''}</span>
+                                <span className={`font-semibold ${statusColor}`}>{statusLabel}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {/* Overall / cumulative standings (DT_PHASE_RESULT) */}
+                  {data.phaseResults && data.phaseResults.results?.length > 0 && (
+                    <div className="rounded-lg bg-gray-700 p-4 border border-amber-500/40 mb-4">
+                      <div className="flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 mb-3 text-sm text-gray-300">
+                        {data.phaseResults.resultStatus === 'OFFICIAL' && <span className="text-amber-200 font-semibold">Official</span>}
+                        {data.phaseResults.resultStatus === 'LIVE' && <span className="text-green-400 font-semibold">Live</span>}
+                        <span className="text-gray-500">·</span>
+                        <span>Overall Standings</span>
+                      </div>
+                      <div className="border-b border-gray-600 mb-1" aria-hidden />
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {data.phaseResults.results.map((row, i) => (
+                              <tr key={i} className="border-b border-gray-600/50 text-gray-200 align-top">
+                                <td className="py-1.5 pr-2 font-medium text-white whitespace-nowrap">{row.rank}</td>
+                                <td className="py-1.5 pr-2 whitespace-nowrap">
+                                  {row.organisation && (
+                                    <img src={getFlagSrc(row.organisation)} alt="" className="h-5 w-7 object-cover object-center rounded-sm" onError={e => { e.target.style.display = 'none' }} />
+                                  )}
+                                </td>
+                                <td className="py-1.5 pr-2 font-medium whitespace-nowrap">{row.organisation || '—'}</td>
+                                <td className="py-1.5 pr-2 whitespace-nowrap">
+                                  {row.displayName || [row.givenName, row.familyName].filter(Boolean).join(' ') || '—'}
+                                </td>
+                                <td className="py-1.5 pl-2 text-right font-mono tabular-nums whitespace-nowrap font-semibold text-white">{row.result || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  {/* Per-run results */}
+                  {runs.map((runBlock, runIdx) => (
+                    <div key={`sbd-run-${runIdx}`} className="rounded-lg bg-gray-700 p-4 border border-gray-600 mb-4 last:mb-0">
+                      <div className="flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 mb-3 text-sm text-gray-300">
+                        {runBlock.resultStatus === 'OFFICIAL' && <span className="text-amber-200 font-semibold">Official</span>}
+                        {runBlock.resultStatus === 'LIVE' && <span className="text-green-400 font-semibold">Live</span>}
+                        {runBlock.subEventName && (
+                          <>
+                            <span className="text-gray-500">·</span>
+                            <span>{runBlock.subEventName}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="border-b border-gray-600 mb-1" aria-hidden />
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {(runBlock.results || []).map((row, i) => (
+                              <tr key={i} className="border-b border-gray-600/50 text-gray-200 align-top">
+                                <td className="py-1.5 pr-2 font-medium text-white whitespace-nowrap">{row.rank}</td>
+                                <td className="py-1.5 pr-2 whitespace-nowrap">
+                                  {row.organisation && (
+                                    <img src={getFlagSrc(row.organisation)} alt="" className="h-5 w-7 object-cover object-center rounded-sm" onError={e => { e.target.style.display = 'none' }} />
+                                  )}
+                                </td>
+                                <td className="py-1.5 pr-2 font-medium whitespace-nowrap">{row.organisation || '—'}</td>
+                                <td className="py-1.5 pr-2 whitespace-nowrap">
+                                  {row.displayName || [row.givenName, row.familyName].filter(Boolean).join(' ') || '—'}
+                                </td>
+                                <td className="py-1.5 pl-2 text-right font-mono tabular-nums whitespace-nowrap font-semibold">{row.result || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              );
+            }
             if (sport === 'LUG' || sport === 'SSK' || sport === 'STK') {
               const runs = data.runs || [];
               const hasNonOfficial = runs.some(r => r.resultStatus !== 'OFFICIAL');

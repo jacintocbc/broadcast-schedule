@@ -1218,10 +1218,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                           {/* Top right: maple leaf (if Canadian), live circle (if live), graph icon (if live IHO/CUR/LUG), archive icon (if past IHO/CUR or LUG) */}
                           {(block.canadian_content || isLive || (!isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
-                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge|ssk|speed skating|speed ?skat|stk|short track/.test(title);
+                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge|ssk|speed skating|speed ?skat|stk|short track|sbd|snowboard/.test(title);
                                 if (!hasLiveData) return false;
                                 const sport = detectSport(block);
-                                if (sport === 'LUG' || sport === 'SSK' || sport === 'STK') return true;
+                                if (sport === 'LUG' || sport === 'SSK' || sport === 'STK' || sport === 'SBD') return true;
                                 const codes = extractTeamCodes(block);
                                 const key = sport && codes ? `${sport}-${codes.home}-${codes.away}` : null;
                                 return key && liveHasResults[key] === true;
@@ -1241,7 +1241,7 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               )}
                               {isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
-                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge|ssk|speed skating|speed ?skat|stk|short track/.test(title);
+                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge|ssk|speed skating|speed ?skat|stk|short track|sbd|snowboard/.test(title);
                                 return hasLiveData ? (
                                   <button
                                     type="button"
@@ -1258,10 +1258,10 @@ function ModernTimeline({ events, selectedDate, onItemSelect, onItemDoubleClick,
                               })()}
                               {!isLive && onOpenLiveDataSidebar && (() => {
                                 const title = (block.name || event.title || '').toLowerCase();
-                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge|ssk|speed skating|speed ?skat|stk|short track/.test(title);
+                                const hasLiveData = /iho|ice hockey|cur|curling|lug|luge|ssk|speed skating|speed ?skat|stk|short track|sbd|snowboard/.test(title);
                                 if (!hasLiveData) return null;
                                 const sport = detectSport(block);
-                                if (sport === 'LUG' || sport === 'SSK' || sport === 'STK') {
+                                if (sport === 'LUG' || sport === 'SSK' || sport === 'STK' || sport === 'SBD') {
                                   return (
                                     <button
                                       type="button"

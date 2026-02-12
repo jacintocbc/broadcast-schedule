@@ -9,7 +9,8 @@ const CONFIG = {
   cur: { table: 'cur_game_data', label: 'Curling' },
   lug: { table: 'lug_live_data', label: 'Luge' },
   ssk: { table: 'ssk_live_data', label: 'Speed Skating' },
-  stk: { table: 'stk_live_data', label: 'Short Track Speed Skating' }
+  stk: { table: 'stk_live_data', label: 'Short Track Speed Skating' },
+  sbd: { table: 'sbd_live_data', label: 'Snowboard' }
 };
 
 export default async function handler(req, res) {
@@ -35,8 +36,8 @@ export default async function handler(req, res) {
   const cfg = CONFIG[type] || CONFIG.iho;
 
   try {
-    if (type === 'lug' || type === 'ssk' || type === 'stk') {
-      const defaultCode = type === 'lug' ? 'LUG' : type === 'ssk' ? 'SSK' : 'STK';
+    if (type === 'lug' || type === 'ssk' || type === 'stk' || type === 'sbd') {
+      const defaultCode = type === 'lug' ? 'LUG' : type === 'ssk' ? 'SSK' : type === 'stk' ? 'STK' : 'SBD';
       const eventCode = (req.query.event_code || req.query.eventCode || defaultCode).toString().trim().toUpperCase() || defaultCode;
       const { data: rows, error } = await supabase
         .from(cfg.table)

@@ -163,3 +163,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON stk_live_data;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON stk_live_data;
 CREATE POLICY "Allow all (anon)" ON stk_live_data FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON stk_live_data FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Snowboard live data (for deployed app viewing)
+-- ============================================
+ALTER TABLE sbd_live_data ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON sbd_live_data;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON sbd_live_data;
+CREATE POLICY "Allow all (anon)" ON sbd_live_data FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON sbd_live_data FOR ALL TO authenticated USING (true) WITH CHECK (true);
