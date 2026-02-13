@@ -625,9 +625,10 @@ function resolveSTKHolderPaths() {
   return resolveHolderPaths(STK_BASE_PATH, 4);
 }
 
-/** Resolve SBD holder paths (up to 4 hour folders, newest first, single latest date). */
+/** Resolve SBD holder paths (up to 10 hour folders, newest first, single latest date).
+ *  SBD events (halfpipe, SBX) can span many hours; need wider lookback. */
 function resolveSBDHolderPaths() {
-  return resolveHolderPaths(SBD_BASE_PATH, 4);
+  return resolveHolderPaths(SBD_BASE_PATH, 10);
 }
 
 /** True if req has source=db or archived=1 (skip file scan, use DB only). */
@@ -794,17 +795,28 @@ function listSTKResultFiles(dirPath) {
  */
 function listSBDResultFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
-  return fs.readdirSync(dirPath)
+  const allFiles = fs.readdirSync(dirPath)
     .filter(f => f.includes('DT_RESULT') || f.includes('DT_PHASE_RESULT'))
-    .map(f => {
+    .sort((a, b) => b.localeCompare(a)); // filename = timestamp prefix → desc = newest
+  // Deduplicate: keep only newest file per unique event pattern (e.g. SBDWSBX...QFNL000100)
+  const seen = new Set();
+  const deduped = [];
+  for (const f of allFiles) {
+    const m = f.match(/DT_(?:PHASE_)?RESULT_(SBD.+?)__/);
+    const key = m ? m[1] : f;
+    if (!seen.has(key)) {
+      seen.add(key);
       const filePath = path.join(dirPath, f);
-      let stat;
-      try { stat = fs.statSync(filePath); } catch (_) { return null; }
-      if (!stat.isFile()) return null;
-      return { name: f, path: filePath, mtime: stat.mtime };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.mtime - a.mtime);
+      deduped.push({
+        name: f,
+        path: filePath,
+        get mtime() {
+          try { return fs.statSync(filePath).mtime; } catch (_) { return new Date(0); }
+        }
+      });
+    }
+  }
+  return deduped;
 }
 
 /**
@@ -814,15 +826,17 @@ function listSBDScheduleFiles(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   return fs.readdirSync(dirPath)
     .filter(f => f.includes('DT_SCHEDULE_UPDATE'))
+    .sort((a, b) => b.localeCompare(a)) // filename = timestamp prefix → desc = newest
     .map(f => {
       const filePath = path.join(dirPath, f);
-      let stat;
-      try { stat = fs.statSync(filePath); } catch (_) { return null; }
-      if (!stat.isFile()) return null;
-      return { name: f, path: filePath, mtime: stat.mtime };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.mtime - a.mtime);
+      return {
+        name: f,
+        path: filePath,
+        get mtime() {
+          try { return fs.statSync(filePath).mtime; } catch (_) { return new Date(0); }
+        }
+      };
+    });
 }
 
 /**
