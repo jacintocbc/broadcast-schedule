@@ -2728,6 +2728,9 @@ const SPORT_NAME_MAP = {
   SSK: 'Speed Skating', STK: 'Short Track Speed Skating', TRU: 'Trampoline'
 };
 
+// Sport codes that are NOT competition sports (never have medal files)
+const SKIP_MEDAL_SCAN = new Set(['OBS', 'GEN', 'IOC', 'OLV', 'PCO', 'ART', 'CER']);
+
 function scanCanadianMedals() {
   const INCOMING_BASE = process.env.INCOMING_BASE || 'M:\\Incoming';
   const today = new Date().toISOString().slice(0, 10); // e.g. "2026-02-12"
@@ -2738,7 +2741,7 @@ function scanCanadianMedals() {
   let sportDirs;
   try {
     sportDirs = fs.readdirSync(INCOMING_BASE, { withFileTypes: true })
-      .filter(d => d.isDirectory() && /^[A-Z]{2,4}$/.test(d.name))
+      .filter(d => d.isDirectory() && /^[A-Z]{2,4}$/.test(d.name) && !SKIP_MEDAL_SCAN.has(d.name))
       .map(d => d.name);
   } catch { return medals; }
 
@@ -2749,13 +2752,14 @@ function scanCanadianMedals() {
       const todayPath = path.join(sportPath, today);
       if (!fs.existsSync(todayPath)) continue;
 
-      // Get hour folders, newest first
+      // Get hour folders, newest first — limit to 5 newest (medal files appear in recent hours)
       let hours;
       try {
         hours = fs.readdirSync(todayPath, { withFileTypes: true })
           .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
           .map(d => d.name)
-          .sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+          .sort((a, b) => parseInt(b, 10) - parseInt(a, 10))
+          .slice(0, 5);
       } catch { continue; }
 
       // Find the newest DT_MEDALLISTS_DISCIPLINE file across hour folders
@@ -2832,33 +2836,17 @@ function scanCanadianMedals() {
   return medals;
 }
 
-// Cache medals for 60 seconds (M: drive scan is slow)
-let _medalCache = { data: null, ts: 0 };
-const MEDAL_CACHE_TTL = 60 * 1000;
+// Medal cache — scan runs in background, API always serves from cache/DB instantly
+let _medalCache = { data: null, ts: 0, scanning: false };
+const MEDAL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-app.get('/api/medals', async (req, res) => {
+/** Run medal scan in background thread and update cache + Supabase. */
+function backgroundMedalScan() {
+  if (_medalCache.scanning) return; // avoid concurrent scans
+  _medalCache.scanning = true;
   try {
-    if (wantsDbOnly(req)) {
-      if (!supabase) return res.json({ medals: [] });
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: rows, error } = await supabase
-        .from('medal_alerts')
-        .select('*')
-        .eq('event_date', today);
-      if (error) throw error;
-      return res.json({ medals: rows || [] });
-    }
-
-    // Use cached data if fresh enough
-    const now = Date.now();
-    if (_medalCache.data && (now - _medalCache.ts) < MEDAL_CACHE_TTL) {
-      return res.json({ medals: _medalCache.data });
-    }
-
     const medals = scanCanadianMedals();
-    _medalCache = { data: medals, ts: now };
-    res.json({ medals });
-
+    _medalCache = { data: medals, ts: Date.now(), scanning: false };
     // Sync to Supabase (non-blocking)
     if (supabase && medals.length > 0) {
       for (const m of medals) {
@@ -2879,6 +2867,59 @@ app.get('/api/medals', async (req, res) => {
         });
       }
     }
+    console.log(`Medal scan complete: ${medals.length} Canadian medal(s) found`);
+  } catch (err) {
+    _medalCache.scanning = false;
+    console.error('Background medal scan error:', err.message);
+  }
+}
+
+// Start medal scanning on server boot (after short delay) and repeat every 3 minutes
+setTimeout(() => {
+  backgroundMedalScan();
+  setInterval(backgroundMedalScan, 3 * 60 * 1000);
+}, 5000);
+
+app.get('/api/medals', async (req, res) => {
+  try {
+    if (wantsDbOnly(req)) {
+      if (!supabase) return res.json({ medals: [] });
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: rows, error } = await supabase
+        .from('medal_alerts')
+        .select('*')
+        .eq('event_date', today);
+      if (error) throw error;
+      return res.json({ medals: rows || [] });
+    }
+
+    // Serve from cache if available (background scan keeps this fresh)
+    if (_medalCache.data) {
+      // Trigger a re-scan if cache is stale (non-blocking)
+      if ((Date.now() - _medalCache.ts) > MEDAL_CACHE_TTL) {
+        setTimeout(backgroundMedalScan, 0);
+      }
+      return res.json({ medals: _medalCache.data });
+    }
+
+    // Cache cold — try Supabase first (fast), then trigger background scan
+    if (supabase) {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: rows, error } = await supabase
+        .from('medal_alerts')
+        .select('*')
+        .eq('event_date', today);
+      if (!error && rows && rows.length > 0) {
+        // Seed cache from DB so subsequent requests are instant
+        _medalCache = { data: rows, ts: Date.now(), scanning: _medalCache.scanning };
+        setTimeout(backgroundMedalScan, 0); // refresh from files in background
+        return res.json({ medals: rows });
+      }
+    }
+
+    // No cache, no DB — trigger scan and return empty for now
+    setTimeout(backgroundMedalScan, 0);
+    return res.json({ medals: [] });
   } catch (err) {
     console.error('Medals API error:', err);
     res.status(500).json({ error: 'Failed to scan medals', details: err.message });
