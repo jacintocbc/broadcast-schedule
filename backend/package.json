@@ -5,8 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js",
+    "start": "node --max-http-header-size=65536 index.js",
+    "dev": "node --max-http-header-size=65536 --watch index.js",
     "bulk-insert": "node bulk-insert.js",
     "bulk-insert-suites-commentators": "node bulk-insert-suites-commentators.js"
   },
