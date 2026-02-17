@@ -9,6 +9,7 @@
     { "source": "/api/schedule-blocks", "destination": "/api/schedule?endpoint=blocks" },
     { "source": "/api/health", "destination": "/api/meta?path=health" },
     { "source": "/api/iho-game-detail", "destination": "/api/live?type=iho-game-detail" },
+    { "source": "/api/cur-game-detail", "destination": "/api/live?type=cur-game-detail" },
     { "source": "/api/iho-live", "destination": "/api/live?type=iho" },
     { "source": "/api/cur-live", "destination": "/api/live?type=cur" },
     { "source": "/api/lug-live", "destination": "/api/live?type=lug" },

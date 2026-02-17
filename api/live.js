@@ -77,6 +77,36 @@ export default async function handler(req, res) {
       return res.json(rows[0].data);
     }
 
+    // CUR Game Detail: full boxscore from cur_game_detail table
+    if (type === 'cur-game-detail') {
+      const home = req.query.home?.trim()?.toUpperCase();
+      const away = req.query.away?.trim()?.toUpperCase();
+      if (!home || !away) {
+        return res.status(400).json({ error: 'home and away query params required' });
+      }
+      const { data: d1, error: e1 } = await supabase
+        .from('cur_game_detail')
+        .select('data')
+        .eq('home_team_code', home)
+        .eq('away_team_code', away)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (e1) throw e1;
+      const { data: d2, error: e2 } = await supabase
+        .from('cur_game_detail')
+        .select('data')
+        .eq('home_team_code', away)
+        .eq('away_team_code', home)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (e2) throw e2;
+      const rows = (d1?.length > 0) ? d1 : (d2?.length > 0) ? d2 : null;
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: `No game detail for ${home} vs ${away}` });
+      }
+      return res.json(rows[0].data);
+    }
+
     if (type === 'lug' || type === 'ssk' || type === 'stk' || type === 'sbd') {
       const defaultCode = type === 'lug' ? 'LUG' : type === 'ssk' ? 'SSK' : type === 'stk' ? 'STK' : 'SBD';
       const eventCode = (req.query.event_code || req.query.eventCode || defaultCode).toString().trim().toUpperCase() || defaultCode;

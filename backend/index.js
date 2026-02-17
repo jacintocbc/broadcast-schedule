@@ -2622,6 +2622,338 @@ function parseDTResultXmlCurling(xmlStr) {
   };
 }
 
+/**
+ * Parse Curling DT_RESULT XML into full boxscore with per-athlete stats.
+ */
+function parseDTResultXmlCurlingFull(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) throw new Error('Invalid OdfBody structure');
+
+  const comp = body.Competition;
+  if (!comp) throw new Error('Missing Competition');
+
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const extInfos = comp.ExtendedInfos;
+  const extInfo = Array.isArray(extInfos?.ExtendedInfo) ? extInfos.ExtendedInfo : (extInfos?.ExtendedInfo ? [extInfos.ExtendedInfo] : []);
+  const periodInfo = extInfo.find(e => e['@_Code'] === 'PERIOD');
+  const sportDesc = extInfos?.SportDescription || {};
+  const venueDesc = extInfos?.VenueDescription || {};
+
+  const results = comp.Result;
+  const resultList = Array.isArray(results) ? results : (results ? [results] : []);
+  const findHA = (val) => resultList.find(r => {
+    const c = r.Competitor;
+    const eue = c?.EventUnitEntry;
+    const entries = Array.isArray(eue) ? eue : (eue ? [eue] : []);
+    return entries.some(e => (e['@_Code'] ?? e.Code) === 'HOME_AWAY' && (e['@_Value'] ?? e.Value) === val);
+  });
+  const homeResult = findHA('HOME');
+  const awayResult = findHA('AWAY');
+
+  function parseTeam(r) {
+    if (!r) return null;
+    const c = r.Competitor;
+    const desc = c?.Description || {};
+    const teamStats = c?.StatsItems?.StatsItem;
+    const teamStatsArr = Array.isArray(teamStats) ? teamStats : (teamStats ? [teamStats] : []);
+
+    const getTeamStat = (code) => {
+      const item = teamStatsArr.find(s => (s['@_Code'] ?? s.Code) === code);
+      if (!item) return { value: null, percent: null };
+      return { value: a(item, 'Value'), percent: a(item, 'Percent') };
+    };
+
+    const athletes = [];
+    const composition = c?.Composition;
+    const athArr = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
+    for (const ath of athArr) {
+      const adesc = ath.Description || {};
+      const si = ath.StatsItems?.StatsItem;
+      const items = Array.isArray(si) ? si : (si ? [si] : []);
+      const eue = Array.isArray(ath.EventUnitEntry) ? ath.EventUnitEntry : (ath.EventUnitEntry ? [ath.EventUnitEntry] : []);
+      const posEntry = eue.find(e => (e['@_Code'] ?? e.Code) === 'POSITION');
+      const position = posEntry ? (posEntry['@_Value'] ?? posEntry.Value) : '';
+
+      const getStat = (code) => {
+        const item = items.find(s => (s['@_Code'] ?? s.Code) === code);
+        if (!item) return { value: null, percent: null };
+        return { value: a(item, 'Value'), percent: a(item, 'Percent') };
+      };
+
+      athletes.push({
+        code: a(ath, 'Code') || '',
+        givenName: a(adesc, 'GivenName') || '',
+        familyName: a(adesc, 'FamilyName') || '',
+        position,
+        success: getStat('GAME_SUCCESS'),
+        cw: getStat('CW'),
+        ccw: getStat('CCW'),
+        draw: getStat('DRAW'),
+        takeout: getStat('TAKEOUT'),
+      });
+    }
+
+    const coaches = c?.Coaches?.Coach;
+    const coachArr = Array.isArray(coaches) ? coaches : (coaches ? [coaches] : []);
+    const coachList = coachArr.map(co => ({
+      givenName: a(co.Description, 'GivenName') || '',
+      familyName: a(co.Description, 'FamilyName') || '',
+      function: a(co, 'Function') || ''
+    }));
+
+    return {
+      name: a(desc, 'TeamName') || '',
+      code: a(c, 'Organisation') || '',
+      score: parseInt(a(r, 'Result'), 10) || 0,
+      gameSuccess: getTeamStat('GAME_SUCCESS'),
+      cw: getTeamStat('CW'),
+      ccw: getTeamStat('CCW'),
+      draw: getTeamStat('DRAW'),
+      takeout: getTeamStat('TAKEOUT'),
+      stolenEnds: getTeamStat('STOLENENDS').value,
+      stolenPoints: getTeamStat('STOLENPOINTS').value,
+      athletes,
+      coaches: coachList,
+    };
+  }
+
+  const homeTeam = parseTeam(homeResult);
+  const awayTeam = parseTeam(awayResult);
+
+  // Officials
+  const officials = comp.Officials?.Official;
+  const officialArr = Array.isArray(officials) ? officials : (officials ? [officials] : []);
+  const officialList = officialArr.map(o => ({
+    givenName: a(o.Description, 'GivenName') || '',
+    familyName: a(o.Description, 'FamilyName') || '',
+    organisation: a(o.Description, 'Organisation') || '',
+    function: a(o, 'Function') || '',
+  }));
+
+  const periods = comp.Periods;
+  const periodList = Array.isArray(periods?.Period) ? periods.Period : (periods?.Period ? [periods.Period] : []);
+  const resultStatus = body['@_ResultStatus'] || '';
+  const isOfficial = resultStatus === 'OFFICIAL';
+
+  const currentPeriodCode = isOfficial
+    ? (periodList.length > 0 ? String(periodList[periodList.length - 1]['@_Code'] ?? periodList[periodList.length - 1].Code) : '1')
+    : (periodInfo?.['@_Value'] || '1');
+
+  return {
+    sport: 'CUR',
+    resultStatus,
+    date: body['@_Date'] || '',
+    timestamp: body['@_BDFTimestamp'] || '',
+    period: currentPeriodCode,
+    discipline: a(sportDesc, 'DisciplineName') || '',
+    eventName: a(sportDesc, 'EventName') || '',
+    subEvent: a(sportDesc, 'SubEventName') || '',
+    gender: a(sportDesc, 'Gender') || '',
+    venueName: a(venueDesc, 'VenueName') ?? a(venueDesc, 'LocationName') ?? '',
+    homeTeam,
+    awayTeam,
+    officials: officialList,
+    periods: periodList.map(p => {
+      const extPeriods = p.ExtendedPeriods;
+      const epList = Array.isArray(extPeriods?.ExtendedPeriod) ? extPeriods.ExtendedPeriod : (extPeriods?.ExtendedPeriod ? [extPeriods.ExtendedPeriod] : []);
+      const lsce = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'LSCE');
+      const homePP = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'HOME_POWERPLAY');
+      const awayPP = epList.find(ep => (ep['@_Code'] ?? ep.Code) === 'AWAY_POWERPLAY');
+      const lsceVal = lsce ? (lsce['@_Value'] ?? lsce.Value) : null;
+      return {
+        code: String(p['@_Code'] ?? p.Code),
+        homeScore: parseInt(a(p, 'HomeScore'), 10) || parseInt(a(p, 'HomePeriodScore'), 10) || 0,
+        awayScore: parseInt(a(p, 'AwayScore'), 10) || parseInt(a(p, 'AwayPeriodScore'), 10) || 0,
+        homeEarned: parseInt(a(p, 'HomePeriodScore'), 10) || 0,
+        awayEarned: parseInt(a(p, 'AwayPeriodScore'), 10) || 0,
+        hammer: lsceVal === '1' ? 'home' : lsceVal === '2' ? 'away' : null,
+        powerPlay: (homePP && (homePP['@_Value'] ?? homePP.Value) === 'Y') ? 'home' : (awayPP && (awayPP['@_Value'] ?? awayPP.Value) === 'Y') ? 'away' : null
+      };
+    })
+  };
+}
+
+/**
+ * Parse Curling DT_PLAY_BY_PLAY XML into stone-by-stone actions with sheet images.
+ */
+function parseDTPlayByPlayCurling(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) return null;
+
+  const comp = body.Competition;
+  if (!comp?.Actions) return null;
+  const actions = comp.Actions;
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+
+  const extractTeamCode = (code) => {
+    if (!code) return '';
+    const m = code.match(/---([A-Z]{3})/);
+    return m ? m[1] : '';
+  };
+
+  const homeCode = extractTeamCode(a(actions, 'Home'));
+  const awayCode = extractTeamCode(a(actions, 'Away'));
+  const sportDesc = comp?.ExtendedInfos?.SportDescription || {};
+  const gender = a(sportDesc, 'Gender') || '';
+
+  const actionList = Array.isArray(actions.Action) ? actions.Action : (actions.Action ? [actions.Action] : []);
+  const parsed = actionList.map(act => {
+    const ext = Array.isArray(act.ExtendedAction) ? act.ExtendedAction : (act.ExtendedAction ? [act.ExtendedAction] : []);
+    const extMap = {};
+    ext.forEach(e => { extMap[a(e, 'Code')] = a(e, 'Value'); });
+
+    const competitor = act.Competitor;
+    const teamCode = competitor ? (a(competitor, 'Organisation') || extractTeamCode(a(competitor, 'Code'))) : '';
+    let playerName = '';
+    const composition = competitor?.Composition;
+    const athletes = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
+    if (athletes.length > 0) {
+      const desc = athletes[0].Description || {};
+      playerName = `${a(desc, 'GivenName') || ''} ${a(desc, 'FamilyName') || ''}`.trim();
+    }
+
+    const imageData = act.ImageData || null;
+
+    return {
+      id: a(act, 'Id') || '',
+      end: parseInt(a(act, 'Period'), 10) || 0,
+      order: parseInt(a(act, 'Order'), 10) || 0,
+      stoneNum: parseInt(extMap.STONE_NUM, 10) || 0,
+      task: extMap.TASK || '',
+      turn: extMap.TURN || '',
+      points: extMap.POINTS || '',
+      team: teamCode,
+      playerName,
+      imageData: imageData ? `data:image/png;base64,${imageData}` : null,
+    };
+  });
+
+  return { homeCode, awayCode, gender, actions: parsed };
+}
+
+/**
+ * Parse Curling DT_STATS RANKING XML into team and individual shot success rankings.
+ */
+function parseDTStatsCurlingRanking(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) return null;
+  const comp = body.Competition;
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const stats = comp?.Stats;
+  if (!stats || a(stats, 'Code') !== 'RANKING') return null;
+  const sportDesc = comp?.ExtendedInfos?.SportDescription || {};
+
+  const competitors = Array.isArray(stats.Competitor) ? stats.Competitor : (stats.Competitor ? [stats.Competitor] : []);
+
+  const teams = [];
+  const players = [];
+
+  for (const c of competitors) {
+    const teamCode = a(c, 'Organisation') || '';
+    const teamName = a(c.Description, 'TeamName') || '';
+
+    // Team-level stats
+    const tsi = c.StatsItems?.StatsItem;
+    const tItems = Array.isArray(tsi) ? tsi : (tsi ? [tsi] : []);
+    const mp = tItems.find(s => a(s, 'Code') === 'MP');
+    const avgTot = tItems.find(s => a(s, 'Code') === 'AVG' && a(s, 'Pos') === 'TOT');
+    const perMatch = tItems.filter(s => a(s, 'Code') === 'AVG' && a(s, 'Pos') !== 'TOT');
+
+    teams.push({
+      teamCode,
+      teamName,
+      matches: parseInt(a(mp, 'Value'), 10) || 0,
+      avg: parseFloat(a(avgTot, 'Avg')) || 0,
+      rank: parseInt(a(avgTot, 'Rank'), 10) || 0,
+      sortOrder: parseInt(a(avgTot, 'SortOrder'), 10) || 0,
+      perMatch: perMatch.map(s => ({ match: a(s, 'Pos'), pct: a(s, 'Percent') })),
+    });
+
+    // Individual athlete stats
+    const composition = c.Composition;
+    const athArr = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
+    for (const ath of athArr) {
+      const desc = ath.Description || {};
+      const asi = ath.StatsItems?.StatsItem;
+      const aItems = Array.isArray(asi) ? asi : (asi ? [asi] : []);
+      const pos = aItems.find(s => a(s, 'Code') === 'POS');
+      const mpA = aItems.find(s => a(s, 'Code') === 'MP');
+      const avgA = aItems.find(s => a(s, 'Code') === 'AVG' && a(s, 'Pos') === 'TOT');
+
+      players.push({
+        teamCode,
+        givenName: a(desc, 'GivenName') || '',
+        familyName: a(desc, 'FamilyName') || '',
+        position: a(pos, 'Value') || '',
+        matches: parseInt(a(mpA, 'Value'), 10) || 0,
+        avg: parseFloat(a(avgA, 'Avg')) || 0,
+        rank: parseInt(a(avgA, 'Rank'), 10) || 0,
+        sortOrder: parseInt(a(avgA, 'SortOrder'), 10) || 0,
+      });
+    }
+  }
+
+  teams.sort((x, y) => x.sortOrder - y.sortOrder);
+  players.sort((x, y) => x.sortOrder - y.sortOrder);
+
+  return { gender: a(sportDesc, 'Gender') || '', teams, players };
+}
+
+/**
+ * Find curling PBP files across holder paths for a specific game (by home/away codes).
+ * Only parses the full ACTION file (not per-end files) and checks team codes from the
+ * XML header (first 2KB) before loading the full file to avoid parsing megabytes of base64 images.
+ */
+function findCurlingPlayByPlay(holderPaths, homeCode, awayCode) {
+  const home = (homeCode || '').trim().toUpperCase();
+  const away = (awayCode || '').trim().toUpperCase();
+  if (!home || !away) return null;
+
+  const extractTeamCode = (code) => {
+    if (!code) return '';
+    const m = code.match(/---([A-Z]{3})/);
+    return m ? m[1] : '';
+  };
+
+  for (const dirPath of holderPaths) {
+    if (!fs.existsSync(dirPath)) continue;
+    let names;
+    try { names = fs.readdirSync(dirPath); } catch { continue; }
+    // Only look at cumulative ACTION files (ending with __ACTION.xml, not _P1_ACTION etc.)
+    const pbpFiles = names
+      .filter(f => f.includes('DT_PLAY_BY_PLAY_CUR') && f.endsWith('__ACTION.xml'))
+      .sort((a, b) => b.localeCompare(a));
+    for (const fname of pbpFiles) {
+      const filePath = path.join(dirPath, fname);
+      try {
+        // Quick check: read first 2KB to extract Home/Away codes without parsing base64 images
+        const fd = fs.openSync(filePath, 'r');
+        const buf = Buffer.alloc(2048);
+        fs.readSync(fd, buf, 0, 2048, 0);
+        fs.closeSync(fd);
+        const header = buf.toString('utf-8');
+        const homeMatch = header.match(/Home="([^"]+)"/);
+        const awayMatch = header.match(/Away="([^"]+)"/);
+        const fileHome = homeMatch ? extractTeamCode(homeMatch[1]) : '';
+        const fileAway = awayMatch ? extractTeamCode(awayMatch[1]) : '';
+        if (!((fileHome === home && fileAway === away) || (fileHome === away && fileAway === home))) continue;
+
+        // Match found — parse the full file
+        const xml = fs.readFileSync(filePath, 'utf-8');
+        const parsed = parseDTPlayByPlayCurling(xml);
+        if (parsed) return parsed;
+      } catch { continue; }
+    }
+  }
+  return null;
+}
+
 async function fetchIHOFromSupabase(home, away) {
   if (!supabase || !home || !away) return null;
   const h = home.trim().toUpperCase();
@@ -2977,6 +3309,207 @@ app.get('/api/iho-live', async (req, res) => {
       error: 'Failed to load IHO live data',
       details: err.message
     });
+  }
+});
+
+// ============================================
+// Curling Game Detail (Full Boxscore + PBP + Pool + Brackets + Stats)
+// ============================================
+let _curGameDetailCache = {};
+const CUR_GAME_DETAIL_CACHE_TTL = 30 * 1000;
+
+const _curMetaCache = {
+  gender: null,
+  lastGameKey: null,
+  lastStatus: null,
+  poolStandings: null,
+  poolStanding: null,
+  brackets: null,
+  ranking: null,
+};
+
+function getCurMetaCached(gender, home, away, date, resultStatus) {
+  const gameKey = `${home}-${away}-${date}`;
+  const genderChanged = _curMetaCache.gender !== gender;
+  const gameChanged = _curMetaCache.lastGameKey !== gameKey;
+  const wasOfficial = resultStatus === 'OFFICIAL' && _curMetaCache.lastStatus !== 'OFFICIAL';
+  const statusChanged = _curMetaCache.lastStatus === 'OFFICIAL' && resultStatus !== 'OFFICIAL';
+  const needsRefresh = !_curMetaCache.poolStandings || genderChanged || gameChanged || wasOfficial || statusChanged;
+
+  _curMetaCache.gender = gender;
+  _curMetaCache.lastGameKey = gameKey;
+  _curMetaCache.lastStatus = resultStatus;
+
+  if (needsRefresh) return null;
+  return {
+    poolStandings: _curMetaCache.poolStandings,
+    poolStanding: _curMetaCache.poolStanding,
+    brackets: _curMetaCache.brackets,
+    ranking: _curMetaCache.ranking,
+  };
+}
+
+function setCurMetaCache(poolStandings, poolStanding, brackets, ranking) {
+  _curMetaCache.poolStandings = poolStandings;
+  _curMetaCache.poolStanding = poolStanding;
+  _curMetaCache.brackets = brackets;
+  _curMetaCache.ranking = ranking;
+}
+
+function collectCurMetaData(gender, home, away, metaPaths) {
+  // Pool standings
+  const poolStandingsMap = {};
+  try {
+    for (const p of metaPaths) {
+      let files;
+      try { files = fs.readdirSync(p).filter(f => f.includes('DT_POOL_STANDING_CUR')).sort((x, y) => y.localeCompare(x)); } catch { continue; }
+      for (const f of files) {
+        const xml = fs.readFileSync(path.join(p, f), 'utf-8');
+        const parsed = parseDTPoolStanding(xml);
+        if (parsed && parsed.gender === gender) {
+          const key = parsed.groupCode || 'PREL';
+          if (!poolStandingsMap[key]) poolStandingsMap[key] = parsed;
+        }
+      }
+    }
+  } catch (_) {}
+  const poolStandings = Object.values(poolStandingsMap).sort((a, b) => {
+    const order = { GPA: 1, GPB: 2, GPC: 3, GPD: 4, PREL: 99 };
+    return (order[a.groupCode] || 50) - (order[b.groupCode] || 50);
+  });
+  const poolStanding = poolStandings.find(ps => ps.standings.some(s => s.teamCode === home || s.teamCode === away)) || poolStandings[0] || null;
+
+  // Brackets
+  let brackets = null;
+  try {
+    for (const p of metaPaths) {
+      const files = fs.readdirSync(p).filter(f => f.includes('DT_BRACKETS') && f.includes('CUR')).sort((x, y) => y.localeCompare(x));
+      for (const f of files) {
+        const parsed = parseDTBrackets(fs.readFileSync(path.join(p, f), 'utf-8'));
+        if (parsed && parsed.gender === gender) { brackets = parsed; break; }
+      }
+      if (brackets) break;
+    }
+  } catch (_) {}
+
+  // Ranking stats
+  let ranking = null;
+  try {
+    for (const p of metaPaths) {
+      let files;
+      try { files = fs.readdirSync(p).filter(f => f.includes('DT_STATS_CUR') && f.includes('RANKING')).sort((x, y) => y.localeCompare(x)); } catch { continue; }
+      for (const f of files) {
+        const parsed = parseDTStatsCurlingRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
+        if (parsed && parsed.gender === gender) { ranking = parsed; break; }
+      }
+      if (ranking) break;
+    }
+  } catch (_) {}
+
+  return { poolStandings, poolStanding, brackets, ranking };
+}
+
+app.get('/api/cur-game-detail', async (req, res) => {
+  try {
+    const home = (req.query.home || '').trim().toUpperCase();
+    const away = (req.query.away || '').trim().toUpperCase();
+    const dateParam = req.query.date || '';
+
+    if (!home || !away) return res.status(400).json({ error: 'home and away query params required' });
+
+    const cacheKey = `CUR-${home}-${away}-${dateParam || 'latest'}`;
+    const cached = _curGameDetailCache[cacheKey];
+    if (cached && Date.now() < cached.expires) {
+      return res.json(cached.payload);
+    }
+
+    // 1. Full boxscore
+    const holderPaths = dateParam
+      ? resolveHolderPathsForDate(CUR_BASE_PATH, dateParam, 24)
+      : resolveCURHolderPaths();
+
+    let fullBoxscore = null;
+    for (const p of holderPaths) {
+      const fileResult = findDTResultFileCurling(p, home, away);
+      if (fileResult) {
+        const xmlStr = fs.readFileSync(fileResult.path, 'utf-8');
+        fullBoxscore = parseDTResultXmlCurlingFull(xmlStr);
+        break;
+      }
+    }
+
+    if (!fullBoxscore) {
+      // Try Supabase fallback
+      if (supabase) {
+        const h = home, aw = away;
+        const { data: rows } = await supabase.from('cur_game_detail')
+          .select('data')
+          .or(`and(home_team_code.eq.${h},away_team_code.eq.${aw}),and(home_team_code.eq.${aw},away_team_code.eq.${h})`)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (rows?.length > 0) return res.json(rows[0].data);
+      }
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // 2. Play-by-play
+    let playByPlay = null;
+    try {
+      playByPlay = findCurlingPlayByPlay(holderPaths, home, away);
+    } catch (_) {}
+
+    // 3. Pool standings, brackets, ranking — use meta cache
+    const metaCached = getCurMetaCached(fullBoxscore.gender, home, away, fullBoxscore.date, fullBoxscore.resultStatus);
+    let poolStandings, poolStanding, brackets, ranking;
+
+    if (metaCached) {
+      poolStandings = metaCached.poolStandings;
+      poolStanding = metaCached.poolStanding;
+      brackets = metaCached.brackets;
+      ranking = metaCached.ranking;
+      console.log('   [CUR meta] Using cached pool/brackets/ranking');
+    } else {
+      console.log('   [CUR meta] Re-parsing pool/brackets/ranking (status=' + fullBoxscore.resultStatus + ')');
+      const latestPaths = resolveCURHolderPaths();
+      const gameDatePaths = dateParam ? resolveHolderPathsForDate(CUR_BASE_PATH, dateParam, 24) : [];
+      const recentDatePaths = resolveRecentDatePaths(CUR_BASE_PATH, 10);
+      const metaPaths = [...new Set([...latestPaths, ...gameDatePaths, ...recentDatePaths])];
+      const meta = collectCurMetaData(fullBoxscore.gender, home, away, metaPaths);
+      poolStandings = meta.poolStandings;
+      poolStanding = meta.poolStanding;
+      brackets = meta.brackets;
+      ranking = meta.ranking;
+      setCurMetaCache(poolStandings, poolStanding, brackets, ranking);
+    }
+
+    const payload = {
+      ...fullBoxscore,
+      playByPlay,
+      poolStanding,
+      poolStandings,
+      brackets,
+      ranking,
+    };
+
+    _curGameDetailCache[cacheKey] = { payload, expires: Date.now() + CUR_GAME_DETAIL_CACHE_TTL };
+
+    // Sync to Supabase (non-blocking)
+    if (supabase && fullBoxscore.homeTeam && fullBoxscore.awayTeam) {
+      supabase.from('cur_game_detail').upsert({
+        home_team_code: fullBoxscore.homeTeam.code,
+        away_team_code: fullBoxscore.awayTeam.code,
+        game_date: fullBoxscore.date || new Date().toISOString().slice(0, 10),
+        data: payload,
+        last_updated: new Date().toISOString()
+      }, { onConflict: 'home_team_code,away_team_code,game_date' }).then(({ error }) => {
+        if (error) console.error('CUR game detail sync error:', error.message);
+      });
+    }
+
+    res.json(payload);
+  } catch (err) {
+    console.error('CUR game detail error:', err);
+    res.status(500).json({ error: 'Failed to load curling game detail', details: err.message });
   }
 });
 
@@ -4001,12 +4534,96 @@ async function syncGameDetailToSupabase() {
   }
 }
 
+/** Background sync: CUR game detail (full boxscore + PBP + pool + brackets + ranking).
+ *  Runs every 2 minutes so the deployed version always has fresh data. */
+async function syncCurGameDetailToSupabase() {
+  if (!supabase) return;
+  try {
+    const holderPaths = resolveCURHolderPaths();
+    let fileResult = null;
+    for (const p of holderPaths) {
+      fileResult = findDTResultFileCurling(p, null, null);
+      if (fileResult) break;
+    }
+    if (!fileResult) return;
+
+    const { data: basicData } = fileResult;
+    const home = basicData.homeTeam?.code?.toUpperCase();
+    const away = basicData.awayTeam?.code?.toUpperCase();
+    const gameDate = basicData.date;
+    if (!home || !away || !gameDate) return;
+
+    // 1. Full boxscore
+    let fullBoxscore = null;
+    for (const p of holderPaths) {
+      const fr = findDTResultFileCurling(p, home, away);
+      if (fr) {
+        const xmlStr = fs.readFileSync(fr.path, 'utf-8');
+        fullBoxscore = parseDTResultXmlCurlingFull(xmlStr);
+        break;
+      }
+    }
+    if (!fullBoxscore) return;
+
+    // 2. Play-by-play
+    let playByPlay = null;
+    try {
+      playByPlay = findCurlingPlayByPlay(holderPaths, home, away);
+    } catch (_) {}
+
+    // 3. Pool standings, brackets, ranking — use meta cache
+    const metaCached = getCurMetaCached(fullBoxscore.gender, home, away, gameDate, fullBoxscore.resultStatus);
+    let poolStandings, poolStanding, brackets, ranking;
+
+    if (metaCached) {
+      poolStandings = metaCached.poolStandings;
+      poolStanding = metaCached.poolStanding;
+      brackets = metaCached.brackets;
+      ranking = metaCached.ranking;
+      console.log('   [CUR BG sync] Using cached pool/brackets/ranking');
+    } else {
+      console.log('   [CUR BG sync] Re-parsing pool/brackets/ranking (status=' + fullBoxscore.resultStatus + ')');
+      const recentDatePaths = resolveRecentDatePaths(CUR_BASE_PATH, 10);
+      const metaPaths = [...new Set([...holderPaths, ...recentDatePaths])];
+      const meta = collectCurMetaData(fullBoxscore.gender, home, away, metaPaths);
+      poolStandings = meta.poolStandings;
+      poolStanding = meta.poolStanding;
+      brackets = meta.brackets;
+      ranking = meta.ranking;
+      setCurMetaCache(poolStandings, poolStanding, brackets, ranking);
+    }
+
+    const payload = {
+      ...fullBoxscore,
+      playByPlay,
+      poolStanding,
+      poolStandings,
+      brackets,
+      ranking,
+    };
+
+    await supabase.from('cur_game_detail').upsert({
+      home_team_code: home,
+      away_team_code: away,
+      game_date: gameDate,
+      data: payload,
+      last_updated: new Date().toISOString()
+    }, { onConflict: 'home_team_code,away_team_code,game_date' }).then(({ error }) => {
+      if (error) console.error('CUR game detail background sync error:', error.message);
+    });
+  } catch (err) {
+    console.error('CUR game detail background sync error:', err.message);
+  }
+}
+
 if (supabase) {
   // Start background sync after a delay (M: drive sync is blocking/synchronous)
   setInterval(syncLiveDataToSupabase, 30 * 1000);
   setInterval(syncGameDetailToSupabase, 120 * 1000);
+  setInterval(syncCurGameDetailToSupabase, 120 * 1000);
   console.log('   Live data background sync: every 30s (IHO + CUR + SSK + STK + LUG + SBD)');
   console.log('   IHO game detail background sync: every 2m');
+  console.log('   CUR game detail background sync: every 2m');
 }
 
 // Valid resource types

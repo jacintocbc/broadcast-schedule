@@ -502,11 +502,14 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
                 )}
               </div>
 
-              {/* View full details link (hockey only) */}
-              {effectiveSport !== 'CUR' && data.homeTeam?.code && data.awayTeam?.code && (
+              {/* View full details link */}
+              {data.homeTeam?.code && data.awayTeam?.code && (
                 <div className="text-center">
                   <Link
-                    to={`/game/${data.homeTeam.code}-${data.awayTeam.code}${data.date ? `?date=${data.date}` : ''}`}
+                    to={effectiveSport === 'CUR'
+                      ? `/curling-game/${data.homeTeam.code}-${data.awayTeam.code}${data.date ? `?date=${data.date}` : ''}`
+                      : `/game/${data.homeTeam.code}-${data.awayTeam.code}${data.date ? `?date=${data.date}` : ''}`
+                    }
                     className="inline-flex items-center gap-1.5 text-sm text-amber-400 hover:text-amber-300 font-medium transition-colors"
                     onClick={onClose}
                   >
