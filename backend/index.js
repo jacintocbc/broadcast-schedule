@@ -2654,6 +2654,47 @@ async function fetchCURFromSupabase(home, away) {
 let _gameDetailCache = {};
 const GAME_DETAIL_CACHE_TTL = 30 * 1000;
 
+// Meta cache: pool standings, brackets, tournament stats only change when a game completes.
+// Keyed by gender. Invalidated when resultStatus transitions to OFFICIAL or a new game starts.
+const _ihoMetaCache = {
+  gender: null,          // 'M' or 'W'
+  lastGameKey: null,     // "HOME-AWAY-DATE" of the game we last saw
+  lastStatus: null,      // last seen resultStatus
+  poolStandings: null,
+  poolStanding: null,
+  brackets: null,
+  tournamentStats: null,
+};
+
+function getIhoMetaCached(gender, home, away, date, resultStatus) {
+  const gameKey = `${home}-${away}-${date}`;
+  const statusChanged = _ihoMetaCache.lastStatus === 'OFFICIAL' && resultStatus !== 'OFFICIAL';
+  const gameChanged = _ihoMetaCache.lastGameKey !== gameKey;
+  const genderChanged = _ihoMetaCache.gender !== gender;
+  const wasOfficial = resultStatus === 'OFFICIAL' && _ihoMetaCache.lastStatus !== 'OFFICIAL';
+  const needsRefresh = !_ihoMetaCache.poolStandings || genderChanged || gameChanged || wasOfficial || statusChanged;
+
+  // Update tracking state
+  _ihoMetaCache.gender = gender;
+  _ihoMetaCache.lastGameKey = gameKey;
+  _ihoMetaCache.lastStatus = resultStatus;
+
+  if (needsRefresh) return null; // caller must re-parse and call setIhoMetaCache
+  return {
+    poolStandings: _ihoMetaCache.poolStandings,
+    poolStanding: _ihoMetaCache.poolStanding,
+    brackets: _ihoMetaCache.brackets,
+    tournamentStats: _ihoMetaCache.tournamentStats,
+  };
+}
+
+function setIhoMetaCache(poolStandings, poolStanding, brackets, tournamentStats) {
+  _ihoMetaCache.poolStandings = poolStandings;
+  _ihoMetaCache.poolStanding = poolStanding;
+  _ihoMetaCache.brackets = brackets;
+  _ihoMetaCache.tournamentStats = tournamentStats;
+}
+
 app.get('/api/iho-game-detail', async (req, res) => {
   try {
     const home = (req.query.home || '').trim().toUpperCase();
@@ -2728,82 +2769,98 @@ app.get('/api/iho-game-detail', async (req, res) => {
       playByPlay = findPlayByPlayForGame(pbpPaths, home, away, 30, gameCode);
     } catch (_) {}
 
-    // For pool/brackets, search latest date + game date + recent prior dates (pool standings
-    // may only exist on earlier dates when pool stage was active — GPA/GPB/GPC on different dates)
-    const latestPaths = resolveIHOHolderPathsWide();
-    const gameDatePaths = dateParam ? resolveHolderPathsForDate(IHO_BASE_PATH, dateParam, 24) : [];
-    const recentDatePaths = resolveRecentDatePaths(IHO_BASE_PATH, 10);
-    const metaPaths = [...new Set([...latestPaths, ...gameDatePaths, ...recentDatePaths])];
+    // Pool standings, brackets, tournament stats — use meta cache when possible
+    // These only change when a game finishes (resultStatus → OFFICIAL) or a new game starts
+    const metaCached = getIhoMetaCached(fullBoxscore.gender, home, away, fullBoxscore.date, fullBoxscore.resultStatus);
+    let poolStandings, poolStanding, brackets, tournamentStats;
 
-    // 3. Pool standings — collect ALL groups (GPA, GPB, GPC, PREL) for same gender
-    const poolStandingsMap = {};
-    try {
-      for (const p of metaPaths) {
-        let files;
-        try { files = fs.readdirSync(p).filter(f => f.includes('DT_POOL_STANDING')).sort((x, y) => y.localeCompare(x)); } catch { continue; }
-        for (const f of files) {
-          const xml = fs.readFileSync(path.join(p, f), 'utf-8');
-          const parsed = parseDTPoolStanding(xml);
-          if (parsed && parsed.gender === fullBoxscore.gender) {
-            const key = parsed.groupCode || 'UNKNOWN';
-            if (!poolStandingsMap[key]) poolStandingsMap[key] = parsed;
+    if (metaCached) {
+      poolStandings = metaCached.poolStandings;
+      poolStanding = metaCached.poolStanding;
+      brackets = metaCached.brackets;
+      tournamentStats = metaCached.tournamentStats;
+      console.log('   [IHO meta] Using cached pool/brackets/stats');
+    } else {
+      console.log('   [IHO meta] Re-parsing pool/brackets/stats (status=' + fullBoxscore.resultStatus + ')');
+      // For pool/brackets, search latest date + game date + recent prior dates
+      const latestPaths = resolveIHOHolderPathsWide();
+      const gameDatePaths = dateParam ? resolveHolderPathsForDate(IHO_BASE_PATH, dateParam, 24) : [];
+      const recentDatePaths = resolveRecentDatePaths(IHO_BASE_PATH, 10);
+      const metaPaths = [...new Set([...latestPaths, ...gameDatePaths, ...recentDatePaths])];
+
+      // Pool standings — collect ALL groups (GPA, GPB, GPC, PREL) for same gender
+      const poolStandingsMap = {};
+      try {
+        for (const p of metaPaths) {
+          let files;
+          try { files = fs.readdirSync(p).filter(f => f.includes('DT_POOL_STANDING')).sort((x, y) => y.localeCompare(x)); } catch { continue; }
+          for (const f of files) {
+            const xml = fs.readFileSync(path.join(p, f), 'utf-8');
+            const parsed = parseDTPoolStanding(xml);
+            if (parsed && parsed.gender === fullBoxscore.gender) {
+              const key = parsed.groupCode || 'UNKNOWN';
+              if (!poolStandingsMap[key]) poolStandingsMap[key] = parsed;
+            }
           }
         }
-      }
-    } catch (_) {}
-    const poolStandings = Object.values(poolStandingsMap).sort((a, b) => {
-      const order = { GPA: 1, GPB: 2, GPC: 3, GPD: 4, PREL: 99 };
-      return (order[a.groupCode] || 50) - (order[b.groupCode] || 50);
-    });
+      } catch (_) {}
+      poolStandings = Object.values(poolStandingsMap).sort((a, b) => {
+        const order = { GPA: 1, GPB: 2, GPC: 3, GPD: 4, PREL: 99 };
+        return (order[a.groupCode] || 50) - (order[b.groupCode] || 50);
+      });
 
-    // 4. Brackets — find DT_BRACKETS for the same event/gender
-    let brackets = null;
-    try {
-      for (const p of metaPaths) {
-        const files = fs.readdirSync(p)
-          .filter(f => f.includes('DT_BRACKETS'))
-          .sort((x, y) => y.localeCompare(x));
-        for (const f of files) {
-          const xml = fs.readFileSync(path.join(p, f), 'utf-8');
-          const parsed = parseDTBrackets(xml);
-          if (parsed && parsed.gender === fullBoxscore.gender) {
-            brackets = parsed;
-            break;
+      // Brackets — find DT_BRACKETS for the same event/gender
+      brackets = null;
+      try {
+        for (const p of metaPaths) {
+          const files = fs.readdirSync(p)
+            .filter(f => f.includes('DT_BRACKETS'))
+            .sort((x, y) => y.localeCompare(x));
+          for (const f of files) {
+            const xml = fs.readFileSync(path.join(p, f), 'utf-8');
+            const parsed = parseDTBrackets(xml);
+            if (parsed && parsed.gender === fullBoxscore.gender) {
+              brackets = parsed;
+              break;
+            }
           }
+          if (brackets) break;
         }
-        if (brackets) break;
-      }
-    } catch (_) {}
+      } catch (_) {}
 
-    const poolStanding = poolStandings.find(ps => ps.standings.some(s => s.teamCode === home || s.teamCode === away)) || poolStandings[0] || null;
+      poolStanding = poolStandings.find(ps => ps.standings.some(s => s.teamCode === home || s.teamCode === away)) || poolStandings[0] || null;
 
-    // 5. Tournament stats (TEAM_RANKING + IND_RANKING)
-    let tournamentStats = null;
-    try {
-      let teamRanking = null, indRanking = null;
-      for (const p of metaPaths) {
-        let files;
-        try { files = fs.readdirSync(p); } catch { continue; }
-        if (!teamRanking) {
-          const trFiles = files.filter(f => f.includes('TEAM_RANKING')).sort((x, y) => y.localeCompare(x));
-          for (const f of trFiles) {
-            const parsed = parseDTStatsTeamRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
-            if (parsed && parsed.gender === fullBoxscore.gender) { teamRanking = parsed; break; }
+      // Tournament stats (TEAM_RANKING + IND_RANKING)
+      tournamentStats = null;
+      try {
+        let teamRanking = null, indRanking = null;
+        for (const p of metaPaths) {
+          let files;
+          try { files = fs.readdirSync(p); } catch { continue; }
+          if (!teamRanking) {
+            const trFiles = files.filter(f => f.includes('TEAM_RANKING')).sort((x, y) => y.localeCompare(x));
+            for (const f of trFiles) {
+              const parsed = parseDTStatsTeamRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
+              if (parsed && parsed.gender === fullBoxscore.gender) { teamRanking = parsed; break; }
+            }
           }
-        }
-        if (!indRanking) {
-          const irFiles = files.filter(f => f.includes('IND_RANKING')).sort((x, y) => y.localeCompare(x));
-          for (const f of irFiles) {
-            const parsed = parseDTStatsIndRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
-            if (parsed && parsed.gender === fullBoxscore.gender) { indRanking = parsed; break; }
+          if (!indRanking) {
+            const irFiles = files.filter(f => f.includes('IND_RANKING')).sort((x, y) => y.localeCompare(x));
+            for (const f of irFiles) {
+              const parsed = parseDTStatsIndRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
+              if (parsed && parsed.gender === fullBoxscore.gender) { indRanking = parsed; break; }
+            }
           }
+          if (teamRanking && indRanking) break;
         }
-        if (teamRanking && indRanking) break;
-      }
-      if (teamRanking || indRanking) {
-        tournamentStats = { teamRanking: teamRanking?.teams || [], indRanking: indRanking?.players || [] };
-      }
-    } catch (_) {}
+        if (teamRanking || indRanking) {
+          tournamentStats = { teamRanking: teamRanking?.teams || [], indRanking: indRanking?.players || [] };
+        }
+      } catch (_) {}
+
+      // Store in cache for next request
+      setIhoMetaCache(poolStandings, poolStanding, brackets, tournamentStats);
+    }
 
     const payload = {
       ...fullBoxscore,
@@ -3802,10 +3859,154 @@ async function syncLiveDataToSupabase() {
   }
 }
 
+/** Background sync: IHO game detail (full boxscore + PBP + pool + brackets + tournament stats).
+ *  Runs every 2 minutes so the deployed version always has fresh data. */
+async function syncGameDetailToSupabase() {
+  if (!supabase) return;
+  try {
+    // Find the current live game from the latest IHO folder
+    const holderPaths = resolveIHOHolderPathsWide();
+    let fileResult = null;
+    for (const p of holderPaths) {
+      fileResult = findDTResultFile(p, null, null);
+      if (fileResult) break;
+    }
+    if (!fileResult) return;
+
+    const { data: basicData } = fileResult;
+    const home = basicData.homeTeam?.code?.toUpperCase();
+    const away = basicData.awayTeam?.code?.toUpperCase();
+    const gameDate = basicData.date;
+    if (!home || !away || !gameDate) return;
+
+    // 1. Full boxscore
+    let fullBoxscore = null;
+    let gameCode = null;
+    for (const p of holderPaths) {
+      const fr = findDTResultFile(p, home, away);
+      if (fr) {
+        const xmlStr = fs.readFileSync(fr.path, 'utf-8');
+        fullBoxscore = parseDTResultXmlFull(xmlStr);
+        const gcMatch = path.basename(fr.path).match(/(GP[A-Z]-\d{6})/);
+        if (gcMatch) gameCode = gcMatch[1];
+        break;
+      }
+    }
+    if (!fullBoxscore) return;
+
+    // 2. Play-by-play
+    let playByPlay = [];
+    try {
+      playByPlay = findPlayByPlayForGame(holderPaths, home, away, 30, gameCode);
+    } catch (_) {}
+
+    // 3. Pool standings, brackets, tournament stats — use meta cache (shared with API endpoint)
+    const metaCached = getIhoMetaCached(fullBoxscore.gender, home, away, gameDate, fullBoxscore.resultStatus);
+    let poolStandings, poolStanding, brackets, tournamentStats;
+
+    if (metaCached) {
+      poolStandings = metaCached.poolStandings;
+      poolStanding = metaCached.poolStanding;
+      brackets = metaCached.brackets;
+      tournamentStats = metaCached.tournamentStats;
+      console.log('   [BG sync] Using cached pool/brackets/stats');
+    } else {
+      console.log('   [BG sync] Re-parsing pool/brackets/stats (status=' + fullBoxscore.resultStatus + ')');
+      const recentDatePaths = resolveRecentDatePaths(IHO_BASE_PATH, 10);
+      const metaPaths = [...new Set([...holderPaths, ...recentDatePaths])];
+
+      const poolStandingsMap = {};
+      try {
+        for (const p of metaPaths) {
+          let files;
+          try { files = fs.readdirSync(p).filter(f => f.includes('DT_POOL_STANDING')).sort((x, y) => y.localeCompare(x)); } catch { continue; }
+          for (const f of files) {
+            const xml = fs.readFileSync(path.join(p, f), 'utf-8');
+            const parsed = parseDTPoolStanding(xml);
+            if (parsed && parsed.gender === fullBoxscore.gender) {
+              const key = parsed.groupCode || 'UNKNOWN';
+              if (!poolStandingsMap[key]) poolStandingsMap[key] = parsed;
+            }
+          }
+        }
+      } catch (_) {}
+      poolStandings = Object.values(poolStandingsMap).sort((a, b) => {
+        const order = { GPA: 1, GPB: 2, GPC: 3, GPD: 4, PREL: 99 };
+        return (order[a.groupCode] || 50) - (order[b.groupCode] || 50);
+      });
+      poolStanding = poolStandings.find(ps => ps.standings.some(s => s.teamCode === home || s.teamCode === away)) || poolStandings[0] || null;
+
+      brackets = null;
+      try {
+        for (const p of metaPaths) {
+          const files = fs.readdirSync(p).filter(f => f.includes('DT_BRACKETS')).sort((x, y) => y.localeCompare(x));
+          for (const f of files) {
+            const parsed = parseDTBrackets(fs.readFileSync(path.join(p, f), 'utf-8'));
+            if (parsed && parsed.gender === fullBoxscore.gender) { brackets = parsed; break; }
+          }
+          if (brackets) break;
+        }
+      } catch (_) {}
+
+      tournamentStats = null;
+      try {
+        let teamRanking = null, indRanking = null;
+        for (const p of metaPaths) {
+          let files;
+          try { files = fs.readdirSync(p); } catch { continue; }
+          if (!teamRanking) {
+            const trFiles = files.filter(f => f.includes('TEAM_RANKING')).sort((x, y) => y.localeCompare(x));
+            for (const f of trFiles) {
+              const parsed = parseDTStatsTeamRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
+              if (parsed && parsed.gender === fullBoxscore.gender) { teamRanking = parsed; break; }
+            }
+          }
+          if (!indRanking) {
+            const irFiles = files.filter(f => f.includes('IND_RANKING')).sort((x, y) => y.localeCompare(x));
+            for (const f of irFiles) {
+              const parsed = parseDTStatsIndRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
+              if (parsed && parsed.gender === fullBoxscore.gender) { indRanking = parsed; break; }
+            }
+          }
+          if (teamRanking && indRanking) break;
+        }
+        if (teamRanking || indRanking) {
+          tournamentStats = { teamRanking: teamRanking?.teams || [], indRanking: indRanking?.players || [] };
+        }
+      } catch (_) {}
+
+      setIhoMetaCache(poolStandings, poolStanding, brackets, tournamentStats);
+    }
+
+    const payload = {
+      ...fullBoxscore,
+      playByPlay,
+      poolStanding,
+      poolStandings,
+      brackets,
+      tournamentStats,
+    };
+
+    await supabase.from('iho_game_detail').upsert({
+      home_team_code: home,
+      away_team_code: away,
+      game_date: gameDate,
+      data: payload,
+      last_updated: new Date().toISOString()
+    }, { onConflict: 'home_team_code,away_team_code,game_date' }).then(({ error }) => {
+      if (error) console.error('IHO game detail background sync error:', error.message);
+    });
+  } catch (err) {
+    console.error('IHO game detail background sync error:', err.message);
+  }
+}
+
 if (supabase) {
   // Start background sync after a delay (M: drive sync is blocking/synchronous)
   setInterval(syncLiveDataToSupabase, 30 * 1000);
+  setInterval(syncGameDetailToSupabase, 120 * 1000);
   console.log('   Live data background sync: every 30s (IHO + CUR + SSK + STK + LUG + SBD)');
+  console.log('   IHO game detail background sync: every 2m');
 }
 
 // Valid resource types
