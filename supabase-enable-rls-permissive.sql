@@ -181,3 +181,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON medal_alerts;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON medal_alerts;
 CREATE POLICY "Allow all (anon)" ON medal_alerts FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON medal_alerts FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- IHO Game Detail (full boxscore for game detail page)
+-- ============================================
+ALTER TABLE iho_game_detail ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON iho_game_detail;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON iho_game_detail;
+CREATE POLICY "Allow all (anon)" ON iho_game_detail FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON iho_game_detail FOR ALL TO authenticated USING (true) WITH CHECK (true);

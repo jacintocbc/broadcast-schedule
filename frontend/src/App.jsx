@@ -10,6 +10,7 @@ import BoothPage from './components/BoothPage'
 import LiveBoothsView from './components/LiveBoothsView'
 import BoothDetailView from './components/BoothDetailView'
 import SchedulingView from './components/SchedulingView'
+import GameDetailPage from './components/GameDetailPage'
 import MedalAlert from './components/MedalAlert'
 
 function Navigation() {
@@ -132,6 +133,7 @@ function AppContent() {
         <Route path="/booths" element={<BoothPage />} />
         <Route path="/live-booths" element={<LiveBoothsView />} />
         <Route path="/live-booths/:boothId" element={<BoothDetailView />} />
+        <Route path="/game/:matchup" element={<GameDetailPage />} />
       </Routes>
     </div>
   )

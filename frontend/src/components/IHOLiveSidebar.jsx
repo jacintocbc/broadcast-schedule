@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import moment from 'moment-timezone'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
@@ -500,6 +501,20 @@ export default function IHOLiveSidebar({ open, onClose, block, hasLiveIhoOrCur =
                   </div>
                 )}
               </div>
+
+              {/* View full details link (hockey only) */}
+              {effectiveSport !== 'CUR' && data.homeTeam?.code && data.awayTeam?.code && (
+                <div className="text-center">
+                  <Link
+                    to={`/game/${data.homeTeam.code}-${data.awayTeam.code}${data.date ? `?date=${data.date}` : ''}`}
+                    className="inline-flex items-center gap-1.5 text-sm text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                    onClick={onClose}
+                  >
+                    View Full Details
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </Link>
+                </div>
+              )}
 
               {/* Team stats */}
               <div className="rounded-lg bg-gray-700 p-4 border border-gray-600">

@@ -595,6 +595,35 @@ function resolveHolderPaths(basePath, maxFolders = 2) {
   return holderDirs.slice(0, maxFolders).map(d => path.join(datePath, d.name));
 }
 
+/** Resolve holder paths for a specific date (all hour folders for that date). */
+function resolveHolderPathsForDate(basePath, date, maxFolders = 24) {
+  const datePath = path.join(basePath, date);
+  if (!fs.existsSync(datePath)) return [];
+  const holderDirs = fs.readdirSync(datePath, { withFileTypes: true })
+    .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+    .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
+  return holderDirs.slice(0, maxFolders).map(d => path.join(datePath, d.name));
+}
+
+/** Resolve newest hour folder from each of the N most recent dates (for pool/bracket lookback). */
+function resolveRecentDatePaths(basePath, numDates = 5) {
+  if (!fs.existsSync(basePath)) return [];
+  const dateDirs = fs.readdirSync(basePath, { withFileTypes: true })
+    .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+    .sort((a, b) => b.name.localeCompare(a.name));
+  const result = [];
+  for (const dd of dateDirs.slice(0, numDates)) {
+    const datePath = path.join(basePath, dd.name);
+    const holderDirs = fs.readdirSync(datePath, { withFileTypes: true })
+      .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+      .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
+    if (holderDirs.length > 0) {
+      result.push(path.join(datePath, holderDirs[0].name));
+    }
+  }
+  return result;
+}
+
 /** Resolve IHO holder paths (up to 2 folders, newest first). */
 function resolveIHOHolderPaths() {
   return resolveHolderPaths(IHO_BASE_PATH, 2);
@@ -934,7 +963,27 @@ function findDTResultFile(dirPath, homeCode, awayCode) {
           }
         } catch { continue; }
       }
-      return null; // no match found
+      // If we found game codes but none matched, no point scanning all files
+      if (codeToFile.size > 0) return null;
+      // No game codes in filenames (e.g. 8FNL format) — deduplicate by document signature
+      // and read only one file per unique game to avoid scanning hundreds of identical files
+      const sigToFile = new Map();
+      for (const f of files) {
+        const sig = f.name.replace(/^\d+_\d+_/, '');
+        if (!sigToFile.has(sig)) sigToFile.set(sig, f);
+      }
+      for (const [, f] of sigToFile) {
+        try {
+          const xmlStr = fs.readFileSync(f.path, 'utf-8');
+          const data = parseDTResultXml(xmlStr);
+          const dh = data.homeTeam?.code?.toUpperCase();
+          const da = data.awayTeam?.code?.toUpperCase();
+          if ((dh === home && da === away) || (dh === away && da === home)) {
+            return { path: f.path, mtime: f.mtime, data };
+          }
+        } catch { continue; }
+      }
+      return null;
     }
   }
 
@@ -1882,6 +1931,457 @@ function parseDTResultXml(xmlStr) {
 }
 
 /**
+ * Parse a DT_RESULT XML for a FULL boxscore: per-player stats, goalie stats,
+ * team per-period stats, officials, venue/attendance — everything needed for
+ * the game detail page.
+ */
+function parseDTResultXmlFull(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) throw new Error('Invalid OdfBody structure');
+
+  const comp = body.Competition;
+  if (!comp) throw new Error('Missing Competition');
+
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const extInfosObj = comp.ExtendedInfos || {};
+  const sportDesc = extInfosObj.SportDescription || {};
+  const venueDesc = extInfosObj.VenueDescription || {};
+  const extInfoArr = Array.isArray(extInfosObj.ExtendedInfo) ? extInfosObj.ExtendedInfo : (extInfosObj.ExtendedInfo ? [extInfosObj.ExtendedInfo] : []);
+  const periodInfo = extInfoArr.find(e => a(e, 'Code') === 'PERIOD');
+
+  const periods = comp.Periods;
+  const periodList = Array.isArray(periods?.Period) ? periods.Period : (periods?.Period ? [periods.Period] : []);
+
+  const results = comp.Result;
+  const resultList = Array.isArray(results) ? results : (results ? [results] : []);
+  const competitors = resultList.flatMap(r => Array.isArray(r.Competitor) ? r.Competitor : (r.Competitor ? [r.Competitor] : []));
+
+  const findHomeAway = (val) => competitors.find(c => {
+    const eue = c.EventUnitEntry || [];
+    const entries = Array.isArray(eue) ? eue : [eue];
+    return entries.some(e => a(e, 'Code') === 'HOME_AWAY' && a(e, 'Value') === val);
+  });
+  const homeComp = findHomeAway('HOME');
+  const awayComp = findHomeAway('AWAY');
+
+  function getEUE(comp, code) {
+    const eue = comp?.EventUnitEntry || [];
+    const entries = Array.isArray(eue) ? eue : [eue];
+    const e = entries.find(x => a(x, 'Code') === code);
+    return e ? a(e, 'Value') : null;
+  }
+
+  function parseGameStat(statsArr, code, pos) {
+    const item = statsArr.find(s => {
+      const t = a(s, 'Type');
+      const c = a(s, 'Code');
+      const p = a(s, 'Pos');
+      return (t === 'GAME') && c === code && p === pos;
+    });
+    if (!item) return null;
+    return a(item, 'Value');
+  }
+
+  function parseGameStatObj(statsArr, code, pos) {
+    const item = statsArr.find(s => {
+      const t = a(s, 'Type');
+      const c = a(s, 'Code');
+      const p = a(s, 'Pos');
+      return (t === 'GAME') && c === code && p === pos;
+    });
+    if (!item) return {};
+    const ext = Array.isArray(item.ExtendedStat) ? item.ExtendedStat : (item.ExtendedStat ? [item.ExtendedStat] : []);
+    const extObj = {};
+    ext.forEach(e => { extObj[a(e, 'Code')] = a(e, 'Value'); });
+    return { value: a(item, 'Value'), percent: a(item, 'Percent'), attempt: a(item, 'Attempt'), ...extObj };
+  }
+
+  function parseTeamPerPeriodStats(competitor) {
+    const statsItems = competitor?.StatsItems?.StatsItem;
+    const arr = Array.isArray(statsItems) ? statsItems : (statsItems ? [statsItems] : []);
+    const gameStats = arr.filter(s => a(s, 'Type') === 'GAME');
+    const byPeriod = {};
+    for (const s of gameStats) {
+      const pos = a(s, 'Pos') || 'TOT';
+      const code = a(s, 'Code');
+      if (!code) continue;
+      if (!byPeriod[pos]) byPeriod[pos] = {};
+      const entry = { value: a(s, 'Value'), percent: a(s, 'Percent'), attempt: a(s, 'Attempt') };
+      const ext = Array.isArray(s.ExtendedStat) ? s.ExtendedStat : (s.ExtendedStat ? [s.ExtendedStat] : []);
+      ext.forEach(e => { entry[a(e, 'Code')] = a(e, 'Value'); });
+      byPeriod[pos][code] = entry;
+    }
+    return byPeriod;
+  }
+
+  function parseAthleteBoxscore(athlete) {
+    const desc = athlete.Description || {};
+    const statsItems = athlete.StatsItems?.StatsItem;
+    const arr = Array.isArray(statsItems) ? statsItems : (statsItems ? [statsItems] : []);
+    const eue = athlete.EventUnitEntry || [];
+    const entries = Array.isArray(eue) ? eue : [eue];
+    const position = entries.find(e => a(e, 'Code') === 'POSITION');
+    const pos = position ? a(position, 'Value') : '';
+    const isGK = pos === 'GK';
+
+    const p = (code, period = 'TOT') => parseGameStat(arr, code, period);
+    const pObj = (code, period = 'TOT') => parseGameStatObj(arr, code, period);
+
+    const base = {
+      bib: a(athlete, 'Bib') || '',
+      code: a(athlete, 'Code') || '',
+      givenName: a(desc, 'GivenName') || '',
+      familyName: a(desc, 'FamilyName') || '',
+      position: pos,
+      isGoalkeeper: isGK,
+    };
+
+    if (isGK) {
+      return {
+        ...base,
+        mins: p('MINS') || '0:00',
+        svs: p('SVS'),
+        svsAttempt: pObj('SVS').attempt || null,
+        svsPct: pObj('SVS').percent || null,
+        ga: p('GA') || '0',
+        pty: p('PTY') || '0',
+        pim: p('PIM') || '0',
+        perPeriod: {
+          P1: { svs: p('SVS', 'P1'), svsPct: pObj('SVS', 'P1').percent, svsAttempt: pObj('SVS', 'P1').attempt },
+          P2: { svs: p('SVS', 'P2'), svsPct: pObj('SVS', 'P2').percent, svsAttempt: pObj('SVS', 'P2').attempt },
+          P3: { svs: p('SVS', 'P3'), svsPct: pObj('SVS', 'P3').percent, svsAttempt: pObj('SVS', 'P3').attempt },
+        }
+      };
+    }
+
+    const foObj = pObj('FO');
+    return {
+      ...base,
+      mins: p('MINS') || '0:00',
+      gf: p('GF') || '0',
+      sog: p('SOG') || '0',
+      assists: p('ASSIST') || '0',
+      pts: p('PTS') || '0',
+      pim: p('PIM') || '0',
+      pty: p('PTY') || '0',
+      plusMinus: p('PLUS_MINUS') || '0',
+      shifts: p('SHIFTS') || '0',
+      fo: foObj.value || '0',
+      foLost: foObj.LOST || '0',
+      foPct: foObj.percent || null,
+      perPeriod: {
+        P1: { gf: p('GF', 'P1'), sog: p('SOG', 'P1'), mins: p('MINS', 'P1') },
+        P2: { gf: p('GF', 'P2'), sog: p('SOG', 'P2'), mins: p('MINS', 'P2') },
+        P3: { gf: p('GF', 'P3'), sog: p('SOG', 'P3'), mins: p('MINS', 'P3') },
+      }
+    };
+  }
+
+  function parseTeamBoxscore(competitor, sortOrder) {
+    if (!competitor) return null;
+    const desc = competitor.Description || {};
+    const composition = competitor.Composition;
+    const athletes = composition?.Athlete;
+    const arr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+
+    const goalkeepers = [];
+    const players = [];
+    for (const ath of arr) {
+      const box = parseAthleteBoxscore(ath);
+      if (box.isGoalkeeper) goalkeepers.push(box);
+      else players.push(box);
+    }
+    players.sort((x, y) => {
+      const posOrder = { D: 0, F: 1 };
+      const px = posOrder[x.position] ?? 2;
+      const py = posOrder[y.position] ?? 2;
+      if (px !== py) return px - py;
+      return parseInt(x.bib) - parseInt(y.bib);
+    });
+
+    const result = resultList.find(r => String(a(r, 'SortOrder')) === String(sortOrder)) || {};
+
+    const coaches = competitor.Coaches?.Coach;
+    const coachArr = Array.isArray(coaches) ? coaches : (coaches ? [coaches] : []);
+    const coachList = coachArr.map(c => ({
+      givenName: a(c.Description, 'GivenName') || '',
+      familyName: a(c.Description, 'FamilyName') || '',
+      function: a(c, 'Function') || ''
+    }));
+
+    return {
+      code: a(competitor, 'Organisation') || '',
+      name: a(desc, 'TeamName') || '',
+      score: parseInt(a(result, 'Result'), 10) || 0,
+      wlt: a(result, 'WLT') || '',
+      uniform: getEUE(competitor, 'UNIFORM') || '',
+      coaches: coachList,
+      teamStats: parseTeamPerPeriodStats(competitor),
+      goalkeepers,
+      players,
+    };
+  }
+
+  // Officials
+  const officials = comp.Officials?.Official;
+  const officialArr = Array.isArray(officials) ? officials : (officials ? [officials] : []);
+  const officialList = officialArr.map(o => ({
+    givenName: a(o.Description, 'GivenName') || '',
+    familyName: a(o.Description, 'FamilyName') || '',
+    organisation: a(o.Description, 'Organisation') || '',
+    function: a(o, 'Function') || '',
+    bib: a(o, 'Bib') || ''
+  }));
+
+  return {
+    resultStatus: a(body, 'ResultStatus') || '',
+    date: a(body, 'Date') || '',
+    timestamp: a(body, 'BDFTimestamp') || '',
+    period: periodInfo ? a(periodInfo, 'Value') : 'P1',
+    discipline: a(sportDesc, 'DisciplineName') || '',
+    eventName: a(sportDesc, 'EventName') || '',
+    subEvent: a(sportDesc, 'SubEventName') || '',
+    gender: a(sportDesc, 'Gender') || '',
+    venueName: a(venueDesc, 'VenueName') || a(venueDesc, 'LocationName') || '',
+    attendance: a(venueDesc, 'Attendance') || '',
+    homeTeam: parseTeamBoxscore(homeComp, 1),
+    awayTeam: parseTeamBoxscore(awayComp, 2),
+    officials: officialList,
+    periods: periodList.map(p => ({
+      code: a(p, 'Code'),
+      homeScore: parseInt(a(p, 'HomePeriodScore'), 10) || 0,
+      awayScore: parseInt(a(p, 'AwayPeriodScore'), 10) || 0,
+      homeCumulative: parseInt(a(p, 'HomeScore'), 10) || 0,
+      awayCumulative: parseInt(a(p, 'AwayScore'), 10) || 0
+    })),
+    startDate: a(extInfosObj.UnitDateTime, 'StartDate') || null,
+  };
+}
+
+/**
+ * Parse DT_POOL_STANDING XML into structured pool standings data.
+ */
+function parseDTPoolStanding(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) return null;
+
+  const comp = body.Competition;
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const sportDesc = comp?.ExtendedInfos?.SportDescription || {};
+  const results = comp?.Result;
+  const resultList = Array.isArray(results) ? results : (results ? [results] : []);
+
+  const standings = resultList.map(r => {
+    const competitor = r.Competitor || {};
+    const desc = competitor.Description || {};
+    const opponents = competitor.Opponent;
+    const oppArr = Array.isArray(opponents) ? opponents : (opponents ? [opponents] : []);
+    const extResults = r.ExtendedResults?.ExtendedResult;
+    const extArr = Array.isArray(extResults) ? extResults : (extResults ? [extResults] : []);
+    const extMap = {};
+    extArr.forEach(e => { extMap[a(e, 'Code')] = a(e, 'Value'); });
+
+    return {
+      rank: parseInt(a(r, 'Rank'), 10) || 0,
+      teamCode: a(competitor, 'Organisation') || '',
+      teamName: a(desc, 'TeamName') || '',
+      played: parseInt(a(r, 'Played'), 10) || 0,
+      won: parseInt(a(r, 'Won'), 10) || 0,
+      lost: parseInt(a(r, 'Lost'), 10) || 0,
+      otw: parseInt(extMap.OTW, 10) || 0,
+      otl: parseInt(extMap.OTL, 10) || 0,
+      goalsFor: parseInt(a(r, 'For'), 10) || 0,
+      goalsAgainst: parseInt(a(r, 'Against'), 10) || 0,
+      diff: a(r, 'Diff') || '0',
+      points: parseInt(a(r, 'Result'), 10) || 0,
+      sortOrder: parseInt(a(r, 'SortOrder'), 10) || 0,
+      opponents: oppArr.map(o => ({
+        teamCode: a(o, 'Organisation') || '',
+        teamName: a(o.Description, 'TeamName') || '',
+        date: a(o, 'Date') || '',
+        time: a(o, 'Time') || '',
+        homeAway: a(o, 'HomeAway') || '',
+        result: a(o, 'Result') || '',
+      })),
+    };
+  });
+
+  const docCode = a(body, 'DocumentCode') || '';
+  let groupCode = '';
+  const gpMatch = docCode.match(/(GP[A-Z])/);
+  if (gpMatch) groupCode = gpMatch[1];
+  else if (docCode.includes('PREL')) groupCode = 'PREL';
+
+  return {
+    groupCode,
+    subEvent: a(sportDesc, 'SubEventName') || '',
+    eventName: a(sportDesc, 'EventName') || '',
+    gender: a(sportDesc, 'Gender') || '',
+    standings: standings.sort((x, y) => x.sortOrder - y.sortOrder),
+  };
+}
+
+/**
+ * Parse DT_STATS TEAM_RANKING XML into tournament team stats.
+ */
+function parseDTStatsTeamRanking(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) return null;
+  const comp = body.Competition;
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const stats = comp?.Stats;
+  if (!stats || a(stats, 'Code') !== 'TEAM_RANKING') return null;
+  const sportDesc = comp?.ExtendedInfos?.SportDescription || {};
+  const competitors = Array.isArray(stats.Competitor) ? stats.Competitor : (stats.Competitor ? [stats.Competitor] : []);
+
+  const teams = competitors.map(c => {
+    const si = c.StatsItems?.StatsItem;
+    const items = Array.isArray(si) ? si : (si ? [si] : []);
+    const s = {};
+    for (const item of items) {
+      const code = a(item, 'Code');
+      if (!code) continue;
+      const ext = Array.isArray(item.ExtendedStat) ? item.ExtendedStat : (item.ExtendedStat ? [item.ExtendedStat] : []);
+      const extObj = {};
+      ext.forEach(e => { extObj[a(e, 'Code')] = a(e, 'Value'); });
+      s[code] = {
+        value: a(item, 'Value'), attempt: a(item, 'Attempt'), percent: a(item, 'Percent'),
+        avg: a(item, 'Avg'), rank: parseInt(a(item, 'Rank'), 10) || null,
+        sortOrder: parseInt(a(item, 'SortOrder'), 10) || null, ...extObj
+      };
+    }
+    return {
+      teamCode: a(c, 'Organisation') || '',
+      teamName: a(c.Description, 'TeamName') || '',
+      order: parseInt(a(c, 'Order'), 10) || 0,
+      stats: s,
+    };
+  });
+
+  return { gender: a(sportDesc, 'Gender') || '', teams };
+}
+
+/**
+ * Parse DT_STATS IND_RANKING XML into tournament individual player stats.
+ */
+function parseDTStatsIndRanking(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) return null;
+  const comp = body.Competition;
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const stats = comp?.Stats;
+  if (!stats || a(stats, 'Code') !== 'IND_RANKING') return null;
+  const sportDesc = comp?.ExtendedInfos?.SportDescription || {};
+  const competitors = Array.isArray(stats.Competitor) ? stats.Competitor : (stats.Competitor ? [stats.Competitor] : []);
+
+  const players = [];
+  for (const c of competitors) {
+    const teamCode = a(c, 'Organisation') || '';
+    const athletes = c.Composition?.Athlete;
+    const arr = Array.isArray(athletes) ? athletes : (athletes ? [athletes] : []);
+    for (const ath of arr) {
+      const desc = ath.Description || {};
+      const si = ath.StatsItems?.StatsItem;
+      const items = Array.isArray(si) ? si : (si ? [si] : []);
+      const s = {};
+      for (const item of items) {
+        const code = a(item, 'Code');
+        if (!code) continue;
+        const ext = Array.isArray(item.ExtendedStat) ? item.ExtendedStat : (item.ExtendedStat ? [item.ExtendedStat] : []);
+        const extObj = {};
+        ext.forEach(e => { extObj[a(e, 'Code')] = a(e, 'Value'); });
+        s[code] = {
+          value: a(item, 'Value'), attempt: a(item, 'Attempt'), percent: a(item, 'Percent'),
+          avg: a(item, 'Avg'), rank: parseInt(a(item, 'Rank'), 10) || null,
+          sortOrder: parseInt(a(item, 'SortOrder'), 10) || null, ...extObj
+        };
+      }
+      players.push({
+        teamCode,
+        givenName: a(desc, 'GivenName') || '',
+        familyName: a(desc, 'FamilyName') || '',
+        position: s.POS?.value || '',
+        stats: s,
+      });
+    }
+  }
+
+  return { gender: a(sportDesc, 'Gender') || '', players };
+}
+
+/**
+ * Parse DT_BRACKETS XML into structured bracket data.
+ */
+function parseDTBrackets(xmlStr) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) return null;
+
+  const comp = body.Competition;
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const sportDesc = comp?.ExtendedInfos?.SportDescription || {};
+
+  const bracket = comp?.Bracket;
+  if (!bracket) return null;
+
+  const bracketItems = bracket.BracketItems;
+  const itemsArr = Array.isArray(bracketItems) ? bracketItems : (bracketItems ? [bracketItems] : []);
+
+  const rounds = itemsArr.map(bi => {
+    const code = a(bi, 'Code') || '';
+    const items = bi.BracketItem;
+    const matchArr = Array.isArray(items) ? items : (items ? [items] : []);
+
+    const matches = matchArr.map(m => {
+      const places = m.CompetitorPlace;
+      const placeArr = Array.isArray(places) ? places : (places ? [places] : []);
+
+      const teams = placeArr.map(cp => {
+        const competitor = cp.Competitor || {};
+        const desc = competitor.Description || {};
+        return {
+          pos: parseInt(a(cp, 'Pos'), 10) || 0,
+          wlt: a(cp, 'WLT') || '',
+          result: a(cp, 'Result') || '',
+          teamCode: a(competitor, 'Organisation') || '',
+          teamName: a(desc, 'TeamName') || '',
+          seed: a(cp.PreviousUnit, 'Value') || '',
+        };
+      });
+
+      return {
+        order: parseInt(a(m, 'Order'), 10) || 0,
+        position: parseInt(a(m, 'Position'), 10) || 0,
+        date: a(m, 'Date') || '',
+        time: a(m, 'Time') || '',
+        result: a(m, 'Result') || '',
+        teams,
+      };
+    });
+
+    return { code, matches: matches.sort((x, y) => x.order - y.order) };
+  });
+
+  const roundOrder = { QFNL: 0, SFNL: 1, 'BRO-': 2, FNL: 3 };
+  rounds.sort((x, y) => (roundOrder[x.code] ?? 99) - (roundOrder[y.code] ?? 99));
+
+  return {
+    eventName: a(sportDesc, 'EventName') || '',
+    gender: a(sportDesc, 'Gender') || '',
+    rounds,
+  };
+}
+
+/**
  * Find and parse DT_PLAY_BY_PLAY files for a specific IHO game.
  * Returns sorted array of actions: { period, when, action, team, score, players[], timestamp }.
  * @param {string[]} holderPaths - directories to scan
@@ -2147,6 +2647,194 @@ async function fetchCURFromSupabase(home, away) {
   data.lastUpdated = row.last_updated || new Date().toISOString();
   return data;
 }
+
+// ============================================
+// Hockey Game Detail (Full Boxscore + PBP + Pool + Brackets)
+// ============================================
+let _gameDetailCache = {};
+const GAME_DETAIL_CACHE_TTL = 30 * 1000;
+
+app.get('/api/iho-game-detail', async (req, res) => {
+  try {
+    const home = (req.query.home || '').trim().toUpperCase();
+    const away = (req.query.away || '').trim().toUpperCase();
+    if (!home || !away) {
+      return res.status(400).json({ error: 'home and away query params required' });
+    }
+
+    // DB-only mode (deployed)
+    if (wantsDbOnly(req)) {
+      if (!supabase) return res.status(404).json({ error: 'No database' });
+      const { data: rows, error } = await supabase
+        .from('iho_game_detail')
+        .select('data')
+        .or(`and(home_team_code.eq.${home},away_team_code.eq.${away}),and(home_team_code.eq.${away},away_team_code.eq.${home})`)
+        .order('last_updated', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      if (rows?.length > 0) return res.json(rows[0].data);
+      return res.status(404).json({ error: 'Game not found in database' });
+    }
+
+    // Optional date parameter: scan that specific date folder
+    const dateParam = (req.query.date || '').trim();
+
+    // Cache check
+    const cacheKey = `${home}-${away}-${dateParam || 'latest'}`;
+    const cached = _gameDetailCache[cacheKey];
+    if (cached && Date.now() < cached.expires) {
+      return res.json(cached.payload);
+    }
+
+    // 1. Find the DT_RESULT file for this game
+    // If date specified, scan all hour folders for that date; otherwise use wide latest-date scan
+    let holderPaths;
+    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      holderPaths = resolveHolderPathsForDate(IHO_BASE_PATH, dateParam);
+    } else {
+      holderPaths = resolveIHOHolderPathsWide();
+    }
+    let fullBoxscore = null;
+    let gameCode = null;
+    for (const p of holderPaths) {
+      const fileResult = findDTResultFile(p, home, away);
+      if (fileResult) {
+        const xmlStr = fs.readFileSync(fileResult.path, 'utf-8');
+        fullBoxscore = parseDTResultXmlFull(xmlStr);
+        const gcMatch = path.basename(fileResult.path).match(/(GP[A-Z]-\d{6})/);
+        if (gcMatch) gameCode = gcMatch[1];
+        break;
+      }
+    }
+
+    if (!fullBoxscore) {
+      // Try DB fallback
+      if (supabase) {
+        const { data: rows } = await supabase
+          .from('iho_game_detail')
+          .select('data')
+          .or(`and(home_team_code.eq.${home},away_team_code.eq.${away}),and(home_team_code.eq.${away},away_team_code.eq.${home})`)
+          .order('last_updated', { ascending: false })
+          .limit(1);
+        if (rows?.length > 0) return res.json(rows[0].data);
+      }
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // 2. Play-by-play
+    let playByPlay = [];
+    try {
+      const pbpPaths = dateParam ? resolveHolderPathsForDate(IHO_BASE_PATH, dateParam) : resolveIHOHolderPathsWide();
+      playByPlay = findPlayByPlayForGame(pbpPaths, home, away, 30, gameCode);
+    } catch (_) {}
+
+    // For pool/brackets, search latest date + game date + recent prior dates (pool standings
+    // may only exist on earlier dates when pool stage was active — GPA/GPB/GPC on different dates)
+    const latestPaths = resolveIHOHolderPathsWide();
+    const gameDatePaths = dateParam ? resolveHolderPathsForDate(IHO_BASE_PATH, dateParam, 24) : [];
+    const recentDatePaths = resolveRecentDatePaths(IHO_BASE_PATH, 10);
+    const metaPaths = [...new Set([...latestPaths, ...gameDatePaths, ...recentDatePaths])];
+
+    // 3. Pool standings — collect ALL groups (GPA, GPB, GPC, PREL) for same gender
+    const poolStandingsMap = {};
+    try {
+      for (const p of metaPaths) {
+        let files;
+        try { files = fs.readdirSync(p).filter(f => f.includes('DT_POOL_STANDING')).sort((x, y) => y.localeCompare(x)); } catch { continue; }
+        for (const f of files) {
+          const xml = fs.readFileSync(path.join(p, f), 'utf-8');
+          const parsed = parseDTPoolStanding(xml);
+          if (parsed && parsed.gender === fullBoxscore.gender) {
+            const key = parsed.groupCode || 'UNKNOWN';
+            if (!poolStandingsMap[key]) poolStandingsMap[key] = parsed;
+          }
+        }
+      }
+    } catch (_) {}
+    const poolStandings = Object.values(poolStandingsMap).sort((a, b) => {
+      const order = { GPA: 1, GPB: 2, GPC: 3, GPD: 4, PREL: 99 };
+      return (order[a.groupCode] || 50) - (order[b.groupCode] || 50);
+    });
+
+    // 4. Brackets — find DT_BRACKETS for the same event/gender
+    let brackets = null;
+    try {
+      for (const p of metaPaths) {
+        const files = fs.readdirSync(p)
+          .filter(f => f.includes('DT_BRACKETS'))
+          .sort((x, y) => y.localeCompare(x));
+        for (const f of files) {
+          const xml = fs.readFileSync(path.join(p, f), 'utf-8');
+          const parsed = parseDTBrackets(xml);
+          if (parsed && parsed.gender === fullBoxscore.gender) {
+            brackets = parsed;
+            break;
+          }
+        }
+        if (brackets) break;
+      }
+    } catch (_) {}
+
+    const poolStanding = poolStandings.find(ps => ps.standings.some(s => s.teamCode === home || s.teamCode === away)) || poolStandings[0] || null;
+
+    // 5. Tournament stats (TEAM_RANKING + IND_RANKING)
+    let tournamentStats = null;
+    try {
+      let teamRanking = null, indRanking = null;
+      for (const p of metaPaths) {
+        let files;
+        try { files = fs.readdirSync(p); } catch { continue; }
+        if (!teamRanking) {
+          const trFiles = files.filter(f => f.includes('TEAM_RANKING')).sort((x, y) => y.localeCompare(x));
+          for (const f of trFiles) {
+            const parsed = parseDTStatsTeamRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
+            if (parsed && parsed.gender === fullBoxscore.gender) { teamRanking = parsed; break; }
+          }
+        }
+        if (!indRanking) {
+          const irFiles = files.filter(f => f.includes('IND_RANKING')).sort((x, y) => y.localeCompare(x));
+          for (const f of irFiles) {
+            const parsed = parseDTStatsIndRanking(fs.readFileSync(path.join(p, f), 'utf-8'));
+            if (parsed && parsed.gender === fullBoxscore.gender) { indRanking = parsed; break; }
+          }
+        }
+        if (teamRanking && indRanking) break;
+      }
+      if (teamRanking || indRanking) {
+        tournamentStats = { teamRanking: teamRanking?.teams || [], indRanking: indRanking?.players || [] };
+      }
+    } catch (_) {}
+
+    const payload = {
+      ...fullBoxscore,
+      playByPlay,
+      poolStanding,
+      poolStandings,
+      brackets,
+      tournamentStats,
+    };
+
+    _gameDetailCache[cacheKey] = { payload, expires: Date.now() + GAME_DETAIL_CACHE_TTL };
+
+    // Sync to Supabase (non-blocking)
+    if (supabase && fullBoxscore.homeTeam && fullBoxscore.awayTeam) {
+      supabase.from('iho_game_detail').upsert({
+        home_team_code: fullBoxscore.homeTeam.code,
+        away_team_code: fullBoxscore.awayTeam.code,
+        game_date: fullBoxscore.date || new Date().toISOString().slice(0, 10),
+        data: payload,
+        last_updated: new Date().toISOString()
+      }, { onConflict: 'home_team_code,away_team_code,game_date' }).then(({ error }) => {
+        if (error) console.error('IHO game detail sync error:', error.message);
+      });
+    }
+
+    return res.json(payload);
+  } catch (err) {
+    console.error('IHO game detail error:', err);
+    res.status(500).json({ error: 'Failed to load game detail', details: err.message });
+  }
+});
 
 app.get('/api/iho-live', async (req, res) => {
   try {
@@ -2985,7 +3673,7 @@ if (supabaseUrl && supabaseAnonKey) {
 }
 
 /** Background sync: fetch IHO and CUR live data and upsert to Supabase. Runs every 30s. */
-function syncLiveDataToSupabase() {
+async function syncLiveDataToSupabase() {
   if (!supabase) return;
   try {
     const holderPathsIHO = resolveIHOHolderPaths();
@@ -3038,12 +3726,86 @@ function syncLiveDataToSupabase() {
   } catch (err) {
     console.error('CUR background sync error:', err.message);
   }
+
+  // --- SSK (Speed Skating) ---
+  try {
+    const payload = await findAllSSKRuns();
+    const code = payload.eventCode || 'SSK';
+    if (payload.runs.length > 0) {
+      const lastUpdated = payload.lastUpdated || new Date().toISOString();
+      for (const run of payload.runs) {
+        const evCode = run.eventCode || code;
+        supabase.from('ssk_live_data').upsert({
+          event_code: evCode,
+          data: { eventName: run.subEventName || payload.eventName, lastUpdated, runs: [run] },
+          last_updated: lastUpdated
+        }, { onConflict: 'event_code' }).then(({ error }) => {
+          if (error) console.error('SSK background sync error:', error.message);
+        });
+      }
+    }
+  } catch (err) {
+    console.error('SSK background sync error:', err.message);
+  }
+
+  // --- STK (Short Track Speed Skating) ---
+  try {
+    const payload = await findAllSTKRuns();
+    const code = payload.eventCode || 'STK';
+    if (payload.runs.length > 0) {
+      const lastUpdated = payload.lastUpdated || new Date().toISOString();
+      supabase.from('stk_live_data').upsert({
+        event_code: code,
+        data: payload,
+        last_updated: lastUpdated
+      }, { onConflict: 'event_code' }).then(({ error }) => {
+        if (error) console.error('STK background sync error:', error.message);
+      });
+    }
+  } catch (err) {
+    console.error('STK background sync error:', err.message);
+  }
+
+  // --- LUG (Luge) ---
+  try {
+    const payload = await findAllLugeRuns();
+    const code = payload.eventCode || 'LUG';
+    if (payload.runs.length > 0) {
+      supabase.from('lug_live_data').upsert({
+        event_code: code,
+        data: { eventName: payload.eventName, lastUpdated: payload.lastUpdated, runs: payload.runs },
+        last_updated: payload.lastUpdated || new Date().toISOString()
+      }, { onConflict: 'event_code' }).then(({ error }) => {
+        if (error) console.error('LUG background sync error:', error.message);
+      });
+    }
+  } catch (err) {
+    console.error('LUG background sync error:', err.message);
+  }
+
+  // --- SBD (Snowboard) ---
+  try {
+    const payload = await findAllSBDRuns();
+    const code = payload.eventCode || 'SBD';
+    if (payload.runs.length > 0 || payload.phaseResults) {
+      const lastUpdated = payload.lastUpdated || new Date().toISOString();
+      supabase.from('sbd_live_data').upsert({
+        event_code: code,
+        data: payload,
+        last_updated: lastUpdated
+      }, { onConflict: 'event_code' }).then(({ error }) => {
+        if (error) console.error('SBD background sync error:', error.message);
+      });
+    }
+  } catch (err) {
+    console.error('SBD background sync error:', err.message);
+  }
 }
 
 if (supabase) {
   // Start background sync after a delay (M: drive sync is blocking/synchronous)
   setInterval(syncLiveDataToSupabase, 30 * 1000);
-  console.log('   Live data background sync: every 30s (IHO + CUR)');
+  console.log('   Live data background sync: every 30s (IHO + CUR + SSK + STK + LUG + SBD)');
 }
 
 // Valid resource types
