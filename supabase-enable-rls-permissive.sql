@@ -199,3 +199,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON cur_game_detail;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON cur_game_detail;
 CREATE POLICY "Allow all (anon)" ON cur_game_detail FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON cur_game_detail FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- CUR PBP Images (curling play-by-play sheet images)
+-- ============================================
+ALTER TABLE cur_pbp_images ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON cur_pbp_images;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON cur_pbp_images;
+CREATE POLICY "Allow all (anon)" ON cur_pbp_images FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON cur_pbp_images FOR ALL TO authenticated USING (true) WITH CHECK (true);

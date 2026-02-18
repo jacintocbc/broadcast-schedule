@@ -284,9 +284,33 @@ function PlayByPlayTab({ data }) {
     return <p className="text-gray-400">No play-by-play data available.</p>
   }
 
-  const actions = pbp.actions
+  const [actions, setActions] = useState(pbp.actions)
   const ht = data.homeTeam || {}
   const at = data.awayTeam || {}
+
+  // If actions lack images, fetch them from the separate PBP images endpoint
+  useEffect(() => {
+    const hasAnyImage = pbp.actions.some(a => a.imageData)
+    if (hasAnyImage) { setActions(pbp.actions); return }
+    const hc = data.homeTeam?.code?.toUpperCase()
+    const ac = data.awayTeam?.code?.toUpperCase()
+    const d = data.date
+    if (!hc || !ac || !d) return
+    const imgUrl = `${API_BASE}/api/cur-pbp-images?home=${hc}&away=${ac}&date=${d}`
+    fetch(imgUrl)
+      .then(r => r.ok ? r.json() : null)
+      .then(result => {
+        if (!result?.images?.length) return
+        const imgMap = new Map()
+        for (const img of result.images) imgMap.set(`${img.end_num}_${img.stone_num}`, img.image_data)
+        setActions(prev => prev.map(a => {
+          const key = `${a.end}_${a.stoneNum}`
+          const img = imgMap.get(key)
+          return img ? { ...a, imageData: img } : a
+        }))
+      })
+      .catch(() => {})
+  }, [pbp.actions, data.homeTeam?.code, data.awayTeam?.code, data.date])
 
   // Group by end
   const byEnd = {}

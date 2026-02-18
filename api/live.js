@@ -107,6 +107,30 @@ export default async function handler(req, res) {
       return res.json(rows[0].data);
     }
 
+    // CUR PBP Images: individual stone sheet images
+    if (type === 'cur-pbp-images') {
+      const home = req.query.home?.trim()?.toUpperCase();
+      const away = req.query.away?.trim()?.toUpperCase();
+      const date = req.query.date?.trim();
+      if (!home || !away || !date) {
+        return res.status(400).json({ error: 'home, away, and date query params required' });
+      }
+      const key1 = `${home}-${away}_${date}`;
+      const key2 = `${away}-${home}_${date}`;
+      const { data: d1, error: e1 } = await supabase
+        .from('cur_pbp_images')
+        .select('end_num,stone_num,image_data')
+        .eq('game_key', key1);
+      if (e1) throw e1;
+      const { data: d2, error: e2 } = await supabase
+        .from('cur_pbp_images')
+        .select('end_num,stone_num,image_data')
+        .eq('game_key', key2);
+      if (e2) throw e2;
+      const images = (d1?.length > 0) ? d1 : (d2?.length > 0) ? d2 : [];
+      return res.json({ images });
+    }
+
     if (type === 'lug' || type === 'ssk' || type === 'stk' || type === 'sbd') {
       const defaultCode = type === 'lug' ? 'LUG' : type === 'ssk' ? 'SSK' : type === 'stk' ? 'STK' : 'SBD';
       const eventCode = (req.query.event_code || req.query.eventCode || defaultCode).toString().trim().toUpperCase() || defaultCode;

@@ -2544,9 +2544,10 @@ function parseDTResultXmlCurling(xmlStr) {
     const desc = c?.Description || {};
     const stats = c?.StatsItems?.StatsItem;
     const statsArr = Array.isArray(stats) ? stats : (stats ? [stats] : []);
+    const rawCode = (c?.['@_Organisation'] ?? '').toUpperCase();
     return {
       name: desc['@_TeamName'] ?? desc.TeamName ?? '',
-      code: c?.['@_Organisation'] ?? '',
+      code: rawCode === 'PRC' ? 'CHN' : rawCode,
       score: parseInt(r['@_Result'], 10) ?? 0,
       gameSuccess: getStatValue(statsArr, 'GAME_SUCCESS'),
       gameSuccessPercent: (() => { const item = statsArr.find(s => (s['@_Code'] ?? s.Code) === 'GAME_SUCCESS'); return item?.['@_Percent']; })(),
@@ -2703,9 +2704,10 @@ function parseDTResultXmlCurlingFull(xmlStr) {
       function: a(co, 'Function') || ''
     }));
 
+    const rawCode = (a(c, 'Organisation') || '').toUpperCase();
     return {
       name: a(desc, 'TeamName') || '',
-      code: a(c, 'Organisation') || '',
+      code: rawCode === 'PRC' ? 'CHN' : rawCode,
       score: parseInt(a(r, 'Result'), 10) || 0,
       gameSuccess: getTeamStat('GAME_SUCCESS'),
       cw: getTeamStat('CW'),
@@ -2794,9 +2796,10 @@ function parseDTPlayByPlayCurling(xmlStr) {
     const m = code.match(/---([A-Z]{3})/);
     return m ? m[1] : '';
   };
+  const normCode = (c) => (c === 'PRC' ? 'CHN' : c);
 
-  const homeCode = extractTeamCode(a(actions, 'Home'));
-  const awayCode = extractTeamCode(a(actions, 'Away'));
+  const homeCode = normCode(extractTeamCode(a(actions, 'Home')));
+  const awayCode = normCode(extractTeamCode(a(actions, 'Away')));
   const sportDesc = comp?.ExtendedInfos?.SportDescription || {};
   const gender = a(sportDesc, 'Gender') || '';
 
@@ -2807,7 +2810,8 @@ function parseDTPlayByPlayCurling(xmlStr) {
     ext.forEach(e => { extMap[a(e, 'Code')] = a(e, 'Value'); });
 
     const competitor = act.Competitor;
-    const teamCode = competitor ? (a(competitor, 'Organisation') || extractTeamCode(a(competitor, 'Code'))) : '';
+    const rawCode = competitor ? (a(competitor, 'Organisation') || extractTeamCode(a(competitor, 'Code'))) : '';
+    const teamCode = normCode(rawCode);
     let playerName = '';
     const composition = competitor?.Composition;
     const athletes = Array.isArray(composition?.Athlete) ? composition.Athlete : (composition?.Athlete ? [composition.Athlete] : []);
@@ -2920,6 +2924,7 @@ function findCurlingPlayByPlay(holderPaths, homeCode, awayCode) {
     const m = code.match(/---([A-Z]{3})/);
     return m ? m[1] : '';
   };
+  const normalizeTeamCode = (code) => (code === 'PRC' ? 'CHN' : code);
 
   for (const dirPath of holderPaths) {
     if (!fs.existsSync(dirPath)) continue;
@@ -2940,9 +2945,11 @@ function findCurlingPlayByPlay(holderPaths, homeCode, awayCode) {
         const header = buf.toString('utf-8');
         const homeMatch = header.match(/Home="([^"]+)"/);
         const awayMatch = header.match(/Away="([^"]+)"/);
-        const fileHome = homeMatch ? extractTeamCode(homeMatch[1]) : '';
-        const fileAway = awayMatch ? extractTeamCode(awayMatch[1]) : '';
-        if (!((fileHome === home && fileAway === away) || (fileHome === away && fileAway === home))) continue;
+        const fileHome = normalizeTeamCode(homeMatch ? extractTeamCode(homeMatch[1]) : '');
+        const fileAway = normalizeTeamCode(awayMatch ? extractTeamCode(awayMatch[1]) : '');
+        const searchHome = normalizeTeamCode(home);
+        const searchAway = normalizeTeamCode(away);
+        if (!((fileHome === searchHome && fileAway === searchAway) || (fileHome === searchAway && fileAway === searchHome))) continue;
 
         // Match found — parse the full file
         const xml = fs.readFileSync(filePath, 'utf-8');
@@ -3317,6 +3324,8 @@ app.get('/api/iho-live', async (req, res) => {
 // ============================================
 let _curGameDetailCache = {};
 const CUR_GAME_DETAIL_CACHE_TTL = 30 * 1000;
+const _syncedPbpImages = new Set();
+let _pendingPbpImages = [];
 
 const _curMetaCache = {
   gender: null,
@@ -4399,13 +4408,23 @@ async function syncGameDetailToSupabase() {
   try {
     const holderPaths = resolveIHOHolderPathsWide();
 
-    // Collect ALL unique matchups from DT_RESULT files
+    // Collect ALL unique matchups efficiently: one read per unique game code / signature
     const matchups = new Map();
     for (const p of holderPaths) {
       const files = listDTResultFiles(p);
-      for (const { path: filePath } of files) {
+      if (files.length === 0) continue;
+      // Deduplicate: use game code from filename, else signature
+      const codeToFile = new Map();
+      const sigToFile = new Map();
+      for (const f of files) {
+        const m = f.name.match(/(GP[A-Z]-\d{6})/);
+        if (m) { if (!codeToFile.has(m[1])) codeToFile.set(m[1], f); }
+        else { const sig = f.name.replace(/^\d+_\d+_/, ''); if (!sigToFile.has(sig)) sigToFile.set(sig, f); }
+      }
+      const uniqueFiles = [...codeToFile.values(), ...sigToFile.values()];
+      for (const f of uniqueFiles) {
         try {
-          const xmlStr = fs.readFileSync(filePath, 'utf-8');
+          const xmlStr = fs.readFileSync(f.path, 'utf-8');
           const data = parseDTResultXml(xmlStr);
           const h = data.homeTeam?.code?.toUpperCase();
           const a = data.awayTeam?.code?.toUpperCase();
@@ -4555,13 +4574,19 @@ async function syncCurGameDetailToSupabase() {
   try {
     const holderPaths = resolveCURHolderPaths();
 
-    // Collect ALL unique curling matchups from DT_RESULT files
+    // Collect ALL unique curling matchups efficiently: one read per unique document signature
     const matchups = new Map();
     for (const p of holderPaths) {
       const files = listDTResultFiles(p);
-      for (const { path: filePath } of files) {
+      if (files.length === 0) continue;
+      const sigToFile = new Map();
+      for (const f of files) {
+        const sig = f.name.replace(/^\d+_\d+_/, '');
+        if (!sigToFile.has(sig)) sigToFile.set(sig, f);
+      }
+      for (const f of sigToFile.values()) {
         try {
-          const xmlStr = fs.readFileSync(filePath, 'utf-8');
+          const xmlStr = fs.readFileSync(f.path, 'utf-8');
           const data = parseDTResultXmlCurling(xmlStr);
           const h = data.homeTeam?.code?.toUpperCase();
           const a = data.awayTeam?.code?.toUpperCase();
@@ -4594,11 +4619,20 @@ async function syncCurGameDetailToSupabase() {
         }
         if (!fullBoxscore) continue;
 
-        // 2. Play-by-play
+        // 2. Play-by-play (strip base64 images from main payload; images synced separately)
         let playByPlay = null;
         try {
           playByPlay = findCurlingPlayByPlay(holderPaths, home, away);
         } catch (_) {}
+        let pbpLite = null;
+        if (playByPlay && playByPlay.actions) {
+          pbpLite = { ...playByPlay, actions: playByPlay.actions.map(a => ({ ...a, imageData: null })) };
+
+          // Queue images for background sync (non-blocking, processed after all game details)
+          const gameKey = `${home}-${away}_${gameDate}`;
+          const newImgs = playByPlay.actions.filter(a => a.imageData && !_syncedPbpImages.has(`${gameKey}_E${a.end}_S${a.stoneNum}`));
+          if (newImgs.length > 0) _pendingPbpImages.push(...newImgs.map(a => ({ gameKey, end: a.end, stoneNum: a.stoneNum, imageData: a.imageData })));
+        }
 
         // 3. Pool standings, brackets, ranking — use meta cache
         const metaCached = getCurMetaCached(fullBoxscore.gender, home, away, gameDate, fullBoxscore.resultStatus);
@@ -4620,7 +4654,7 @@ async function syncCurGameDetailToSupabase() {
 
         const payload = {
           ...fullBoxscore,
-          playByPlay,
+          playByPlay: pbpLite,
           poolStanding,
           poolStandings,
           brackets,
@@ -4644,16 +4678,46 @@ async function syncCurGameDetailToSupabase() {
   } catch (err) {
     console.error('CUR game detail background sync error:', err.message);
   }
+
+  // Process queued PBP images in batches of 5 concurrently
+  if (_pendingPbpImages.length > 0 && supabase) {
+    const batch = [..._pendingPbpImages];
+    _pendingPbpImages = [];
+    console.log(`   [CUR PBP img] Syncing ${batch.length} new image(s) in batches of 5...`);
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < batch.length; i += BATCH_SIZE) {
+      const chunk = batch.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(chunk.map(async ({ gameKey, end, stoneNum, imageData }) => {
+        const imgId = `${gameKey}_E${end}_S${stoneNum}`;
+        if (_syncedPbpImages.has(imgId)) return;
+        try {
+          const { error } = await supabase.from('cur_pbp_images').upsert({
+            id: imgId, game_key: gameKey, end_num: parseInt(end) || 0, stone_num: stoneNum || 0,
+            image_data: imageData, last_updated: new Date().toISOString()
+          }, { onConflict: 'id' });
+          if (error) console.error(`PBP img error (${imgId}):`, error.message?.slice(0, 80));
+          else _syncedPbpImages.add(imgId);
+        } catch (_) {}
+      }));
+    }
+    console.log(`   [CUR PBP img] Done. ${_syncedPbpImages.size} total cached.`);
+  }
 }
 
 if (supabase) {
-  // Start background sync after a delay (M: drive sync is blocking/synchronous)
+  // Immediate first sync on startup, then recurring intervals
+  setTimeout(() => {
+    syncLiveDataToSupabase();
+    syncGameDetailToSupabase();
+    syncCurGameDetailToSupabase();
+  }, 3000);
   setInterval(syncLiveDataToSupabase, 30 * 1000);
   setInterval(syncGameDetailToSupabase, 120 * 1000);
   setInterval(syncCurGameDetailToSupabase, 120 * 1000);
   console.log('   Live data background sync: every 30s (IHO + CUR + SSK + STK + LUG + SBD)');
   console.log('   IHO game detail background sync: every 2m (all active games)');
   console.log('   CUR game detail background sync: every 2m (all active games)');
+  console.log('   Initial sync in 3s...');
 }
 
 // Valid resource types
