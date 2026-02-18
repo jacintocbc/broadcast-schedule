@@ -12,9 +12,9 @@ import { XMLParser } from 'fast-xml-parser';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load .env from project root first, then backend (so backend/.env can override)
+// Load .env: backend first (explicit path), then project root
+dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
-dotenv.config();
 
 const app = express();
 const PORT = 3001;
@@ -578,6 +578,16 @@ const STK_BASE_PATH = process.env.STK_BASE_PATH || 'M:\\Incoming\\STK';
 // ============================================
 const SBD_BASE_PATH = process.env.SBD_BASE_PATH || 'M:\\Incoming\\SBD';
 
+// ============================================
+// ODF Schedule Merge (updates CSV events from M: XML)
+// ============================================
+const INCOMING_BASE = process.env.INCOMING_BASE || 'M:\\Incoming';
+const ODDF_SCHEDULE_FOLDERS = ['OBS', 'GEN', 'SBD', 'IHO', 'CUR', 'SSK', 'STK', 'LUG', 'SKE', 'BOB', 'NOC'];
+const ODF_SCHEDULE_MERGE_ENABLED = process.env.ODF_SCHEDULE_MERGE_ENABLED !== 'false';
+const ODF_SCHEDULE_MERGE_INTERVAL_MS = Math.max(60 * 60 * 1000, parseInt(process.env.ODF_SCHEDULE_MERGE_INTERVAL_MIN || '60', 10) * 60 * 1000);
+const ODF_SCHEDULE_FIRST_RUN_DELAY_MS = 2 * 60 * 1000; // 2 min after startup
+const ODF_MAX_FILES_PER_FOLDER = 5;
+
 /**
  * Resolve up to N holder folder paths (newest first). Searches recent hour folders.
  * If current hour has no results, searches previous hour. Returns [] if none found.
@@ -866,6 +876,295 @@ function listSBDScheduleFiles(dirPath) {
         }
       };
     });
+}
+
+/**
+ * List DT_SCHEDULE* XML files in a directory (for ODF schedule merge).
+ * Returns up to maxFiles newest by mtime.
+ */
+function listOdfScheduleFiles(dirPath, maxFiles = ODF_MAX_FILES_PER_FOLDER) {
+  if (!fs.existsSync(dirPath)) return [];
+  const files = [];
+  try {
+    for (const name of fs.readdirSync(dirPath)) {
+      if (!name.includes('DT_SCHEDULE') || (!name.endsWith('.xml') && !name.includes('_'))) continue;
+      const filePath = path.join(dirPath, name);
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.isFile()) files.push({ name, path: filePath, mtime: stat.mtime });
+      } catch (_) { /* skip */ }
+    }
+  } catch (_) { return []; }
+  return files
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, maxFiles);
+}
+
+/**
+ * Resolve holder paths for ODF schedule scan (lightweight).
+ * For each sport folder: newest YYYY-MM-DD → newest HH. Max 1 date + 1 hour per sport.
+ */
+function resolveOdfScheduleHolderPaths() {
+  const paths = [];
+  if (!fs.existsSync(INCOMING_BASE)) return paths;
+  for (const sport of ODDF_SCHEDULE_FOLDERS) {
+    const sportPath = path.join(INCOMING_BASE, sport);
+    if (!fs.existsSync(sportPath)) continue;
+    try {
+      const dateDirs = fs.readdirSync(sportPath, { withFileTypes: true })
+        .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+        .sort((a, b) => b.name.localeCompare(a.name));
+      if (dateDirs.length === 0) continue;
+      const datePath = path.join(sportPath, dateDirs[0].name);
+      const hourDirs = fs.readdirSync(datePath, { withFileTypes: true })
+        .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+        .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
+      if (hourDirs.length === 0) continue;
+      paths.push(path.join(datePath, hourDirs[0].name));
+    } catch (_) { /* skip sport on error */ }
+  }
+  // Also check GEN and OBS root (no date/hour structure)
+  for (const sport of ['GEN', 'OBS']) {
+    const sportPath = path.join(INCOMING_BASE, sport);
+    if (fs.existsSync(sportPath)) paths.push(sportPath);
+  }
+  return [...new Set(paths)];
+}
+
+/** Map curling sheet (A/B/C/D) to VideoFeed(s): C06-MCF.1/2/3/4 and C06-CCU.1/2/3/4. Returns array. */
+function sheetToVideoFeeds(sheet, sessionCode) {
+  if (!sheet || !/^CUR\d+/i.test(sessionCode || '')) return [];
+  const s = (sheet || '').toUpperCase().replace(/\s+/g, '');
+  if (/SHEETA|SHEET\s*A|^A$/.test(s)) return ['C06-MCF.1', 'C06-CCU.1'];
+  if (/SHEETB|SHEET\s*B|^B$/.test(s)) return ['C06-MCF.2', 'C06-CCU.2'];
+  if (/SHEETC|SHEET\s*C|^C$/.test(s)) return ['C06-MCF.3', 'C06-CCU.3'];
+  if (/SHEETD|SHEET\s*D|^D$/.test(s)) return ['C06-MCF.4', 'C06-CCU.4'];
+  return [];
+}
+
+/**
+ * Build game-style title for IHO/CUR: "IHO51 M CAN-CZE QF", "CUR38 GBR-JPN W Round Robin"
+ */
+function buildGameTitle(code, sessionCode, itemName, startList, attr) {
+  const uc = (code || '').toUpperCase();
+  const sc = (sessionCode || '').toUpperCase();
+  const isIHO = uc.startsWith('IHO') || sc.startsWith('IHO');
+  const isCUR = uc.startsWith('CUR') || sc.startsWith('CUR') || uc.includes('CURL');
+  if (!isIHO && !isCUR) return null;
+  const teams = [];
+  const list = startList?.Start || startList;
+  const arr = Array.isArray(list) ? list : (list ? [list] : []);
+  for (const s of arr) {
+    const comp = s?.Competitor;
+    const c = Array.isArray(comp) ? comp[0] : comp;
+    const org = c ? (attr(c, 'Organisation') || '').toUpperCase() : '';
+    if (org) teams.push(org.slice(0, 3));
+  }
+  let gender = 'M';
+  if (/Mixed|MIXED/.test(itemName || '')) gender = 'Mixed Doubles';
+  else if (/W\s|Women|WOMEN|Woman/.test(itemName || '')) gender = 'W';
+  else if (uc.includes('IHOW') || uc.includes('CURW')) gender = 'W';
+  // Round Robin: "CUR38 GBR-JPN W Round Robin"
+  if (/Round\s*Robin|ROUND\s*ROBIN/.test(itemName || '')) {
+    if (teams.length >= 2) {
+      return `${sessionCode || ''} ${teams[0]}-${teams[1]} ${gender} Round Robin`.trim();
+    }
+    return sessionCode ? `${sessionCode} ${gender} Round Robin`.trim() : null;
+  }
+  // QF/SF/Finals
+  let phase = '';
+  if (uc.includes('QFNL')) phase = 'QF';
+  else if (uc.includes('SFNL')) phase = isCUR ? 'SFs' : 'SF';
+  else if (uc.includes('FNL')) phase = 'Final';
+  if (!phase) return null;
+  if (teams.length >= 2) {
+    return gender === 'Mixed Doubles'
+      ? `${sessionCode || ''} ${teams[0]}-${teams[1]} Mixed Doubles ${phase}`.trim()
+      : `${sessionCode || ''} ${gender} ${teams[0]}-${teams[1]} ${phase}`.trim();
+  }
+  return sessionCode ? `${sessionCode} ${gender} ${phase}`.trim() : null;
+}
+
+/**
+ * Extract all Unit elements from parsed ODF XML (Competition.Unit, Session.Unit).
+ */
+function extractOdfUnits(parsed, attr) {
+  const units = [];
+  const comp = parsed?.OdfBody?.Competition;
+  if (!comp) return units;
+  const addUnit = (u) => {
+    const code = attr(u, 'Code') || '';
+    if (!code) return;
+    const itemName = u.ItemName;
+    const name = typeof itemName === 'string' ? itemName : (attr(itemName, 'Value') || '');
+    const vd = u.VenueDescription;
+    let venue = '';
+    if (typeof vd === 'string') venue = vd;
+    else if (vd && typeof vd === 'object') {
+      const vn = attr(vd, 'VenueName') || vd.VenueName || '';
+      const ln = attr(vd, 'LocationName') || vd.LocationName || '';
+      venue = [vn, ln].filter(Boolean).join(' - ') || (vd.value ?? '');
+    }
+    const sessionCode = attr(u, 'SessionCode') || '';
+    const startList = u.StartList;
+    const locationName = (typeof vd === 'string' ? '' : (attr(vd, 'LocationName') || vd?.LocationName || '')) || attr(u, 'Location') || '';
+    const videoFeeds = sheetToVideoFeeds(locationName, sessionCode);
+    const constructedTitle = buildGameTitle(code, sessionCode, name, startList, attr);
+    units.push({
+      code,
+      sessionCode,
+      itemName: name,
+      constructedTitle: constructedTitle || name,
+      startDate: attr(u, 'StartDate') || '',
+      endDate: attr(u, 'EndDate') || '',
+      venue,
+      videoFeeds
+    });
+  };
+  const unitList = comp.Unit;
+  const unitArr = Array.isArray(unitList) ? unitList : (unitList ? [unitList] : []);
+  unitArr.forEach(addUnit);
+  const sessList = comp.Session;
+  const sessArr = Array.isArray(sessList) ? sessList : (sessList ? [sessList] : []);
+  for (const s of sessArr) {
+    const su = s?.Unit;
+    const suArr = Array.isArray(su) ? su : (su ? [su] : []);
+    suArr.forEach(addUnit);
+  }
+  return units;
+}
+
+/**
+ * Collect ODF schedule units from M: XML files (lightweight: newest folders only).
+ * Returns Map<code, { code, itemName, startDate, endDate, venue }> — newest wins.
+ */
+function collectOdfScheduleUnits() {
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const attr = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const unitMap = new Map();
+  const holderPaths = resolveOdfScheduleHolderPaths();
+  let filesRead = 0;
+  for (const dirPath of holderPaths) {
+    const files = listOdfScheduleFiles(dirPath);
+    for (const f of files) {
+      try {
+        const xmlStr = fs.readFileSync(f.path, 'utf-8');
+        filesRead++;
+        const parsed = parser.parse(xmlStr);
+        const units = extractOdfUnits(parsed, attr);
+        const fileVersion = parseInt(attr(parsed?.OdfBody, 'Version') || '0', 10);
+        for (const u of units) {
+          const existing = unitMap.get(u.code);
+          if (!existing || fileVersion >= (existing.version || 0)) {
+            const entry = { ...u, version: fileVersion };
+            unitMap.set(u.code, entry);
+            if (u.videoFeeds && u.videoFeeds.length > 0) {
+              for (const vf of u.videoFeeds) unitMap.set(vf, entry);
+            } else if (u.sessionCode && u.sessionCode.trim()) {
+              unitMap.set(u.sessionCode.trim(), entry);
+            }
+          }
+        }
+      } catch (_) { /* skip bad file */ }
+    }
+  }
+  return { unitMap, filesRead };
+}
+
+/**
+ * Format ODF ISO date-time to DD/MM/YYYY and HH:MM:SS for CSV rawData.
+ */
+function odfDateToCsvFormat(isoStr) {
+  if (!isoStr || typeof isoStr !== 'string') return { date: '', time: '' };
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return { date: '', time: '' };
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const year = d.getUTCFullYear();
+    const h = String(d.getUTCHours()).padStart(2, '0');
+    const m = String(d.getUTCMinutes()).padStart(2, '0');
+    const s = String(d.getUTCSeconds()).padStart(2, '0');
+    return {
+      date: `${day}/${month}/${year}`,
+      time: `${h}:${m}:${s}`
+    };
+  } catch (_) { return { date: '', time: '' }; }
+}
+
+/**
+ * Merge ODF schedule units into events by Es Code / VideoFeed.
+ * Updates rawData (Es Start Time, Es End Time, Es Date, Title, Es Venue). Preserves Id, ChannelName, Tx times.
+ * Returns number of events that had at least one field updated.
+ */
+function mergeOdfScheduleIntoEvents(events, unitMap) {
+  if (!Array.isArray(events) || events.length === 0 || !unitMap || unitMap.size === 0) return 0;
+  let eventsUpdated = 0;
+  for (const event of events) {
+    const raw = event.rawData || {};
+    const esCode = raw['Es Code'] || raw['EsCode'] || '';
+    const videoFeed = raw['VideoFeed'] || raw['Video Feed'] || '';
+    const unit = (videoFeed && unitMap.get(videoFeed)) || unitMap.get(esCode);
+    if (!unit) continue;
+    let changed = false;
+    const startFmt = odfDateToCsvFormat(unit.startDate);
+    const endFmt = odfDateToCsvFormat(unit.endDate);
+    const title = unit.constructedTitle || unit.itemName;
+    if (title && title !== raw['Title']) {
+      raw['Title'] = title;
+      event.title = title;
+      changed = true;
+    }
+    if (startFmt.time && startFmt.time !== raw['Es Start Time']) {
+      raw['Es Start Time'] = startFmt.time;
+      changed = true;
+    }
+    if (endFmt.time && endFmt.time !== raw['Es End Time']) {
+      raw['Es End Time'] = endFmt.time;
+      changed = true;
+    }
+    if (startFmt.date && startFmt.date !== raw['Es Date']) {
+      raw['Es Date'] = startFmt.date;
+      if (event.date !== startFmt.date) event.date = startFmt.date;
+      changed = true;
+    }
+    if (unit.venue && unit.venue !== raw['Es Venue']) {
+      raw['Es Venue'] = unit.venue;
+      changed = true;
+    }
+    if (changed) eventsUpdated++;
+  }
+  return eventsUpdated;
+}
+
+/** Last run timestamp and guard to avoid overlapping runs. */
+let _odfScheduleLastRun = 0;
+let _odfScheduleRunning = false;
+
+/**
+ * Run ODF schedule merge: scan M:, parse XML, merge into eventsData. Runs hourly.
+ */
+function runOdfScheduleMerge() {
+  if (!ODF_SCHEDULE_MERGE_ENABLED || _odfScheduleRunning) return;
+  if (eventsData.length === 0) return; // No CSV loaded yet
+  _odfScheduleRunning = true;
+  try {
+    const { unitMap, filesRead } = collectOdfScheduleUnits();
+    const count = mergeOdfScheduleIntoEvents(eventsData, unitMap);
+    _odfScheduleLastRun = Date.now();
+    if (count > 0) {
+      const eventsJsonPath = path.join(__dirname, 'events.json');
+      fs.writeFileSync(eventsJsonPath, JSON.stringify(eventsData, null, 2));
+    }
+    pushScheduleUpdatesToSupabase(unitMap);
+    if (count > 0) {
+      console.log(`ODF schedule merge: updated ${count} event(s) from ${unitMap.size} ODF units (${filesRead} files read)`);
+    }
+  } catch (err) {
+    console.error('ODF schedule merge error:', err.message);
+  } finally {
+    _odfScheduleRunning = false;
+  }
 }
 
 /**
@@ -4271,6 +4570,51 @@ if (supabaseUrl && supabaseAnonKey) {
   });
 }
 
+/** Convert ODF unitMap to CSV-format updates object for Supabase. Keys: unit code, SessionCode (for Es Code match). */
+function unitMapToUpdatesObject(unitMap) {
+  if (!unitMap || unitMap.size === 0) return {};
+  const out = {};
+  for (const [code, unit] of unitMap) {
+    const startFmt = odfDateToCsvFormat(unit.startDate);
+    const endFmt = odfDateToCsvFormat(unit.endDate);
+    const title = unit.constructedTitle || unit.itemName || undefined;
+    const update = {
+      'Es Start Time': startFmt.time || undefined,
+      'Es End Time': endFmt.time || undefined,
+      'Es Date': startFmt.date || undefined,
+      'Title': title || undefined,
+      'Es Venue': (unit.venue && typeof unit.venue === 'string') ? unit.venue : undefined
+    };
+    Object.keys(update).forEach(k => { if (update[k] === undefined) delete update[k]; });
+    out[code] = update;
+    if (unit.videoFeeds && unit.videoFeeds.length > 0) {
+      for (const vf of unit.videoFeeds) out[vf] = update;
+    } else if (unit.sessionCode && unit.sessionCode.trim()) {
+      out[unit.sessionCode.trim()] = update;
+    }
+  }
+  return out;
+}
+
+/** Push ODF schedule updates (unitMap) to Supabase. Deployed API applies these over base CSV. */
+async function pushScheduleUpdatesToSupabase(unitMap) {
+  if (!supabase) return;
+  try {
+    const updates = unitMapToUpdatesObject(unitMap);
+    const { error } = await supabase
+      .from('obs_schedule_updates')
+      .upsert({ id: 'default', updates, last_updated: new Date().toISOString() }, { onConflict: 'id' });
+    if (error) {
+      console.error('Push obs_schedule_updates error:', error.message);
+      return;
+    }
+    const n = Object.keys(updates).length;
+    console.log(`Pushed ${n} schedule update(s) to Supabase obs_schedule_updates`);
+  } catch (err) {
+    console.error('Push obs_schedule_updates error:', err.message);
+  }
+}
+
 /** Background sync: fetch IHO and CUR live data and upsert to Supabase. Runs every 30s. */
 async function syncLiveDataToSupabase() {
   if (!supabase) return;
@@ -5876,6 +6220,38 @@ app.use((err, req, res, next) => {
   });
 });
 
+// CLI: npm run schedule-sync — load CSV, run ODF merge, push updates to Supabase, exit
+// CLI: npm run schedule-sync:watch — run sync, wait 1 hour, repeat (keeps running)
+if (process.argv.includes('--schedule-sync')) {
+  const watch = process.argv.includes('--watch');
+  const doSync = async () => {
+    loadStaticCSVOnStartup();
+    if (eventsData.length === 0) {
+      console.error('No schedule loaded. Place schedule.csv in backend/data/');
+      if (!watch) process.exit(1);
+      return;
+    }
+    const { unitMap, filesRead } = collectOdfScheduleUnits();
+    const count = mergeOdfScheduleIntoEvents(eventsData, unitMap);
+    if (count > 0) {
+      const eventsJsonPath = path.join(__dirname, 'events.json');
+      fs.writeFileSync(eventsJsonPath, JSON.stringify(eventsData, null, 2));
+    }
+    await pushScheduleUpdatesToSupabase(unitMap);
+    const ts = new Date().toISOString();
+    console.log(`[${ts}] Schedule sync complete: ${unitMap.size} ODF unit(s) from ${filesRead} file(s), ${count} event(s) updated.`);
+    if (!watch) process.exit(0);
+  };
+  (async () => {
+    await doSync();
+    if (watch) {
+      const intervalMs = ODF_SCHEDULE_MERGE_INTERVAL_MS;
+      console.log(`Next sync in ${intervalMs / 60000} min. (Ctrl+C to stop)`);
+      setInterval(doSync, intervalMs);
+    }
+  })();
+  // Don't start server
+} else {
 // Register all routes before starting server
 console.log('Registering routes...');
 console.log('Routes registered. Starting server...');
@@ -5900,4 +6276,12 @@ app.listen(PORT, () => {
   console.log('    GET/POST/PUT/DELETE /api/schedule-blocks');
   }
   loadStaticCSVOnStartup();
+
+  // ODF schedule merge: first run after 2 min, then every hour
+  if (ODF_SCHEDULE_MERGE_ENABLED) {
+    setTimeout(() => runOdfScheduleMerge(), ODF_SCHEDULE_FIRST_RUN_DELAY_MS);
+    setInterval(runOdfScheduleMerge, ODF_SCHEDULE_MERGE_INTERVAL_MS);
+    console.log(`  ODF schedule merge: enabled (first run in ${ODF_SCHEDULE_FIRST_RUN_DELAY_MS / 60000} min, then every ${ODF_SCHEDULE_MERGE_INTERVAL_MS / 60000} min)`);
+  }
 });
+}

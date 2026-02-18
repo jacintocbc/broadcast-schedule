@@ -2,9 +2,46 @@ import { parse } from 'csv-parse/sync';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+  : null;
+
+/** Serialize value for rawData (handles legacy object values for Es Venue). */
+function serializeUpdateValue(v) {
+  if (v == null) return null;
+  if (typeof v === 'string') return v;
+  if (typeof v === 'object' && v !== null) {
+    const vn = v['@_VenueName'] ?? v.VenueName ?? '';
+    const ln = v['@_LocationName'] ?? v.LocationName ?? '';
+    return [vn, ln].filter(Boolean).join(' - ') || null;
+  }
+  return String(v);
+}
+
+/** Apply ODF updates (keyed by Es Code / SessionCode) to base events. Mutates events in place. */
+function applyScheduleUpdates(events, updates) {
+  if (!Array.isArray(events) || !updates || typeof updates !== 'object' || Object.keys(updates).length === 0) return events;
+  for (const event of events) {
+    const raw = event.rawData || {};
+    const esCode = raw['Es Code'] || raw['EsCode'] || '';
+    const videoFeed = raw['VideoFeed'] || raw['Video Feed'] || '';
+    const patch = (videoFeed && updates[videoFeed]) || updates[esCode];
+    if (!patch) continue;
+    for (const [k, v] of Object.entries(patch)) {
+      const val = serializeUpdateValue(v);
+      if (val == null) continue;
+      raw[k] = val;
+      if (k === 'Title') event.title = val;
+      if (k === 'Es Date') event.date = val;
+    }
+  }
+  return events;
+}
 
 /**
  * Convert DD/MM/YYYY date and HH:MM:SS time (in Rome timezone) to ISO timestamp (UTC)
@@ -203,8 +240,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const eventsData = getEventsData();
-    
+    // Base: always load from bundled CSV / events.json
+    let eventsData = getEventsData();
+
+    // Apply ODF updates from Supabase (pushed by backend when ODF merge runs)
+    if (supabase && eventsData.length > 0) {
+      const { data, error } = await supabase
+        .from('obs_schedule_updates')
+        .select('updates')
+        .eq('id', 'default')
+        .single();
+      if (!error && data?.updates && typeof data.updates === 'object') {
+        applyScheduleUpdates(eventsData, data.updates);
+      }
+    }
+
     // Extract unique dates from events
     const dates = new Set();
     eventsData.forEach(event => {

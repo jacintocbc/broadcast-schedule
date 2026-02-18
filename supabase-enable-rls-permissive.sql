@@ -208,3 +208,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON cur_pbp_images;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON cur_pbp_images;
 CREATE POLICY "Allow all (anon)" ON cur_pbp_images FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON cur_pbp_images FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- OBS Schedule Updates (ODF merge deltas only; backend pushes, deployed applies over base CSV)
+-- ============================================
+ALTER TABLE obs_schedule_updates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON obs_schedule_updates;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON obs_schedule_updates;
+CREATE POLICY "Allow all (anon)" ON obs_schedule_updates FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON obs_schedule_updates FOR ALL TO authenticated USING (true) WITH CHECK (true);
