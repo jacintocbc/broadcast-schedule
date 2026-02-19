@@ -30,7 +30,8 @@ function applyScheduleUpdates(events, updates) {
     const raw = event.rawData || {};
     const esCode = raw['Es Code'] || raw['EsCode'] || '';
     const videoFeed = raw['VideoFeed'] || raw['Video Feed'] || '';
-    const patch = (videoFeed && updates[videoFeed]) || updates[esCode];
+    const compoundKey = (esCode && videoFeed) ? `${esCode}:${videoFeed}` : '';
+    const patch = (compoundKey && updates[compoundKey]) || updates[esCode];
     if (!patch) continue;
     for (const [k, v] of Object.entries(patch)) {
       const val = serializeUpdateValue(v);

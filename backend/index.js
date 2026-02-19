@@ -901,8 +901,8 @@ function listOdfScheduleFiles(dirPath, maxFiles = ODF_MAX_FILES_PER_FOLDER) {
 }
 
 /**
- * Resolve holder paths for ODF schedule scan (lightweight).
- * For each sport folder: newest YYYY-MM-DD → newest HH. Max 1 date + 1 hour per sport.
+ * Resolve holder paths for ODF schedule scan.
+ * For each sport folder: newest YYYY-MM-DD → ALL hour folders (schedule updates arrive at any hour).
  */
 function resolveOdfScheduleHolderPaths() {
   const paths = [];
@@ -919,8 +919,9 @@ function resolveOdfScheduleHolderPaths() {
       const hourDirs = fs.readdirSync(datePath, { withFileTypes: true })
         .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
         .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
-      if (hourDirs.length === 0) continue;
-      paths.push(path.join(datePath, hourDirs[0].name));
+      for (const hd of hourDirs) {
+        paths.push(path.join(datePath, hd.name));
+      }
     } catch (_) { /* skip sport on error */ }
   }
   // Also check GEN and OBS root (no date/hour structure)
@@ -934,11 +935,11 @@ function resolveOdfScheduleHolderPaths() {
 /** Map curling sheet (A/B/C/D) to VideoFeed(s): C06-MCF.1/2/3/4 and C06-CCU.1/2/3/4. Returns array. */
 function sheetToVideoFeeds(sheet, sessionCode) {
   if (!sheet || !/^CUR\d+/i.test(sessionCode || '')) return [];
-  const s = (sheet || '').toUpperCase().replace(/\s+/g, '');
-  if (/SHEETA|SHEET\s*A|^A$/.test(s)) return ['C06-MCF.1', 'C06-CCU.1'];
-  if (/SHEETB|SHEET\s*B|^B$/.test(s)) return ['C06-MCF.2', 'C06-CCU.2'];
-  if (/SHEETC|SHEET\s*C|^C$/.test(s)) return ['C06-MCF.3', 'C06-CCU.3'];
-  if (/SHEETD|SHEET\s*D|^D$/.test(s)) return ['C06-MCF.4', 'C06-CCU.4'];
+  const s = (sheet || '').toUpperCase();
+  if (/SHEET\s*A\b|^A$/i.test(s) || /\bCUA\b/.test(s)) return ['C06-MCF.1', 'C06-CCU.1'];
+  if (/SHEET\s*B\b|^B$/i.test(s) || /\bCUB\b/.test(s)) return ['C06-MCF.2', 'C06-CCU.2'];
+  if (/SHEET\s*C\b|^C$/i.test(s) || /\bCUC\b/.test(s)) return ['C06-MCF.3', 'C06-CCU.3'];
+  if (/SHEET\s*D\b|^D$/i.test(s) || /\bCUD\b/.test(s)) return ['C06-MCF.4', 'C06-CCU.4'];
   return [];
 }
 
@@ -1058,10 +1059,11 @@ function collectOdfScheduleUnits() {
           if (!existing || fileVersion >= (existing.version || 0)) {
             const entry = { ...u, version: fileVersion };
             unitMap.set(u.code, entry);
-            if (u.videoFeeds && u.videoFeeds.length > 0) {
-              for (const vf of u.videoFeeds) unitMap.set(vf, entry);
-            } else if (u.sessionCode && u.sessionCode.trim()) {
-              unitMap.set(u.sessionCode.trim(), entry);
+            const sc = (u.sessionCode || '').trim();
+            if (u.videoFeeds && u.videoFeeds.length > 0 && sc) {
+              for (const vf of u.videoFeeds) unitMap.set(`${sc}:${vf}`, entry);
+            } else if (sc) {
+              unitMap.set(sc, entry);
             }
           }
         }
@@ -1104,7 +1106,8 @@ function mergeOdfScheduleIntoEvents(events, unitMap) {
     const raw = event.rawData || {};
     const esCode = raw['Es Code'] || raw['EsCode'] || '';
     const videoFeed = raw['VideoFeed'] || raw['Video Feed'] || '';
-    const unit = (videoFeed && unitMap.get(videoFeed)) || unitMap.get(esCode);
+    const compoundKey = (esCode && videoFeed) ? `${esCode}:${videoFeed}` : '';
+    const unit = (compoundKey && unitMap.get(compoundKey)) || unitMap.get(esCode);
     if (!unit) continue;
     let changed = false;
     const startFmt = odfDateToCsvFormat(unit.startDate);
@@ -4587,10 +4590,11 @@ function unitMapToUpdatesObject(unitMap) {
     };
     Object.keys(update).forEach(k => { if (update[k] === undefined) delete update[k]; });
     out[code] = update;
-    if (unit.videoFeeds && unit.videoFeeds.length > 0) {
-      for (const vf of unit.videoFeeds) out[vf] = update;
-    } else if (unit.sessionCode && unit.sessionCode.trim()) {
-      out[unit.sessionCode.trim()] = update;
+    const sc = (unit.sessionCode || '').trim();
+    if (unit.videoFeeds && unit.videoFeeds.length > 0 && sc) {
+      for (const vf of unit.videoFeeds) out[`${sc}:${vf}`] = update;
+    } else if (sc) {
+      out[sc] = update;
     }
   }
   return out;
