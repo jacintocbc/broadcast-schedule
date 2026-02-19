@@ -8,6 +8,30 @@ import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import { XMLParser } from 'fast-xml-parser';
+import nodeFetch from 'node-fetch';
+import https from 'https';
+
+// Semaphore limits concurrent Supabase HTTP requests (max 3) to prevent
+// ECONNRESET / TLS failures from too many parallel connections on Node 18.
+const SB_MAX_CONCURRENT = 3;
+let _sbInFlight = 0;
+const _sbWaiters = [];
+function _sbAcquire() {
+  if (_sbInFlight < SB_MAX_CONCURRENT) { _sbInFlight++; return Promise.resolve(); }
+  return new Promise(resolve => _sbWaiters.push(resolve));
+}
+function _sbRelease() {
+  if (_sbWaiters.length > 0) { _sbWaiters.shift()(); }
+  else { _sbInFlight--; }
+}
+async function queuedFetch(url, opts = {}) {
+  await _sbAcquire();
+  try {
+    return await nodeFetch(url, { ...opts, agent: new https.Agent({ family: 4 }), timeout: 30000 });
+  } finally {
+    _sbRelease();
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -902,7 +926,8 @@ function listOdfScheduleFiles(dirPath, maxFiles = ODF_MAX_FILES_PER_FOLDER) {
 
 /**
  * Resolve holder paths for ODF schedule scan.
- * For each sport folder: newest YYYY-MM-DD → ALL hour folders (schedule updates arrive at any hour).
+ * For each sport folder: newest 3 dates → ALL hour folders (schedule updates arrive at any hour,
+ * and older dates may contain data not repeated in newer updates).
  */
 function resolveOdfScheduleHolderPaths() {
   const paths = [];
@@ -915,12 +940,14 @@ function resolveOdfScheduleHolderPaths() {
         .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
         .sort((a, b) => b.name.localeCompare(a.name));
       if (dateDirs.length === 0) continue;
-      const datePath = path.join(sportPath, dateDirs[0].name);
-      const hourDirs = fs.readdirSync(datePath, { withFileTypes: true })
-        .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
-        .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
-      for (const hd of hourDirs) {
-        paths.push(path.join(datePath, hd.name));
+      for (const dd of dateDirs.slice(0, 3)) {
+        const datePath = path.join(sportPath, dd.name);
+        const hourDirs = fs.readdirSync(datePath, { withFileTypes: true })
+          .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+          .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
+        for (const hd of hourDirs) {
+          paths.push(path.join(datePath, hd.name));
+        }
       }
     } catch (_) { /* skip sport on error */ }
   }
@@ -3213,8 +3240,9 @@ function parseDTStatsCurlingRanking(xmlStr) {
 
 /**
  * Find curling PBP files across holder paths for a specific game (by home/away codes).
- * Only parses the full ACTION file (not per-end files) and checks team codes from the
- * XML header (first 2KB) before loading the full file to avoid parsing megabytes of base64 images.
+ * Files are per-end ({endNum}_ACTION.xml). We take the newest file per end, then
+ * aggregate all ends. Checks team codes from the XML header (first 2KB) before loading
+ * the full file to avoid parsing megabytes of base64 images.
  */
 function findCurlingPlayByPlay(holderPaths, homeCode, awayCode) {
   const home = (homeCode || '').trim().toUpperCase();
@@ -3227,19 +3255,24 @@ function findCurlingPlayByPlay(holderPaths, homeCode, awayCode) {
     return m ? m[1] : '';
   };
   const normalizeTeamCode = (code) => (code === 'PRC' ? 'CHN' : code);
+  const searchHome = normalizeTeamCode(home);
+  const searchAway = normalizeTeamCode(away);
 
+  // Collect the newest file per end across all holder paths
+  const newestPerEnd = new Map();
   for (const dirPath of holderPaths) {
     if (!fs.existsSync(dirPath)) continue;
     let names;
     try { names = fs.readdirSync(dirPath); } catch { continue; }
-    // Only look at cumulative ACTION files (ending with __ACTION.xml, not _P1_ACTION etc.)
     const pbpFiles = names
-      .filter(f => f.includes('DT_PLAY_BY_PLAY_CUR') && f.endsWith('__ACTION.xml'))
+      .filter(f => f.includes('DT_PLAY_BY_PLAY_CUR') && f.endsWith('_ACTION.xml'))
       .sort((a, b) => b.localeCompare(a));
     for (const fname of pbpFiles) {
+      const endMatch = fname.match(/_(\d+)_ACTION\.xml$/);
+      const endKey = endMatch ? endMatch[1] : 'ALL';
+      if (newestPerEnd.has(endKey)) continue;
       const filePath = path.join(dirPath, fname);
       try {
-        // Quick check: read first 2KB to extract Home/Away codes without parsing base64 images
         const fd = fs.openSync(filePath, 'r');
         const buf = Buffer.alloc(2048);
         fs.readSync(fd, buf, 0, 2048, 0);
@@ -3249,18 +3282,34 @@ function findCurlingPlayByPlay(holderPaths, homeCode, awayCode) {
         const awayMatch = header.match(/Away="([^"]+)"/);
         const fileHome = normalizeTeamCode(homeMatch ? extractTeamCode(homeMatch[1]) : '');
         const fileAway = normalizeTeamCode(awayMatch ? extractTeamCode(awayMatch[1]) : '');
-        const searchHome = normalizeTeamCode(home);
-        const searchAway = normalizeTeamCode(away);
         if (!((fileHome === searchHome && fileAway === searchAway) || (fileHome === searchAway && fileAway === searchHome))) continue;
-
-        // Match found — parse the full file
-        const xml = fs.readFileSync(filePath, 'utf-8');
-        const parsed = parseDTPlayByPlayCurling(xml);
-        if (parsed) return parsed;
+        newestPerEnd.set(endKey, filePath);
       } catch { continue; }
     }
   }
-  return null;
+
+  if (newestPerEnd.size === 0) return null;
+
+  // Each per-end file only contains that end's actions — aggregate all ends
+  const sorted = [...newestPerEnd.entries()].sort((a, b) => {
+    const na = parseInt(a[0], 10) || 0, nb = parseInt(b[0], 10) || 0;
+    return na - nb;
+  });
+
+  let combined = null;
+  for (const [, filePath] of sorted) {
+    try {
+      const xml = fs.readFileSync(filePath, 'utf-8');
+      const parsed = parseDTPlayByPlayCurling(xml);
+      if (!parsed || !parsed.actions || parsed.actions.length === 0) continue;
+      if (!combined) {
+        combined = parsed;
+      } else {
+        combined.actions.push(...parsed.actions);
+      }
+    } catch { continue; }
+  }
+  return combined;
 }
 
 async function fetchIHOFromSupabase(home, away) {
@@ -3763,10 +3812,13 @@ app.get('/api/cur-game-detail', async (req, res) => {
       return res.status(404).json({ error: 'Game not found' });
     }
 
-    // 2. Play-by-play
+    // 2. Play-by-play (scan more hours since curling games last 3+ hours)
     let playByPlay = null;
     try {
-      playByPlay = findCurlingPlayByPlay(holderPaths, home, away);
+      const pbpPaths = dateParam
+        ? resolveHolderPathsForDate(CUR_BASE_PATH, dateParam, 24)
+        : resolveHolderPaths(CUR_BASE_PATH, 6);
+      playByPlay = findCurlingPlayByPlay(pbpPaths, home, away);
     } catch (_) {}
 
     // 3. Pool standings, brackets, ranking — use meta cache
@@ -4559,7 +4611,9 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 let supabase = null;
 
 if (supabaseUrl && supabaseAnonKey) {
-  supabase = createClient(supabaseUrl, supabaseAnonKey);
+  supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { fetch: queuedFetch },
+  });
   console.log('✅ Supabase client initialized for database routes');
   console.log(`   URL: ${supabaseUrl.substring(0, 30)}...`);
 } else {
@@ -4603,28 +4657,46 @@ function unitMapToUpdatesObject(unitMap) {
 /** Push ODF schedule updates (unitMap) to Supabase. Deployed API applies these over base CSV. */
 async function pushScheduleUpdatesToSupabase(unitMap) {
   if (!supabase) return;
-  try {
-    const updates = unitMapToUpdatesObject(unitMap);
-    const { error } = await supabase
+  const updates = unitMapToUpdatesObject(unitMap);
+  const n = Object.keys(updates).length;
+  await supabaseRetry(async () => {
+    const result = await supabase
       .from('obs_schedule_updates')
       .upsert({ id: 'default', updates, last_updated: new Date().toISOString() }, { onConflict: 'id' });
-    if (error) {
-      console.error('Push obs_schedule_updates error:', error.message);
+    if (!result.error) console.log(`Pushed ${n} schedule update(s) to Supabase obs_schedule_updates`);
+    return result;
+  }, 'Push obs_schedule_updates');
+}
+
+/** Retry a Supabase operation up to `n` times with exponential backoff (2s, 6s, 14s). */
+async function supabaseRetry(fn, label, retries = 4) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const { error } = await fn();
+      if (error) console.error(`${label}:`, error.message);
       return;
+    } catch (err) {
+      if (i < retries - 1) {
+        const delay = 2000 * Math.pow(2, i);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        console.error(`${label}:`, err.message);
+      }
     }
-    const n = Object.keys(updates).length;
-    console.log(`Pushed ${n} schedule update(s) to Supabase obs_schedule_updates`);
-  } catch (err) {
-    console.error('Push obs_schedule_updates error:', err.message);
   }
 }
 
-/** Background sync: fetch IHO and CUR live data and upsert to Supabase. Runs every 30s. */
+/** Background sync: fetch IHO and CUR live data and upsert to Supabase. Runs every 30s.
+ *  All upserts are awaited to avoid overwhelming the connection pool. */
+let _liveDataSyncing = false;
 async function syncLiveDataToSupabase() {
-  if (!supabase) return;
+  if (!supabase || _liveDataSyncing) return;
+  _liveDataSyncing = true;
+  try { await _syncLiveDataInner(); } finally { _liveDataSyncing = false; }
+}
+async function _syncLiveDataInner() {
   try {
     const holderPathsIHO = resolveIHOHolderPaths();
-    // Sync the latest game score/status (PBP is attached via on-demand requests)
     let fileResult = null;
     for (const p of holderPathsIHO) {
       fileResult = findDTResultFile(p, null, null);
@@ -4635,7 +4707,6 @@ async function syncLiveDataToSupabase() {
       data.lastUpdated = mtime.toISOString();
       if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
         const hc = data.homeTeam.code, ac = data.awayTeam.code;
-        // Attach PBP using game code filter (fast: only reads files for this specific game)
         const resultFileName = path.basename(fileResult.path);
         const gameCodeMatch = resultFileName.match(/(GP[A-Z]-\d{6})/);
         const gameCode = gameCodeMatch ? gameCodeMatch[1] : null;
@@ -4643,11 +4714,13 @@ async function syncLiveDataToSupabase() {
           const pbpPaths = resolveIHOHolderPathsWide();
           const pbp = findPlayByPlayForGame(pbpPaths, hc, ac, 30, gameCode);
           if (pbp.length > 0) data.playByPlay = pbp;
-        } catch (_) { /* skip PBP errors */ }
-        supabase.from('iho_game_data').upsert(
-          { home_team_code: hc, away_team_code: ac, game_date: data.date, data, last_updated: mtime.toISOString() },
-          { onConflict: 'home_team_code,away_team_code,game_date' }
-        ).then(({ error }) => { if (error) console.error('IHO background sync error:', error.message); });
+        } catch (_) {}
+        await supabaseRetry(
+          () => supabase.from('iho_game_data').upsert(
+            { home_team_code: hc, away_team_code: ac, game_date: data.date, data, last_updated: mtime.toISOString() },
+            { onConflict: 'home_team_code,away_team_code,game_date' }
+          ), 'IHO background sync'
+        );
       }
     }
   } catch (err) {
@@ -4664,10 +4737,12 @@ async function syncLiveDataToSupabase() {
       const { mtime, data } = fileResult;
       data.lastUpdated = mtime.toISOString();
       if (data.homeTeam?.code && data.awayTeam?.code && data.date) {
-        supabase.from('cur_game_data').upsert(
-          { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
-          { onConflict: 'home_team_code,away_team_code,game_date' }
-        ).then(({ error }) => { if (error) console.error('CUR background sync error:', error.message); });
+        await supabaseRetry(
+          () => supabase.from('cur_game_data').upsert(
+            { home_team_code: data.homeTeam.code, away_team_code: data.awayTeam.code, game_date: data.date, data, last_updated: mtime.toISOString() },
+            { onConflict: 'home_team_code,away_team_code,game_date' }
+          ), 'CUR background sync'
+        );
       }
     }
   } catch (err) {
@@ -4682,13 +4757,13 @@ async function syncLiveDataToSupabase() {
       const lastUpdated = payload.lastUpdated || new Date().toISOString();
       for (const run of payload.runs) {
         const evCode = run.eventCode || code;
-        supabase.from('ssk_live_data').upsert({
-          event_code: evCode,
-          data: { eventName: run.subEventName || payload.eventName, lastUpdated, runs: [run] },
-          last_updated: lastUpdated
-        }, { onConflict: 'event_code' }).then(({ error }) => {
-          if (error) console.error('SSK background sync error:', error.message);
-        });
+        await supabaseRetry(
+          () => supabase.from('ssk_live_data').upsert({
+            event_code: evCode,
+            data: { eventName: run.subEventName || payload.eventName, lastUpdated, runs: [run] },
+            last_updated: lastUpdated
+          }, { onConflict: 'event_code' }), 'SSK background sync'
+        );
       }
     }
   } catch (err) {
@@ -4701,13 +4776,11 @@ async function syncLiveDataToSupabase() {
     const code = payload.eventCode || 'STK';
     if (payload.runs.length > 0) {
       const lastUpdated = payload.lastUpdated || new Date().toISOString();
-      supabase.from('stk_live_data').upsert({
-        event_code: code,
-        data: payload,
-        last_updated: lastUpdated
-      }, { onConflict: 'event_code' }).then(({ error }) => {
-        if (error) console.error('STK background sync error:', error.message);
-      });
+      await supabaseRetry(
+        () => supabase.from('stk_live_data').upsert({
+          event_code: code, data: payload, last_updated: lastUpdated
+        }, { onConflict: 'event_code' }), 'STK background sync'
+      );
     }
   } catch (err) {
     console.error('STK background sync error:', err.message);
@@ -4718,13 +4791,13 @@ async function syncLiveDataToSupabase() {
     const payload = await findAllLugeRuns();
     const code = payload.eventCode || 'LUG';
     if (payload.runs.length > 0) {
-      supabase.from('lug_live_data').upsert({
-        event_code: code,
-        data: { eventName: payload.eventName, lastUpdated: payload.lastUpdated, runs: payload.runs },
-        last_updated: payload.lastUpdated || new Date().toISOString()
-      }, { onConflict: 'event_code' }).then(({ error }) => {
-        if (error) console.error('LUG background sync error:', error.message);
-      });
+      await supabaseRetry(
+        () => supabase.from('lug_live_data').upsert({
+          event_code: code,
+          data: { eventName: payload.eventName, lastUpdated: payload.lastUpdated, runs: payload.runs },
+          last_updated: payload.lastUpdated || new Date().toISOString()
+        }, { onConflict: 'event_code' }), 'LUG background sync'
+      );
     }
   } catch (err) {
     console.error('LUG background sync error:', err.message);
@@ -4736,32 +4809,36 @@ async function syncLiveDataToSupabase() {
     const code = payload.eventCode || 'SBD';
     if (payload.runs.length > 0 || payload.phaseResults) {
       const lastUpdated = payload.lastUpdated || new Date().toISOString();
-      supabase.from('sbd_live_data').upsert({
-        event_code: code,
-        data: payload,
-        last_updated: lastUpdated
-      }, { onConflict: 'event_code' }).then(({ error }) => {
-        if (error) console.error('SBD background sync error:', error.message);
-      });
+      await supabaseRetry(
+        () => supabase.from('sbd_live_data').upsert({
+          event_code: code, data: payload, last_updated: lastUpdated
+        }, { onConflict: 'event_code' }), 'SBD background sync'
+      );
     }
   } catch (err) {
     console.error('SBD background sync error:', err.message);
   }
 }
 
+/** Track games with OFFICIAL/FINAL status that synced successfully — skip on future cycles. */
+const _syncedFinalGames = { iho: new Set(), cur: new Set() };
+
 /** Background sync: IHO game detail (full boxscore + PBP + pool + brackets + tournament stats).
  *  Runs every 2 minutes so the deployed version always has fresh data. */
+let _ihoDetailSyncing = false;
 async function syncGameDetailToSupabase() {
-  if (!supabase) return;
+  if (!supabase || _ihoDetailSyncing) return;
+  _ihoDetailSyncing = true;
+  try { await _syncIhoDetailInner(); } finally { _ihoDetailSyncing = false; }
+}
+async function _syncIhoDetailInner() {
   try {
     const holderPaths = resolveIHOHolderPathsWide();
 
-    // Collect ALL unique matchups efficiently: one read per unique game code / signature
     const matchups = new Map();
     for (const p of holderPaths) {
       const files = listDTResultFiles(p);
       if (files.length === 0) continue;
-      // Deduplicate: use game code from filename, else signature
       const codeToFile = new Map();
       const sigToFile = new Map();
       for (const f of files) {
@@ -4779,21 +4856,26 @@ async function syncGameDetailToSupabase() {
           const d = data.date;
           if (!h || !a || !d) continue;
           const key = [h, a].sort().join('-') + '_' + d;
-          if (!matchups.has(key)) matchups.set(key, { home: h, away: a, date: d });
+          if (!matchups.has(key)) matchups.set(key, { home: h, away: a, date: d, status: data.resultStatus });
         } catch (_) { continue; }
       }
     }
 
     if (matchups.size === 0) return;
-    console.log(`   [IHO BG sync] Found ${matchups.size} unique game(s) to sync`);
 
-    // Pre-compute meta data paths (shared across all games)
+    // Filter out games already synced with final status
+    const toSync = [...matchups.entries()].filter(([key, m]) => {
+      if (_syncedFinalGames.iho.has(key) && /OFFICIAL|FINAL/i.test(m.status || '')) return false;
+      return true;
+    });
+    if (toSync.length === 0) return;
+    console.log(`   [IHO BG sync] Found ${toSync.length} game(s) to sync (${matchups.size - toSync.length} final skipped)`);
+
     const recentDatePaths = resolveRecentDatePaths(IHO_BASE_PATH, 10);
     const metaPaths = [...new Set([...holderPaths, ...recentDatePaths])];
 
-    for (const { home, away, date: gameDate } of matchups.values()) {
+    for (const [matchKey, { home, away, date: gameDate, status }] of toSync) {
       try {
-        // 1. Full boxscore
         let fullBoxscore = null;
         let gameCode = null;
         for (const p of holderPaths) {
@@ -4808,13 +4890,11 @@ async function syncGameDetailToSupabase() {
         }
         if (!fullBoxscore) continue;
 
-        // 2. Play-by-play
         let playByPlay = [];
         try {
           playByPlay = findPlayByPlayForGame(holderPaths, home, away, 30, gameCode);
         } catch (_) {}
 
-        // 3. Pool standings, brackets, tournament stats — use meta cache
         const metaCached = getIhoMetaCached(fullBoxscore.gender, home, away, gameDate, fullBoxscore.resultStatus);
         let poolStandings, poolStanding, brackets, tournamentStats;
 
@@ -4887,25 +4967,43 @@ async function syncGameDetailToSupabase() {
           setIhoMetaCache(poolStandings, poolStanding, brackets, tournamentStats);
         }
 
-        const payload = {
+        // Split into two smaller upserts: base data, then PBP
+        const basePayload = {
           ...fullBoxscore,
-          playByPlay,
           poolStanding,
           poolStandings,
           brackets,
           tournamentStats,
         };
+        const now = new Date().toISOString();
+        let syncOk = false;
+        await supabaseRetry(
+          () => supabase.from('iho_game_detail').upsert({
+            home_team_code: home, away_team_code: away, game_date: gameDate,
+            data: basePayload, last_updated: now
+          }, { onConflict: 'home_team_code,away_team_code,game_date' }),
+          `IHO detail base (${home}-${away})`
+        );
+        // Second upsert merges PBP into the existing row
+        if (playByPlay.length > 0) {
+          await supabaseRetry(async () => {
+            const { data: rows } = await supabase.from('iho_game_detail')
+              .select('data').eq('home_team_code', home).eq('away_team_code', away).eq('game_date', gameDate).single();
+            if (rows?.data) {
+              const merged = { ...rows.data, playByPlay };
+              return supabase.from('iho_game_detail').upsert({
+                home_team_code: home, away_team_code: away, game_date: gameDate,
+                data: merged, last_updated: now
+              }, { onConflict: 'home_team_code,away_team_code,game_date' });
+            }
+            return { error: null };
+          }, `IHO detail PBP (${home}-${away})`);
+        }
+        syncOk = true;
 
-        await supabase.from('iho_game_detail').upsert({
-          home_team_code: home,
-          away_team_code: away,
-          game_date: gameDate,
-          data: payload,
-          last_updated: new Date().toISOString()
-        }, { onConflict: 'home_team_code,away_team_code,game_date' }).then(({ error }) => {
-          if (error) console.error(`IHO game detail sync error (${home}-${away}):`, error.message);
-          else console.log(`   [IHO BG sync] Synced ${home} vs ${away} (${gameDate})`);
-        });
+        if (syncOk && /OFFICIAL|FINAL/i.test(fullBoxscore.resultStatus || '')) {
+          _syncedFinalGames.iho.add(matchKey);
+        }
       } catch (err) {
         console.error(`IHO game detail sync error (${home}-${away}):`, err.message);
       }
@@ -4917,12 +5015,16 @@ async function syncGameDetailToSupabase() {
 
 /** Background sync: CUR game detail (full boxscore + PBP + pool + brackets + ranking).
  *  Runs every 2 minutes so the deployed version always has fresh data. */
+let _curDetailSyncing = false;
 async function syncCurGameDetailToSupabase() {
-  if (!supabase) return;
+  if (!supabase || _curDetailSyncing) return;
+  _curDetailSyncing = true;
+  try { await _syncCurDetailInner(); } finally { _curDetailSyncing = false; }
+}
+async function _syncCurDetailInner() {
   try {
     const holderPaths = resolveCURHolderPaths();
 
-    // Collect ALL unique curling matchups efficiently: one read per unique document signature
     const matchups = new Map();
     for (const p of holderPaths) {
       const files = listDTResultFiles(p);
@@ -4941,21 +5043,26 @@ async function syncCurGameDetailToSupabase() {
           const d = data.date;
           if (!h || !a || !d) continue;
           const key = [h, a].sort().join('-') + '_' + d;
-          if (!matchups.has(key)) matchups.set(key, { home: h, away: a, date: d });
+          if (!matchups.has(key)) matchups.set(key, { home: h, away: a, date: d, status: data.resultStatus });
         } catch (_) { continue; }
       }
     }
 
     if (matchups.size === 0) return;
-    console.log(`   [CUR BG sync] Found ${matchups.size} unique game(s) to sync`);
 
-    // Pre-compute meta data paths (shared across all games)
+    // Filter out games already synced with final status
+    const toSync = [...matchups.entries()].filter(([key, m]) => {
+      if (_syncedFinalGames.cur.has(key) && /OFFICIAL|FINAL/i.test(m.status || '')) return false;
+      return true;
+    });
+    if (toSync.length === 0) return;
+    console.log(`   [CUR BG sync] Found ${toSync.length} game(s) to sync (${matchups.size - toSync.length} final skipped)`);
+
     const recentDatePaths = resolveRecentDatePaths(CUR_BASE_PATH, 10);
     const metaPaths = [...new Set([...holderPaths, ...recentDatePaths])];
 
-    for (const { home, away, date: gameDate } of matchups.values()) {
+    for (const [matchKey, { home, away, date: gameDate }] of toSync) {
       try {
-        // 1. Full boxscore
         let fullBoxscore = null;
         for (const p of holderPaths) {
           const fr = findDTResultFileCurling(p, home, away);
@@ -4967,22 +5074,20 @@ async function syncCurGameDetailToSupabase() {
         }
         if (!fullBoxscore) continue;
 
-        // 2. Play-by-play (strip base64 images from main payload; images synced separately)
         let playByPlay = null;
         try {
-          playByPlay = findCurlingPlayByPlay(holderPaths, home, away);
+          const pbpPaths = resolveHolderPaths(CUR_BASE_PATH, 6);
+          playByPlay = findCurlingPlayByPlay(pbpPaths, home, away);
         } catch (_) {}
         let pbpLite = null;
         if (playByPlay && playByPlay.actions) {
           pbpLite = { ...playByPlay, actions: playByPlay.actions.map(a => ({ ...a, imageData: null })) };
 
-          // Queue images for background sync (non-blocking, processed after all game details)
           const gameKey = `${home}-${away}_${gameDate}`;
           const newImgs = playByPlay.actions.filter(a => a.imageData && !_syncedPbpImages.has(`${gameKey}_E${a.end}_S${a.stoneNum}`));
           if (newImgs.length > 0) _pendingPbpImages.push(...newImgs.map(a => ({ gameKey, end: a.end, stoneNum: a.stoneNum, imageData: a.imageData })));
         }
 
-        // 3. Pool standings, brackets, ranking — use meta cache
         const metaCached = getCurMetaCached(fullBoxscore.gender, home, away, gameDate, fullBoxscore.resultStatus);
         let poolStandings, poolStanding, brackets, ranking;
 
@@ -5000,25 +5105,42 @@ async function syncCurGameDetailToSupabase() {
           setCurMetaCache(poolStandings, poolStanding, brackets, ranking);
         }
 
-        const payload = {
+        // Split into two upserts: base data, then PBP (keeps each request smaller)
+        const basePayload = {
           ...fullBoxscore,
-          playByPlay: pbpLite,
           poolStanding,
           poolStandings,
           brackets,
           ranking,
         };
+        const now = new Date().toISOString();
+        let syncOk = false;
+        await supabaseRetry(
+          () => supabase.from('cur_game_detail').upsert({
+            home_team_code: home, away_team_code: away, game_date: gameDate,
+            data: basePayload, last_updated: now
+          }, { onConflict: 'home_team_code,away_team_code,game_date' }),
+          `CUR detail base (${home}-${away})`
+        );
+        if (pbpLite) {
+          await supabaseRetry(async () => {
+            const { data: rows } = await supabase.from('cur_game_detail')
+              .select('data').eq('home_team_code', home).eq('away_team_code', away).eq('game_date', gameDate).single();
+            if (rows?.data) {
+              const merged = { ...rows.data, playByPlay: pbpLite };
+              return supabase.from('cur_game_detail').upsert({
+                home_team_code: home, away_team_code: away, game_date: gameDate,
+                data: merged, last_updated: now
+              }, { onConflict: 'home_team_code,away_team_code,game_date' });
+            }
+            return { error: null };
+          }, `CUR detail PBP (${home}-${away})`);
+        }
+        syncOk = true;
 
-        await supabase.from('cur_game_detail').upsert({
-          home_team_code: home,
-          away_team_code: away,
-          game_date: gameDate,
-          data: payload,
-          last_updated: new Date().toISOString()
-        }, { onConflict: 'home_team_code,away_team_code,game_date' }).then(({ error }) => {
-          if (error) console.error(`CUR game detail sync error (${home}-${away}):`, error.message);
-          else console.log(`   [CUR BG sync] Synced ${home} vs ${away} (${gameDate})`);
-        });
+        if (syncOk && /OFFICIAL|FINAL/i.test(fullBoxscore.resultStatus || '')) {
+          _syncedFinalGames.cur.add(matchKey);
+        }
       } catch (err) {
         console.error(`CUR game detail sync error (${home}-${away}):`, err.message);
       }
@@ -5027,45 +5149,79 @@ async function syncCurGameDetailToSupabase() {
     console.error('CUR game detail background sync error:', err.message);
   }
 
-  // Process queued PBP images in batches of 5 concurrently
+  // Process queued PBP images one at a time with retry
   if (_pendingPbpImages.length > 0 && supabase) {
     const batch = [..._pendingPbpImages];
     _pendingPbpImages = [];
-    console.log(`   [CUR PBP img] Syncing ${batch.length} new image(s) in batches of 5...`);
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < batch.length; i += BATCH_SIZE) {
-      const chunk = batch.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(chunk.map(async ({ gameKey, end, stoneNum, imageData }) => {
-        const imgId = `${gameKey}_E${end}_S${stoneNum}`;
-        if (_syncedPbpImages.has(imgId)) return;
-        try {
-          const { error } = await supabase.from('cur_pbp_images').upsert({
+    console.log(`   [CUR PBP img] Syncing ${batch.length} new image(s)...`);
+    let ok = 0;
+    for (const { gameKey, end, stoneNum, imageData } of batch) {
+      const imgId = `${gameKey}_E${end}_S${stoneNum}`;
+      if (_syncedPbpImages.has(imgId)) { ok++; continue; }
+      try {
+        await supabaseRetry(async () => {
+          const result = await supabase.from('cur_pbp_images').upsert({
             id: imgId, game_key: gameKey, end_num: parseInt(end) || 0, stone_num: stoneNum || 0,
             image_data: imageData, last_updated: new Date().toISOString()
           }, { onConflict: 'id' });
-          if (error) console.error(`PBP img error (${imgId}):`, error.message?.slice(0, 80));
-          else _syncedPbpImages.add(imgId);
-        } catch (_) {}
-      }));
+          if (!result.error) { _syncedPbpImages.add(imgId); ok++; }
+          return result;
+        }, `PBP img ${imgId}`);
+      } catch (_) {}
     }
-    console.log(`   [CUR PBP img] Done. ${_syncedPbpImages.size} total cached.`);
+    console.log(`   [CUR PBP img] Done: ${ok}/${batch.length} synced. ${_syncedPbpImages.size} total cached.`);
   }
 }
 
 if (supabase) {
-  // Immediate first sync on startup, then recurring intervals
-  setTimeout(() => {
-    syncLiveDataToSupabase();
-    syncGameDetailToSupabase();
-    syncCurGameDetailToSupabase();
-  }, 3000);
+  // Pre-load existing PBP image IDs and final game keys from DB to avoid redundant uploads after restart
+  (async () => {
+    try {
+      const { data: imgRows } = await supabase.from('cur_pbp_images').select('id');
+      if (imgRows) {
+        for (const r of imgRows) _syncedPbpImages.add(r.id);
+        console.log(`   [startup] Loaded ${_syncedPbpImages.size} existing PBP image ID(s) from DB`);
+      }
+    } catch (e) { console.error('   [startup] Failed to pre-load PBP image IDs:', e.message); }
+    try {
+      const { data: ihoRows } = await supabase.from('iho_game_detail').select('home_team_code,away_team_code,game_date,data');
+      if (ihoRows) {
+        for (const r of ihoRows) {
+          const st = r.data?.resultStatus || '';
+          if (/OFFICIAL|FINAL/i.test(st)) {
+            const key = [r.home_team_code, r.away_team_code].sort().join('-') + '_' + r.game_date;
+            _syncedFinalGames.iho.add(key);
+          }
+        }
+        console.log(`   [startup] Loaded ${_syncedFinalGames.iho.size} final IHO game(s) from DB`);
+      }
+    } catch (e) { console.error('   [startup] Failed to pre-load IHO final games:', e.message); }
+    try {
+      const { data: curRows } = await supabase.from('cur_game_detail').select('home_team_code,away_team_code,game_date,data');
+      if (curRows) {
+        for (const r of curRows) {
+          const st = r.data?.resultStatus || '';
+          if (/OFFICIAL|FINAL/i.test(st)) {
+            const key = [r.home_team_code, r.away_team_code].sort().join('-') + '_' + r.game_date;
+            _syncedFinalGames.cur.add(key);
+          }
+        }
+        console.log(`   [startup] Loaded ${_syncedFinalGames.cur.size} final CUR game(s) from DB`);
+      }
+    } catch (e) { console.error('   [startup] Failed to pre-load CUR final games:', e.message); }
+  })();
+
+  // Stagger initial syncs to avoid overwhelming the connection pool
+  setTimeout(() => syncLiveDataToSupabase(), 5000);
+  setTimeout(() => syncGameDetailToSupabase(), 10000);
+  setTimeout(() => syncCurGameDetailToSupabase(), 17000);
   setInterval(syncLiveDataToSupabase, 30 * 1000);
   setInterval(syncGameDetailToSupabase, 120 * 1000);
-  setInterval(syncCurGameDetailToSupabase, 120 * 1000);
+  setTimeout(() => setInterval(syncCurGameDetailToSupabase, 120 * 1000), 60 * 1000);
   console.log('   Live data background sync: every 30s (IHO + CUR + SSK + STK + LUG + SBD)');
   console.log('   IHO game detail background sync: every 2m (all active games)');
-  console.log('   CUR game detail background sync: every 2m (all active games)');
-  console.log('   Initial sync in 3s...');
+  console.log('   CUR game detail background sync: every 2m (all active games, offset 60s)');
+  console.log('   Initial sync staggered: 5s / 10s / 17s (pre-load from DB first)');
 }
 
 // Valid resource types
