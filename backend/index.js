@@ -5217,10 +5217,10 @@ if (supabase) {
   setTimeout(() => syncCurGameDetailToSupabase(), 17000);
   setInterval(syncLiveDataToSupabase, 30 * 1000);
   setInterval(syncGameDetailToSupabase, 120 * 1000);
-  setTimeout(() => setInterval(syncCurGameDetailToSupabase, 120 * 1000), 60 * 1000);
+  setInterval(syncCurGameDetailToSupabase, 30 * 1000);
   console.log('   Live data background sync: every 30s (IHO + CUR + SSK + STK + LUG + SBD)');
   console.log('   IHO game detail background sync: every 2m (all active games)');
-  console.log('   CUR game detail background sync: every 2m (all active games, offset 60s)');
+  console.log('   CUR game detail background sync: every 30s (all active games)');
   console.log('   Initial sync staggered: 5s / 10s / 17s (pre-load from DB first)');
 }
 
