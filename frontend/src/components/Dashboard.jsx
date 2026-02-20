@@ -278,12 +278,11 @@ export default function Dashboard() {
               <tbody>
                 {medalStandings.length === 0 ? (
                   <tr><td colSpan={6} className="px-5 py-6 text-center text-gray-400 text-lg">Loading medal standings…</td></tr>
-                ) : medalStandings.map((row, i) => {
-                  const isCanadaSeparator = i > 0 && row.displayRank > 10 && medalStandings[i - 1].displayRank <= 10
+                ) : medalStandings.map((row) => {
                   const displayName = COUNTRY_SHORT_NAMES[row.country] || row.country
-                  const isCanada = row.countryCode === 'CAN'
+                  const isCanadaInSlot10 = row.countryCode === 'CAN' && row.displayRank > 10
                   return (
-                    <tr key={row.countryCode} className={`border-t border-gray-600 hover:bg-gray-700/50${isCanadaSeparator ? ' border-t-2 border-t-gray-500' : ''}${isCanada && row.displayRank > 10 ? ' bg-gray-700/30' : ''}`}>
+                    <tr key={row.countryCode} className={`border-t border-gray-600 hover:bg-gray-700/50${isCanadaInSlot10 ? ' bg-gray-700/30' : ''}`}>
                       <td className="px-5 py-3 text-2xl font-medium text-gray-100">{row.displayRank}</td>
                       <td className="px-5 py-3 text-2xl font-medium text-white">
                         <span className="inline-flex items-center gap-2">

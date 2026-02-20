@@ -217,3 +217,12 @@ DROP POLICY IF EXISTS "Allow all (anon)" ON obs_schedule_updates;
 DROP POLICY IF EXISTS "Allow all (authenticated)" ON obs_schedule_updates;
 CREATE POLICY "Allow all (anon)" ON obs_schedule_updates FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all (authenticated)" ON obs_schedule_updates FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ============================================
+-- Medal Standings (DT_MEDALS from GEN; top 10 + Canada in slot 10 if outside top 10)
+-- ============================================
+ALTER TABLE medal_standings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all (anon)" ON medal_standings;
+DROP POLICY IF EXISTS "Allow all (authenticated)" ON medal_standings;
+CREATE POLICY "Allow all (anon)" ON medal_standings FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all (authenticated)" ON medal_standings FOR ALL TO authenticated USING (true) WITH CHECK (true);

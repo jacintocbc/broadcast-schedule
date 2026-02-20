@@ -4640,15 +4640,19 @@ function parseMedalStandings() {
   // Sort by total desc, then gold desc, silver desc, bronze desc as tiebreakers
   rows.sort((x, y) => y.total - x.total || y.gold - x.gold || y.silver - x.silver || y.bronze - x.bronze);
 
-  // Top 10 + always include Canada
+  // Re-assign display rank based on sorted position
+  for (let i = 0; i < rows.length; i++) rows[i].displayRank = i + 1;
+
+  // Always exactly 10 rows: top 9 + Canada (in slot 10) if Canada is outside top 10, else top 10
   const top10 = rows.slice(0, 10);
   const canada = rows.find(r => r.countryCode === 'CAN');
   const canadaInTop10 = top10.some(r => r.countryCode === 'CAN');
 
-  // Re-assign display rank based on sorted position
-  for (let i = 0; i < rows.length; i++) rows[i].displayRank = i + 1;
-
-  const result = canadaInTop10 ? top10 : [...top10, ...(canada ? [canada] : [])];
+  const result = canadaInTop10
+    ? top10
+    : canada
+      ? [...rows.slice(0, 9), canada]
+      : top10;
 
   return {
     standings: result,
