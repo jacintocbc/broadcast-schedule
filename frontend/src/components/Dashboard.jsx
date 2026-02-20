@@ -6,19 +6,14 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 // Milan 2026 Winter Olympics: Feb 6 = Day 0 (opening), Feb 22 = closing
 const OLYMPICS_DAY_ZERO = moment.tz('2026-02-06', 'Europe/Rome').startOf('day')
 
-// Mock top 10 medal standings (Winter Olympics style – replace with API later)
-const MOCK_MEDALS = [
-  { rank: 1, country: 'Norway', countryCode: 'NOR', gold: 16, silver: 8, bronze: 13, total: 37 },
-  { rank: 2, country: 'Germany', countryCode: 'GER', gold: 12, silver: 10, bronze: 5, total: 27 },
-  { rank: 3, country: 'Canada', countryCode: 'CAN', gold: 11, silver: 8, bronze: 10, total: 29 },
-  { rank: 4, country: 'United States', countryCode: 'USA', gold: 9, silver: 9, bronze: 7, total: 25 },
-  { rank: 5, country: 'Austria', countryCode: 'AUT', gold: 7, silver: 7, bronze: 5, total: 19 },
-  { rank: 6, country: 'Sweden', countryCode: 'SWE', gold: 6, silver: 6, bronze: 3, total: 15 },
-  { rank: 7, country: 'Netherlands', countryCode: 'NED', gold: 6, silver: 5, bronze: 2, total: 13 },
-  { rank: 8, country: 'Switzerland', countryCode: 'SUI', gold: 5, silver: 6, bronze: 4, total: 15 },
-  { rank: 9, country: 'France', countryCode: 'FRA', gold: 5, silver: 5, bronze: 3, total: 13 },
-  { rank: 10, country: 'Italy', countryCode: 'ITA', gold: 4, silver: 6, bronze: 8, total: 18 }
-]
+// Country name overrides for display
+const COUNTRY_SHORT_NAMES = {
+  'United States of America': 'United States',
+  "People's Republic of China": 'China',
+  'Republic of Korea': 'South Korea',
+  "Democratic People's Republic of Korea": 'North Korea',
+  'Russian Olympic Committee': 'ROC',
+}
 
 // Flag filename overrides when folder uses different code than IOC (e.g. ROM -> ROU.jpg)
 const FLAG_CODE_OVERRIDES = { ROM: 'ROU', FIJ: 'FJI', LBN: 'LIB', SGP: 'SIN' }
@@ -94,6 +89,8 @@ export default function Dashboard() {
   })
   const [eventsToday, setEventsToday] = useState([])
   const [sportsLoading, setSportsLoading] = useState(true)
+  const [medalStandings, setMedalStandings] = useState([])
+  const [medalMeta, setMedalMeta] = useState(null)
 
   // Live clocks (Milan + ET)
   useEffect(() => {
@@ -145,6 +142,24 @@ export default function Dashboard() {
         if (!cancelled) setWeather({ temp: null, condition: '—', precipitation: null, daily: [], loading: false })
       })
     return () => { cancelled = true }
+  }, [])
+
+  // Medal standings
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      fetch(`${API_BASE}/api/medal-standings`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (cancelled || !d) return
+          setMedalStandings(d.standings || [])
+          setMedalMeta(d)
+        })
+        .catch(() => {})
+    }
+    load()
+    const id = setInterval(load, 5 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // Events today: from OBS events for today (Milan date)
@@ -245,7 +260,9 @@ export default function Dashboard() {
       {/* Main: Medals (larger) + Sports today (narrow column) */}
       <div className="flex-1 flex gap-4 min-h-0">
         <section className="flex-1 rounded-xl bg-gray-800 border border-gray-600 overflow-hidden flex flex-col min-w-0">
-          <h2 className="text-base font-semibold text-gray-200 uppercase tracking-wide p-4 border-b border-gray-600">Top 10 medal standings</h2>
+          <h2 className="text-base font-semibold text-gray-200 uppercase tracking-wide p-4 border-b border-gray-600 flex items-center justify-between">
+            <span>Medal standings{medalMeta?.finishedEvents ? ` — ${medalMeta.finishedEvents}/${medalMeta.totalEvents} events` : ''}</span>
+          </h2>
           <div className="flex-1 overflow-auto min-h-0">
             <table className="w-full text-left">
               <thead className="bg-gray-700 sticky top-0">
@@ -259,26 +276,33 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {MOCK_MEDALS.map(row => (
-                  <tr key={row.countryCode} className="border-t border-gray-600 hover:bg-gray-700/50">
-                    <td className="px-5 py-3 text-2xl font-medium text-gray-100">{row.rank}</td>
-                    <td className="px-5 py-3 text-2xl font-medium text-white">
-                      <span className="inline-flex items-center gap-2">
-                        <img
-                          src={getFlagSrc(row.countryCode)}
-                          alt=""
-                          className="h-6 w-10 flex-shrink-0 object-cover rounded-sm"
-                          onError={e => { e.target.style.display = 'none' }}
-                        />
-                        {row.country}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-2xl text-center font-semibold text-amber-300">{row.gold}</td>
-                    <td className="px-5 py-3 text-2xl text-center font-semibold text-gray-300">{row.silver}</td>
-                    <td className="px-5 py-3 text-2xl text-center font-semibold text-amber-600">{row.bronze}</td>
-                    <td className="px-5 py-3 text-2xl text-right font-semibold text-gray-100">{row.total}</td>
-                  </tr>
-                ))}
+                {medalStandings.length === 0 ? (
+                  <tr><td colSpan={6} className="px-5 py-6 text-center text-gray-400 text-lg">Loading medal standings…</td></tr>
+                ) : medalStandings.map((row, i) => {
+                  const isCanadaSeparator = i > 0 && row.displayRank > 10 && medalStandings[i - 1].displayRank <= 10
+                  const displayName = COUNTRY_SHORT_NAMES[row.country] || row.country
+                  const isCanada = row.countryCode === 'CAN'
+                  return (
+                    <tr key={row.countryCode} className={`border-t border-gray-600 hover:bg-gray-700/50${isCanadaSeparator ? ' border-t-2 border-t-gray-500' : ''}${isCanada && row.displayRank > 10 ? ' bg-gray-700/30' : ''}`}>
+                      <td className="px-5 py-3 text-2xl font-medium text-gray-100">{row.displayRank}</td>
+                      <td className="px-5 py-3 text-2xl font-medium text-white">
+                        <span className="inline-flex items-center gap-2">
+                          <img
+                            src={getFlagSrc(row.countryCode)}
+                            alt=""
+                            className="h-6 w-10 flex-shrink-0 object-cover rounded-sm"
+                            onError={e => { e.target.style.display = 'none' }}
+                          />
+                          {displayName}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-2xl text-center font-semibold text-amber-300">{row.gold}</td>
+                      <td className="px-5 py-3 text-2xl text-center font-semibold text-gray-300">{row.silver}</td>
+                      <td className="px-5 py-3 text-2xl text-center font-semibold text-amber-600">{row.bronze}</td>
+                      <td className="px-5 py-3 text-2xl text-right font-semibold text-gray-100">{row.total}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

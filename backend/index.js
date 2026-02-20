@@ -4567,6 +4567,148 @@ app.get('/api/medals', async (req, res) => {
   }
 });
 
+// ============================================
+// MEDAL STANDINGS (DT_MEDALS from GEN folder)
+// ============================================
+let _medalStandingsCache = { data: null, ts: 0, scanning: false };
+
+/** Find and parse the most recent DT_MEDALS XML from M:\Incoming\GEN. */
+function parseMedalStandings() {
+  const genPath = path.join(INCOMING_BASE, 'GEN');
+  if (!fs.existsSync(genPath)) return null;
+
+  // Scan newest date dirs, then newest hour dirs, find newest DT_MEDALS file
+  const dateDirs = fs.readdirSync(genPath, { withFileTypes: true })
+    .filter(d => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+    .sort((a, b) => b.name.localeCompare(a.name));
+
+  let newestFile = null;
+  for (const dd of dateDirs.slice(0, 3)) {
+    const datePath = path.join(genPath, dd.name);
+    const hourDirs = fs.readdirSync(datePath, { withFileTypes: true })
+      .filter(d => d.isDirectory() && /^\d+$/.test(d.name))
+      .sort((a, b) => parseInt(b.name, 10) - parseInt(a.name, 10));
+    for (const hd of hourDirs) {
+      const hourPath = path.join(datePath, hd.name);
+      try {
+        const files = fs.readdirSync(hourPath)
+          .filter(f => f.includes('DT_MEDALS') && f.endsWith('.xml'))
+          .sort((a, b) => b.localeCompare(a));
+        if (files.length > 0) {
+          newestFile = path.join(hourPath, files[0]);
+          break;
+        }
+      } catch { continue; }
+    }
+    if (newestFile) break;
+  }
+  if (!newestFile) return null;
+
+  const xmlStr = fs.readFileSync(newestFile, 'utf-8');
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const doc = parser.parse(xmlStr);
+  const body = doc?.OdfBody;
+  if (!body) return null;
+
+  const standings = body.Competition?.MedalStandings;
+  if (!standings) return null;
+
+  const a = (obj, key) => obj?.['@_' + key] ?? obj?.[key];
+  const lines = Array.isArray(standings.MedalsTable?.MedalLine)
+    ? standings.MedalsTable.MedalLine
+    : (standings.MedalsTable?.MedalLine ? [standings.MedalsTable.MedalLine] : []);
+
+  const rows = [];
+  for (const line of lines) {
+    const org = a(line, 'Organisation') || '';
+    const name = a(line.Description, 'OrganisationName') || org;
+    const nums = Array.isArray(line.MedalNumber) ? line.MedalNumber : (line.MedalNumber ? [line.MedalNumber] : []);
+    const tot = nums.find(n => a(n, 'Type') === 'TOT');
+    if (!tot) continue;
+    rows.push({
+      rank: parseInt(a(line, 'Rank'), 10) || 0,
+      rankTotal: parseInt(a(line, 'RankTotal'), 10) || 0,
+      country: name,
+      countryCode: org,
+      gold: parseInt(a(tot, 'Gold'), 10) || 0,
+      silver: parseInt(a(tot, 'Silver'), 10) || 0,
+      bronze: parseInt(a(tot, 'Bronze'), 10) || 0,
+      total: parseInt(a(tot, 'Total'), 10) || 0,
+    });
+  }
+
+  // Sort by total desc, then gold desc, silver desc, bronze desc as tiebreakers
+  rows.sort((x, y) => y.total - x.total || y.gold - x.gold || y.silver - x.silver || y.bronze - x.bronze);
+
+  // Top 10 + always include Canada
+  const top10 = rows.slice(0, 10);
+  const canada = rows.find(r => r.countryCode === 'CAN');
+  const canadaInTop10 = top10.some(r => r.countryCode === 'CAN');
+
+  // Re-assign display rank based on sorted position
+  for (let i = 0; i < rows.length; i++) rows[i].displayRank = i + 1;
+
+  const result = canadaInTop10 ? top10 : [...top10, ...(canada ? [canada] : [])];
+
+  return {
+    standings: result,
+    totalEvents: parseInt(a(standings, 'TotalEvents'), 10) || 0,
+    finishedEvents: parseInt(a(standings, 'FinishedEvents'), 10) || 0,
+    dateTime: a(standings, 'DateTime') || '',
+  };
+}
+
+function backgroundMedalStandingsScan() {
+  if (_medalStandingsCache.scanning) return;
+  _medalStandingsCache.scanning = true;
+  try {
+    const data = parseMedalStandings();
+    if (data) {
+      _medalStandingsCache = { data, ts: Date.now(), scanning: false };
+      if (supabase) {
+        supabaseRetry(
+          () => supabase.from('medal_standings').upsert({
+            id: 'current', data, last_updated: new Date().toISOString()
+          }, { onConflict: 'id' }),
+          'Medal standings sync'
+        );
+      }
+      console.log(`Medal standings: ${data.standings.length} countries (${data.finishedEvents}/${data.totalEvents} events)`);
+    }
+  } catch (err) {
+    console.error('Medal standings scan error:', err.message);
+  } finally {
+    _medalStandingsCache.scanning = false;
+  }
+}
+
+setTimeout(() => {
+  backgroundMedalStandingsScan();
+  setInterval(backgroundMedalStandingsScan, 5 * 60 * 1000);
+}, 6000);
+
+app.get('/api/medal-standings', async (req, res) => {
+  try {
+    if (wantsDbOnly(req)) {
+      if (!supabase) return res.json(null);
+      const { data: row } = await supabase.from('medal_standings').select('data').eq('id', 'current').single();
+      return res.json(row?.data || null);
+    }
+    if (_medalStandingsCache.data) return res.json(_medalStandingsCache.data);
+    if (supabase) {
+      const { data: row } = await supabase.from('medal_standings').select('data').eq('id', 'current').single();
+      if (row?.data) {
+        _medalStandingsCache = { data: row.data, ts: Date.now(), scanning: false };
+        return res.json(row.data);
+      }
+    }
+    return res.json(null);
+  } catch (err) {
+    console.error('Medal standings API error:', err.message);
+    res.status(500).json({ error: 'Failed to load medal standings' });
+  }
+});
+
 /** Check which events have results in Supabase. Used to show archive icon only when data exists. */
 app.post('/api/live-has-results', async (req, res) => {
   try {
