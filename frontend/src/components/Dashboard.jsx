@@ -36,9 +36,13 @@ function weatherCodeToLabel(code) {
 }
 
 // Map event title to picto filename (public/picto). Order matters: more specific first.
-// IHO = Ice hockey, ALP = Alpine skiing (event codes)
+// Event codes: IHO = Ice hockey, ALP = Alpine, FRS = Freestyle skiing, FSK = Figure skating, SMT = Ski mountaineering
 const PICTO_MAP = [
   ['iho', 'Ice-Hockey-Picto.png'],
+  ['bth', 'Biathlon-Picto.png'],
+  ['frs', 'Freestyle-Skiing-Picto.png'],
+  ['fsk', 'Figure-Skating-Picto.png'],
+  ['smt', 'Ski-Mountaineering-Picto.png'],
   ['alp', 'Alpine-Skiing-Picto.png'],
   ['alpine', 'Alpine-Skiing-Picto.png'],
   ['biathlon', 'Biathlon-Picto.png'],
@@ -66,14 +70,34 @@ function getPictoPath(title) {
   return '/picto/Curling-Picto.png'
 }
 
-// Sample events shown when API returns none (today in Milan: 10:00, 14:00, 18:30)
+// Sample events shown when no real events for the day (6 mixed disciplines)
 function getSampleEventsToday() {
   const today = moment.tz('Europe/Rome').format('YYYY-MM-DD')
   return [
-    { id: 'sample-1', title: 'CUR01 SWE-KOR Mixed Doubles Round Robin - Curling', start_time: `${today}T09:00:00.000Z` },
-    { id: 'sample-2', title: 'IHO01 W SWE-GER Preliminary Round - Ice Hockey', start_time: `${today}T13:00:00.000Z` },
-    { id: 'sample-3', title: 'SBD01 M Snowboard Big Air Qual. - Snowboard', start_time: `${today}T17:30:00.000Z` }
+    { id: 'sample-1', title: 'IHO01 W CAN-SUI Preliminary Round - Ice Hockey', start_time: `${today}T09:00:00.000Z` },
+    { id: 'sample-2', title: 'SSK01 M 1500m - Speed Skating', start_time: `${today}T10:30:00.000Z` },
+    { id: 'sample-3', title: 'CUR01 SWE-KOR Mixed Doubles Round Robin - Curling', start_time: `${today}T12:00:00.000Z` },
+    { id: 'sample-4', title: 'SBD01 M Snowboard Big Air Qual. - Snowboard', start_time: `${today}T14:00:00.000Z` },
+    { id: 'sample-5', title: 'ALP01 M Downhill - Alpine Skiing', start_time: `${today}T15:30:00.000Z` },
+    { id: 'sample-6', title: 'STK01 W 500m - Short Track Speed Skating', start_time: `${today}T17:00:00.000Z` }
   ]
+}
+
+// Exclude BC, OCNP, OGA, and press conferences from Sports today
+function shouldExcludeEvent(ev) {
+  const title = (ev.title || ev.name || '').toUpperCase()
+  const titleLower = (ev.title || ev.name || '').toLowerCase()
+  const raw = ev.rawData || {}
+  const esCode = (raw['Es Code'] || raw['EsCode'] || '').toUpperCase()
+  const videoFeed = (raw['VideoFeed'] || raw['Video Feed'] || '').toUpperCase()
+  if (esCode.startsWith('OCNP')) return true
+  if (title.startsWith('OCNP') || title.includes('OCNP')) return true
+  if (videoFeed.includes('IBC-BC')) return true
+  if (esCode === 'VCE') return true
+  if (title.startsWith('BC') && !title.startsWith('IBC')) return true
+  if (esCode.startsWith('OGA') || title.startsWith('OGA')) return true
+  if (titleLower.includes('press conference')) return true
+  return false
 }
 
 export default function Dashboard() {
@@ -173,6 +197,7 @@ export default function Dashboard() {
         if (cancelled) return
         const list = Array.isArray(data) ? data : (data?.events ?? [])
         const withStart = list
+          .filter(ev => !shouldExcludeEvent(ev))
           .filter(ev => (ev.title || ev.name || '').trim().length > 0 && ev.start_time)
           .map(ev => ({
             id: ev.id,

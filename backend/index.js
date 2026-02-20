@@ -4698,6 +4698,7 @@ app.get('/api/medal-standings', async (req, res) => {
       const { data: row } = await supabase.from('medal_standings').select('data').eq('id', 'current').single();
       return res.json(row?.data || null);
     }
+    // Cache first (pre-loaded from DB at startup) for instant response; no M: drive access during request
     if (_medalStandingsCache.data) return res.json(_medalStandingsCache.data);
     if (supabase) {
       const { data: row } = await supabase.from('medal_standings').select('data').eq('id', 'current').single();
@@ -5355,6 +5356,13 @@ if (supabase) {
         console.log(`   [startup] Loaded ${_syncedFinalGames.cur.size} final CUR game(s) from DB`);
       }
     } catch (e) { console.error('   [startup] Failed to pre-load CUR final games:', e.message); }
+    try {
+      const { data: row } = await supabase.from('medal_standings').select('data').eq('id', 'current').single();
+      if (row?.data) {
+        _medalStandingsCache = { data: row.data, ts: Date.now(), scanning: false };
+        console.log('   [startup] Loaded medal standings from DB');
+      }
+    } catch (e) { console.error('   [startup] Failed to pre-load medal standings:', e.message); }
   })();
 
   // Stagger initial syncs to avoid overwhelming the connection pool
