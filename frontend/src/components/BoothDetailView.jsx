@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { getBlocks, getResources } from '../utils/api'
 import { realtimeManager } from '../utils/realtimeManager'
 import { isSharedBooth } from '../utils/boothConstants'
+import { getDemoBoothById } from '../utils/demoLiveBooths'
 import moment from 'moment-timezone'
 
 function BoothDetailView() {
@@ -14,22 +15,23 @@ function BoothDetailView() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // Update current time every second for real-time updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(moment())
-    }, 1000)
+  const isDemoBooth = boothId?.startsWith('demo-')
+  const demoBooth = isDemoBooth ? getDemoBoothById(boothId) : null
 
+  // Update current time every second
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(moment()), 1000)
     return () => clearInterval(interval)
   }, [])
 
-  // Load data
+  // Load data only for non-demo booths
   useEffect(() => {
+    if (isDemoBooth) return
     loadData()
-  }, [boothId])
+  }, [boothId, isDemoBooth])
 
-  // Real-time subscriptions - replaces polling
   useEffect(() => {
+    if (isDemoBooth) return
     const unsubscribers = [
       realtimeManager.subscribe('blocks', () => loadData()),
       realtimeManager.subscribe('block_booths', () => loadData()),
@@ -37,11 +39,8 @@ function BoothDetailView() {
       realtimeManager.subscribe('block_networks', () => loadData()),
       realtimeManager.subscribe('booths', () => loadData()),
     ]
-    
-    return () => {
-      unsubscribers.forEach(unsub => unsub())
-    }
-  }, [boothId])
+    return () => unsubscribers.forEach(unsub => unsub())
+  }, [boothId, isDemoBooth])
 
   const loadData = async () => {
     try {
@@ -61,38 +60,41 @@ function BoothDetailView() {
     }
   }
 
-  // Find the booth
+  // Find the booth: demo or from API
   const booth = useMemo(() => {
+    if (demoBooth) return { id: demoBooth.id, name: demoBooth.name }
     return booths.find(b => b.id === boothId)
-  }, [booths, boothId])
+  }, [booths, boothId, demoBooth])
 
-      // Find live blocks for this booth (shared booths don't show live blocks)
-      const liveBlocks = useMemo(() => {
-        if (!booth || isSharedBooth(booth)) return []
-    
+  // Demo: synthetic block; API: find live blocks for this booth
+  const liveBlocks = useMemo(() => {
+    if (demoBooth) {
+      return [{
+        name: demoBooth.eventTitle,
+        commentators: demoBooth.commentators.map((c, i) => ({
+          id: `c-${i}`,
+          name: c.name,
+          role: c.role,
+          commentator: { name: c.name }
+        })),
+        start_time: moment().subtract(1, 'hour').toISOString(),
+        end_time: moment().add(2, 'hours').toISOString()
+      }]
+    }
+    if (!booth || isSharedBooth(booth)) return []
     const now = currentTime.utc()
-    
     return blocks.filter(block => {
       if (!block.start_time || !block.end_time) return false
-      
       const start = moment.utc(block.start_time)
       const end = moment.utc(block.end_time)
-      
-      // Check if current time is within block time range
-      const isLive = now.isAfter(start) && now.isBefore(end)
-      
-      if (!isLive) return false
-      
-      // Check if this booth is assigned to this block
+      if (!now.isAfter(start) || !now.isBefore(end)) return false
       if (block.booths && block.booths.length > 0) {
         return block.booths.some(b => b.id === boothId)
       }
-      
       return false
     })
-  }, [blocks, boothId, currentTime, booth])
+  }, [blocks, boothId, currentTime, booth, demoBooth])
 
-  // Get the primary block (first one if multiple)
   const primaryBlock = liveBlocks.length > 0 ? liveBlocks[0] : null
 
   // Get commentators by role
@@ -108,9 +110,15 @@ function BoothDetailView() {
     return { pxp, color, spare }
   }, [primaryBlock])
 
-  // Get networks assigned to this booth
-  // Networks come from the block's booth assignments (booth.network)
+  // Get networks: demo uses default CBC outputs; API uses block booth assignments
   const networks = useMemo(() => {
+    if (demoBooth) {
+      return [
+        { id: 'cbc-tv', displayName: 'CBC TV' },
+        { id: 'cbc-gem', displayName: 'CBC Gem' },
+        { id: 'rc-tv', displayName: 'R-C TV/Web' }
+      ]
+    }
     if (!primaryBlock || !primaryBlock.booths) return []
     
     // Find booth assignments for this specific booth
@@ -364,7 +372,7 @@ function BoothDetailView() {
               </div>
             </div>
 
-            {/* SPARE - only show if there's a commentator */}
+            {/* SPARE / 2nd Color - only show if there's a commentator */}
             {commentators.spare && (
               <div className="text-center">
                 <div className="font-semibold mb-1" style={{ fontSize: '3.15rem' }}>SPARE</div>

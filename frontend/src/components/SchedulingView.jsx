@@ -4,7 +4,8 @@ import SchedulingGrid from './SchedulingGrid'
 import ScheduleBlockDialog from './ScheduleBlockDialog'
 import { getScheduleBlocks, getScheduleVenues, getResources } from '../utils/api'
 
-const DEFAULT_DATE = moment().tz('Europe/Rome').format('YYYY-MM-DD')
+// Last day with blocks – default to Feb 12
+const DEFAULT_DATE = '2026-02-12'
 
 function SchedulingView() {
   const [selectedDate, setSelectedDate] = useState(DEFAULT_DATE)

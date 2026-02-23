@@ -1,167 +1,72 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getBlocks, getResources } from '../utils/api'
-import { realtimeManager } from '../utils/realtimeManager'
-import { isSharedBooth } from '../utils/boothConstants'
 import moment from 'moment-timezone'
+import { getResources } from '../utils/api'
+import { getDemoBoothsByCity } from '../utils/demoLiveBooths'
+import { isSharedBooth } from '../utils/boothConstants'
 
 function LiveBoothsView() {
   const navigate = useNavigate()
-  const [blocks, setBlocks] = useState([])
   const [booths, setBooths] = useState([])
-  const [commentators, setCommentators] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
   const [currentTime, setCurrentTime] = useState(moment())
-  const [selectedCity, setSelectedCity] = useState('toronto') // 'toronto' => VT booths, 'montreal' => VM booths
+  const [selectedCity, setSelectedCity] = useState('toronto')
 
-  // Update current time every second for real-time updates
+  // Load booths from API
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(moment())
-    }, 1000)
+    getResources('booths').then(data => setBooths(Array.isArray(data) ? data : [])).catch(() => setBooths([]))
+  }, [])
 
+  // Update current time every second
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(moment()), 1000)
     return () => clearInterval(interval)
   }, [])
 
-  // Load initial data
-  useEffect(() => {
-    loadData()
-  }, [])
+  // All booths for city: demo booths (with commentators) + API booths (empty)
+  const boothsWithBlocksFiltered = useMemo(() => {
+    const prefix = selectedCity === 'toronto' ? 'VT ' : 'VM '
+    const apiBooths = booths
+      .filter(b => !isSharedBooth(b) && (b.name || '').startsWith(prefix))
+      .sort((a, b) => {
+        const aNum = parseInt((a.name || '').match(/\d+/)?.[0] || '999', 10)
+        const bNum = parseInt((b.name || '').match(/\d+/)?.[0] || '999', 10)
+        return aNum - bNum
+      })
 
-  // Real-time subscriptions - replaces polling
-  useEffect(() => {
-    // Subscribe to all relevant tables
-    const unsubscribers = [
-      realtimeManager.subscribe('blocks', () => loadData()),
-      realtimeManager.subscribe('block_booths', () => loadData()),
-      realtimeManager.subscribe('block_commentators', () => loadData()),
-      realtimeManager.subscribe('block_networks', () => loadData()),
-      realtimeManager.subscribe('booths', () => loadData()),
-      realtimeManager.subscribe('commentators', () => loadData()),
-    ]
-    
-    return () => {
-      unsubscribers.forEach(unsub => unsub())
-    }
-  }, [])
+    const demoForCity = getDemoBoothsByCity(selectedCity)
+    const demoNames = new Set(demoForCity.map(d => d.name))
 
-  const loadData = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const [blocksData, boothsData, commentatorsData] = await Promise.all([
-        getBlocks(),
-        getResources('booths'),
-        getResources('commentators')
-      ])
-      
-      setBlocks(blocksData || [])
-      setBooths(boothsData || [])
-      setCommentators(commentatorsData || [])
-    } catch (err) {
-      setError(err.message)
-      console.error('Error loading data:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
+    const result = []
+    const seen = new Set()
 
-      // Filter for live blocks (current time is between start_time and end_time)
-      // Don't exclude blocks entirely if they have shared booths (VIS/VOBS/VV) - we'll filter them out in the grouping
-      const liveBlocks = useMemo(() => {
-        const now = currentTime.utc()
+    // Add demo booths first (VT/VM 51–53 with commentators)
+    demoForCity.forEach(demo => {
+      seen.add(demo.name)
+      result.push({
+        booth: { id: demo.id, name: demo.name },
+        blocks: [{ name: demo.eventTitle }],
+        commentators: demo.commentators.map((c, i) => ({ id: `c-${i}`, name: c.name, role: c.role }))
+      })
+    })
 
-        const filtered = blocks.filter(block => {
-          if (!block.start_time || !block.end_time) return false
+    // Add remaining API booths (no commentators)
+    apiBooths.forEach(b => {
+      if (seen.has(b.name)) return
+      seen.add(b.name)
+      result.push({
+        booth: { id: b.id, name: b.name },
+        blocks: [],
+        commentators: []
+      })
+    })
 
-          const start = moment.utc(block.start_time)
-          const end = moment.utc(block.end_time)
+    return result.sort((a, b) => {
+      const aNum = parseInt((a.booth.name || '').match(/\d+/)?.[0] || '999', 10)
+      const bNum = parseInt((b.booth.name || '').match(/\d+/)?.[0] || '999', 10)
+      return aNum - bNum
+    })
+  }, [booths, selectedCity])
 
-          // Check if current time is within block time range
-          const isLive = now.isAfter(start) && now.isBefore(end)
-
-          if (!isLive) return false
-
-          // Only exclude blocks that ONLY have shared booths (no other booths)
-          if (block.booths && block.booths.length > 0) {
-            const nonSharedBooths = block.booths.filter(booth => !isSharedBooth(booth))
-            // If there are no non-shared booths, exclude this block
-            if (nonSharedBooths.length === 0) return false
-          }
-
-          return true
-        })
-
-        return filtered
-      }, [blocks, currentTime])
-
-      // Group live blocks by booth
-      // Each booth can have multiple blocks (different networks), but we'll show the primary one
-      const boothsWithBlocks = useMemo(() => {
-        const boothMap = new Map()
-
-        // Initialize all booths (excluding shared booths) - show all booths even if no live blocks
-        booths.forEach(booth => {
-          if (!isSharedBooth(booth)) {
-            boothMap.set(booth.id, {
-              booth: booth,
-              blocks: [],
-              commentators: []
-            })
-          }
-        })
-
-        // Add blocks to their booths
-        liveBlocks.forEach(block => {
-          if (block.booths && block.booths.length > 0) {
-            block.booths.forEach(booth => {
-              if (!isSharedBooth(booth) && boothMap.has(booth.id)) {
-                const boothData = boothMap.get(booth.id)
-                boothData.blocks.push(block)
-                // Collect commentators from this block
-                if (block.commentators && block.commentators.length > 0) {
-                  block.commentators.forEach(commentator => {
-                    const exists = boothData.commentators.some(c =>
-                      c.id === commentator.id && c.role === commentator.role
-                    )
-                    if (!exists) {
-                      const commentatorName = commentator.name || commentator.commentator?.name || 'Unknown'
-                      const commentatorId = commentator.id || commentator.commentator?.id
-                      boothData.commentators.push({
-                        id: commentatorId,
-                        name: commentatorName,
-                        role: commentator.role
-                      })
-                    }
-                  })
-                }
-              }
-            })
-          }
-        })
-
-        // Convert to array and sort by booth name (VT51, VT52, etc.)
-        return Array.from(boothMap.values()).sort((a, b) => {
-          const aNum = parseInt(a.booth.name.match(/\d+/)?.[0] || '999', 10)
-          const bNum = parseInt(b.booth.name.match(/\d+/)?.[0] || '999', 10)
-          return aNum - bNum
-        })
-      }, [booths, liveBlocks])
-
-      // Filter by city: Toronto => VT booths, Montreal => VM booths
-      const boothsWithBlocksFiltered = useMemo(() => {
-        if (selectedCity === 'toronto') {
-          return boothsWithBlocks.filter(entry => (entry.booth.name || '').startsWith('VT '))
-        }
-        if (selectedCity === 'montreal') {
-          return boothsWithBlocks.filter(entry => (entry.booth.name || '').startsWith('VM '))
-        }
-        return boothsWithBlocks
-      }, [boothsWithBlocks, selectedCity])
-
-  // Get the three primary commentators for a booth
-  // Show assigned commentators, or show all available commentators with status
   const getDisplayCommentators = (boothData) => {
     const assignedCommentators = boothData.commentators || []
     
@@ -218,17 +123,6 @@ function LiveBoothsView() {
 
   const times = formatTime()
 
-  if (loading && blocks.length === 0) {
-    return (
-      <div className="h-full bg-gray-900 text-white flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" aria-hidden />
-          <span className="text-gray-400">Loading live booths...</span>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="h-full bg-gray-900 text-white overflow-y-auto">
       {/* Header */}
@@ -273,24 +167,12 @@ function LiveBoothsView() {
         </div>
       </div>
 
-      {error && (
-        <div className="m-4 p-3 bg-red-900 border border-red-700 text-red-200 rounded">
-          {error}
-        </div>
-      )}
-
       {/* Booth Grid */}
       <div className="p-4">
-        {boothsWithBlocksFiltered.length === 0 ? (
-          <div className="text-center text-gray-400 py-12">
-            {selectedCity === 'toronto' ? 'No VT booths available' : 'No VM booths available'}
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-4 gap-4">
             {boothsWithBlocksFiltered.map((boothData) => {
               const eventName = getEventName(boothData)
               const displayCommentators = getDisplayCommentators(boothData)
-              const hasBlocks = boothData.blocks.length > 0
 
               return (
                 <div
@@ -335,8 +217,7 @@ function LiveBoothsView() {
                 </div>
               )
             })}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )

@@ -1,10 +1,27 @@
 import { useState, useEffect } from 'react'
 import moment from 'moment-timezone'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+// Milan 2026 Winter Olympics: Feb 6 = Day 0 (opening), Feb 22 = closing (Day 16)
+// Hardcoded to Day 16 / Feb 22 – Olympics are over, dashboard stays at closing day
+const FIXED_DASHBOARD_DATE = '2026-02-22'
 
-// Milan 2026 Winter Olympics: Feb 6 = Day 0 (opening), Feb 22 = closing
-const OLYMPICS_DAY_ZERO = moment.tz('2026-02-06', 'Europe/Rome').startOf('day')
+// Final medal standings (cached) – Olympics over, instant load
+const CACHED_MEDAL_STANDINGS = {
+  standings: [
+    { country: 'Norway', countryCode: 'NOR', displayRank: 1, gold: 18, silver: 12, bronze: 11, total: 41 },
+    { country: 'United States of America', countryCode: 'USA', displayRank: 2, gold: 12, silver: 12, bronze: 9, total: 33 },
+    { country: 'Italy', countryCode: 'ITA', displayRank: 3, gold: 10, silver: 6, bronze: 14, total: 30 },
+    { country: 'Germany', countryCode: 'GER', displayRank: 4, gold: 8, silver: 10, bronze: 8, total: 26 },
+    { country: 'Japan', countryCode: 'JPN', displayRank: 5, gold: 5, silver: 7, bronze: 12, total: 24 },
+    { country: 'France', countryCode: 'FRA', displayRank: 6, gold: 8, silver: 9, bronze: 6, total: 23 },
+    { country: 'Switzerland', countryCode: 'SUI', displayRank: 7, gold: 6, silver: 9, bronze: 8, total: 23 },
+    { country: 'Canada', countryCode: 'CAN', displayRank: 8, gold: 5, silver: 7, bronze: 9, total: 21 },
+    { country: 'Netherlands', countryCode: 'NED', displayRank: 9, gold: 10, silver: 7, bronze: 3, total: 20 },
+    { country: 'Sweden', countryCode: 'SWE', displayRank: 10, gold: 8, silver: 6, bronze: 4, total: 18 }
+  ],
+  totalEvents: 116,
+  finishedEvents: 116
+}
 
 // Country name overrides for display
 const COUNTRY_SHORT_NAMES = {
@@ -72,32 +89,15 @@ function getPictoPath(title) {
 
 // Sample events shown when no real events for the day (6 mixed disciplines)
 function getSampleEventsToday() {
-  const today = moment.tz('Europe/Rome').format('YYYY-MM-DD')
+  const date = FIXED_DASHBOARD_DATE
   return [
-    { id: 'sample-1', title: 'IHO01 W CAN-SUI Preliminary Round - Ice Hockey', start_time: `${today}T09:00:00.000Z` },
-    { id: 'sample-2', title: 'SSK01 M 1500m - Speed Skating', start_time: `${today}T10:30:00.000Z` },
-    { id: 'sample-3', title: 'CUR01 SWE-KOR Mixed Doubles Round Robin - Curling', start_time: `${today}T12:00:00.000Z` },
-    { id: 'sample-4', title: 'SBD01 M Snowboard Big Air Qual. - Snowboard', start_time: `${today}T14:00:00.000Z` },
-    { id: 'sample-5', title: 'ALP01 M Downhill - Alpine Skiing', start_time: `${today}T15:30:00.000Z` },
-    { id: 'sample-6', title: 'STK01 W 500m - Short Track Speed Skating', start_time: `${today}T17:00:00.000Z` }
+    { id: 'sample-1', title: 'IHO01 W CAN-SUI Preliminary Round - Ice Hockey', start_time: `${date}T09:00:00.000Z` },
+    { id: 'sample-2', title: 'SSK01 M 1500m - Speed Skating', start_time: `${date}T10:30:00.000Z` },
+    { id: 'sample-3', title: 'CUR01 SWE-KOR Mixed Doubles Round Robin - Curling', start_time: `${date}T12:00:00.000Z` },
+    { id: 'sample-4', title: 'SBD01 M Snowboard Big Air Qual. - Snowboard', start_time: `${date}T14:00:00.000Z` },
+    { id: 'sample-5', title: 'ALP01 M Downhill - Alpine Skiing', start_time: `${date}T15:30:00.000Z` },
+    { id: 'sample-6', title: 'STK01 W 500m - Short Track Speed Skating', start_time: `${date}T17:00:00.000Z` }
   ]
-}
-
-// Exclude BC, OCNP, OGA, and press conferences from Sports today
-function shouldExcludeEvent(ev) {
-  const title = (ev.title || ev.name || '').toUpperCase()
-  const titleLower = (ev.title || ev.name || '').toLowerCase()
-  const raw = ev.rawData || {}
-  const esCode = (raw['Es Code'] || raw['EsCode'] || '').toUpperCase()
-  const videoFeed = (raw['VideoFeed'] || raw['Video Feed'] || '').toUpperCase()
-  if (esCode.startsWith('OCNP')) return true
-  if (title.startsWith('OCNP') || title.includes('OCNP')) return true
-  if (videoFeed.includes('IBC-BC')) return true
-  if (esCode === 'VCE') return true
-  if (title.startsWith('BC') && !title.startsWith('IBC')) return true
-  if (esCode.startsWith('OGA') || title.startsWith('OGA')) return true
-  if (titleLower.includes('press conference')) return true
-  return false
 }
 
 export default function Dashboard() {
@@ -111,10 +111,9 @@ export default function Dashboard() {
     daily: [],
     loading: true
   })
-  const [eventsToday, setEventsToday] = useState([])
-  const [sportsLoading, setSportsLoading] = useState(true)
-  const [medalStandings, setMedalStandings] = useState([])
-  const [medalMeta, setMedalMeta] = useState(null)
+  const [eventsToday] = useState(() => getSampleEventsToday())
+  const [medalStandings] = useState(() => CACHED_MEDAL_STANDINGS.standings)
+  const [medalMeta] = useState(() => ({ totalEvents: CACHED_MEDAL_STANDINGS.totalEvents, finishedEvents: CACHED_MEDAL_STANDINGS.finishedEvents }))
 
   // Live clocks (Milan + ET)
   useEffect(() => {
@@ -124,13 +123,10 @@ export default function Dashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  // Olympics day (Milan time)
+  // Olympics day – hardcoded to Day 16 / Feb 22 (closing day)
   useEffect(() => {
-    const now = moment.tz('Europe/Rome')
-    const todayStart = now.clone().startOf('day')
-    const dayDiff = todayStart.diff(OLYMPICS_DAY_ZERO, 'days')
-    setOlympicsDay(dayDiff)
-    setTodayLabel(now.format('dddd, MMMM D, YYYY'))
+    setOlympicsDay(16)
+    setTodayLabel(moment(FIXED_DASHBOARD_DATE).format('dddd, MMMM D, YYYY'))
   }, [])
 
   // Weather: Open-Meteo (Milan coords) – current + precipitation + 5-day daily forecast
@@ -168,50 +164,6 @@ export default function Dashboard() {
     return () => { cancelled = true }
   }, [])
 
-  // Medal standings
-  useEffect(() => {
-    let cancelled = false
-    const load = () => {
-      fetch(`${API_BASE}/api/medal-standings`)
-        .then(r => r.ok ? r.json() : null)
-        .then(d => {
-          if (cancelled || !d) return
-          setMedalStandings(d.standings || [])
-          setMedalMeta(d)
-        })
-        .catch(() => {})
-    }
-    load()
-    const id = setInterval(load, 5 * 60 * 1000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [])
-
-  // Events today: from OBS events for today (Milan date)
-  useEffect(() => {
-    let cancelled = false
-    setSportsLoading(true)
-    const today = moment.tz('Europe/Rome').format('YYYY-MM-DD')
-    fetch(`${API_BASE}/api/events?date=${today}`)
-      .then(res => res.ok ? res.json() : [])
-      .then(data => {
-        if (cancelled) return
-        const list = Array.isArray(data) ? data : (data?.events ?? [])
-        const withStart = list
-          .filter(ev => !shouldExcludeEvent(ev))
-          .filter(ev => (ev.title || ev.name || '').trim().length > 0 && ev.start_time)
-          .map(ev => ({
-            id: ev.id,
-            title: (ev.title || ev.name || '').trim(),
-            start_time: ev.start_time
-          }))
-          .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-        setEventsToday(withStart)
-      })
-      .catch(() => setEventsToday([]))
-      .finally(() => { if (!cancelled) setSportsLoading(false) })
-    return () => { cancelled = true }
-  }, [])
-
   const dayDisplay = olympicsDay !== null
     ? olympicsDay < 0
       ? `Day ${olympicsDay}`
@@ -220,7 +172,7 @@ export default function Dashboard() {
         : `Day ${olympicsDay}`
     : '—'
 
-  const eventsToShow = eventsToday.length > 0 ? eventsToday : getSampleEventsToday()
+  const eventsToShow = eventsToday
 
   return (
     <div className="h-full flex flex-col min-h-0 p-4 gap-4 bg-gray-900 text-white">
@@ -335,10 +287,7 @@ export default function Dashboard() {
         <section className="w-[36rem] flex-shrink-0 rounded-xl bg-gray-800 border border-gray-600 overflow-hidden flex flex-col min-h-0">
           <h2 className="text-base font-semibold text-gray-200 uppercase tracking-wide p-4 border-b border-gray-600">Sports today</h2>
           <div className="flex-1 overflow-auto p-4 min-h-0 space-y-3">
-            {sportsLoading ? (
-              <p className="text-gray-400 text-base">Loading…</p>
-            ) : (
-              eventsToShow.slice(0, 12).map(ev => (
+            {eventsToShow.slice(0, 12).map(ev => (
                 <div
                   key={ev.id || ev.start_time + ev.title}
                   className="flex items-center gap-4 rounded-lg bg-gray-700 text-white p-3 border border-gray-600"
@@ -355,8 +304,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-              ))
-            )}
+              ))}
           </div>
         </section>
       </div>
